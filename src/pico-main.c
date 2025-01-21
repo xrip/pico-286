@@ -105,7 +105,7 @@ void __time_critical_func() second_core() {
 
 
 
-    sem_acquire_blocking(&vga_start_semaphore);
+
 
     uint64_t tick = time_us_64();
     uint64_t last_timer_tick = tick, last_cursor_blink = tick, last_sound_tick = tick, last_frame_tick = tick;
@@ -333,7 +333,9 @@ void sigbus(void) {
     printf("SIGBUS exception caught...\n");
     // reset_usb_boot(0, 0);
 }
+void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused const char *fmt, ...) {
 
+}
 int main() {
 #if PICO_RP2350
     volatile uint32_t *qmi_m0_timing=(uint32_t *)0x400d000c;

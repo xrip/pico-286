@@ -109,12 +109,13 @@ else ()
     )
 
     target_compile_definitions(${PROJECT_NAME} PRIVATE
+            PICO_PANIC_FUNCTION=dummy_panic
 #            PICO_HEAP_SIZE=0
 #            USE_ZONE_FOR_MALLOC=1
             EMU8950_ASM=1
 
             PICO_FLASH_SIZE_BYTES=16777216
-            ONBOARD_PSRAM
+            # ONBOARD_PSRAM
 
             # VGA 8 pins starts from pin:
             VGA_BASE_PIN=6
@@ -156,9 +157,9 @@ else ()
             CLOCK_PIN=17
             PCM_PIN=22
 
-            #I2S_SOUND
+            I2S_SOUND
 
-            PWM_SOUND
+            #PWM_SOUND
             PWM_BEEPER=28
             PWM_LEFT_CHANNEL=26
             PWM_RIGHT_CHANNEL=27
