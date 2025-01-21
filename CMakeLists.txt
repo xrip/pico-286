@@ -115,7 +115,7 @@ else ()
             EMU8950_ASM=1
 
             PICO_FLASH_SIZE_BYTES=16777216
-            # ONBOARD_PSRAM
+            ONBOARD_PSRAM
 
             # VGA 8 pins starts from pin:
             VGA_BASE_PIN=6
@@ -153,11 +153,11 @@ else ()
             NES_GPIO_DATA=16
             NES_GPIO_LAT=15
 
-            #HARDWARE_SOUND
+            HARDWARE_SOUND
             CLOCK_PIN=17
             PCM_PIN=22
 
-            I2S_SOUND
+            #I2S_SOUND
 
             #PWM_SOUND
             PWM_BEEPER=28

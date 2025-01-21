@@ -334,7 +334,9 @@ void sigbus(void) {
     // reset_usb_boot(0, 0);
 }
 void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused const char *fmt, ...) {
-
+    printf("*** PANIC ***");
+    if (fmt)
+        printf(fmt);
 }
 int main() {
 #if PICO_RP2350
