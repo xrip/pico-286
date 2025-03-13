@@ -73,34 +73,32 @@ static INLINE int32_t sine_lookup(const uint32_t angle) {
                ? sin_m128[index < 1024 ? index : 2047 - index]
                : -sin_m128[index < 3072 ? index - 2048 : 4095 - index];
 }
-
 static INLINE int16_t __time_critical_func() midi_sample() {
     if (!active_voice_bitmask) return 0;
 
     int32_t sample = 0;
     uint32_t active_voices = active_voice_bitmask;
 
-    for (struct midi_voice_s *voice = midi_voices; active_voices; voice++, active_voices >>= 1) {
-        if (active_voices & 1) {
-            const uint16_t sample_position = voice->sample_position++;
+    while (active_voices) {
+        const uint32_t voice_index = __builtin_ctz(active_voices); // Index of the active voice
+        active_voices &= ~(1 << voice_index); // Clear the bit
 
-            // Poor man's ADSR
-            if (sample_position == SOUND_FREQUENCY / 2) {
-                // Sustain state
-                voice->velocity -= voice->velocity >> 2;
-            } else if (sample_position && sample_position == voice->release_position) {
-                // Release state
-                CLEAR_ACTIVE_VOICE(voice->voice_slot);
-            }
-#if defined(USE_SAMPLES)
-            if (voice->sample) {
-                sample += __fast_mul(voice->velocity, voice->sample[sample_position >> 2]);
-            } else
-#endif
-            {
-                sample += __fast_mul(voice->velocity, sine_lookup(__fast_mul(voice->frequency_m100, sample_position)));
-            }
-            // sample += (*velocity / 127.0) * sin(2 * PI * note_frequencies[voice->note] * (sample_position / SOUND_FREQUENCY));
+        struct midi_voice_s *voice = &midi_voices[voice_index];
+
+        const uint16_t sample_position = voice->sample_position++;
+
+        // Poor man's ADSR
+        if (sample_position == SOUND_FREQUENCY / 2) {
+            // Sustain state
+            voice->velocity -= voice->velocity >> 2;
+        } else if (sample_position && sample_position == voice->release_position) {
+            // Release state
+            CLEAR_ACTIVE_VOICE(voice->voice_slot);
+            // continue; // Skip to next voice. Important.
+        }
+
+        {
+            sample += __fast_mul(voice->velocity, sine_lookup(__fast_mul(voice->frequency_m100, sample_position)));
         }
     }
 
@@ -111,6 +109,7 @@ static INLINE int16_t __time_critical_func() midi_sample() {
 static INLINE int32_t apply_pitch(const int32_t base_frequency, const int cents) {
     return cents ? (base_frequency * cents + 5000) / 10000 : base_frequency;
 }
+
 
 static INLINE void parse_midi(const midi_command_t *message) {
     const uint8_t channel = message->command & 0xf;
