@@ -81,7 +81,7 @@ static INLINE int16_t __time_critical_func() midi_sample() {
 
     while (active_voices) {
         const uint32_t voice_index = __builtin_ctz(active_voices); // Index of the active voice
-        active_voices &= ~(1 << voice_index); // Clear the bit
+        active_voices &= ~(1U << voice_index); // Clear the bit
 
         struct midi_voice_s *voice = &midi_voices[voice_index];
 
