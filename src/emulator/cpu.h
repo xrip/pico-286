@@ -33,10 +33,10 @@
 #define putmem16(x, y, z) writew86(segbase(x) + (y), z)
 #define signext(value)  (int16_t)(int8_t)(value)
 #define signext32(value)  (int32_t)(int16_t)(value)
-#define getreg16(regid) regs.wordregs[regid]
-#define getreg8(regid)  regs.byteregs[byteregtable[regid]]
-#define putreg16(regid, writeval) regs.wordregs[regid] = writeval
-#define putreg8(regid, writeval)  regs.byteregs[byteregtable[regid]] = writeval
+#define getreg16(regid) wordregs[regid]
+#define getreg8(regid)  byteregs[byteregtable[regid]]
+#define putreg16(regid, writeval) wordregs[regid] = writeval
+#define putreg8(regid, writeval)  byteregs[byteregtable[regid]] = writeval
 #define getsegreg(regid)  segregs[regid]
 #define putsegreg(regid, writeval)  segregs[regid] = writeval
 #define segbase(x)  ((uint32_t) (x) << 4)
@@ -57,22 +57,22 @@
 #define CPU_ES        segregs[reges]
 #define CPU_SS        segregs[regss]
 
-#define CPU_AX    regs.wordregs[regax]
-#define CPU_BX    regs.wordregs[regbx]
-#define CPU_CX    regs.wordregs[regcx]
-#define CPU_DX    regs.wordregs[regdx]
-#define CPU_SI    regs.wordregs[regsi]
-#define CPU_DI    regs.wordregs[regdi]
-#define CPU_BP    regs.wordregs[regbp]
-#define CPU_SP    regs.wordregs[regsp]
+#define CPU_AX    wordregs[regax]
+#define CPU_BX    wordregs[regbx]
+#define CPU_CX    wordregs[regcx]
+#define CPU_DX    wordregs[regdx]
+#define CPU_SI    wordregs[regsi]
+#define CPU_DI    wordregs[regdi]
+#define CPU_BP    wordregs[regbp]
+#define CPU_SP    wordregs[regsp]
 #define CPU_IP        ip
 
-#define CPU_AL    regs.byteregs[regal]
-#define CPU_BL    regs.byteregs[regbl]
-#define CPU_CL    regs.byteregs[regcl]
-#define CPU_DL    regs.byteregs[regdl]
-#define CPU_AH    regs.byteregs[regah]
-#define CPU_BH    regs.byteregs[regbh]
-#define CPU_CH    regs.byteregs[regch]
-#define CPU_DH    regs.byteregs[regdh]
+#define CPU_AL    byteregs[regal]
+#define CPU_BL    byteregs[regbl]
+#define CPU_CL    byteregs[regcl]
+#define CPU_DL    byteregs[regdl]
+#define CPU_AH    byteregs[regah]
+#define CPU_BH    byteregs[regbh]
+#define CPU_CH    byteregs[regch]
+#define CPU_DH    byteregs[regdh]
 
