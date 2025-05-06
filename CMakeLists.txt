@@ -1,3 +1,19 @@
+# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+if(WIN32)
+    set(USERHOME $ENV{USERPROFILE})
+else()
+    set(USERHOME $ENV{HOME})
+endif()
+set(sdkVersion 2.1.1)
+set(toolchainVersion 14_2_Rel1)
+set(picotoolVersion 2.1.1)
+set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+if (EXISTS ${picoVscode})
+    include(${picoVscode})
+endif()
+# ====================================================================================
+set(PICO_BOARD pico2 CACHE STRING "Board type")
+
 cmake_minimum_required(VERSION 3.22)
 include(pico_sdk_import.cmake)
 
@@ -153,13 +169,13 @@ else ()
             NES_GPIO_DATA=16
             NES_GPIO_LAT=15
 
-            HARDWARE_SOUND
+            #HARDWARE_SOUND
             CLOCK_PIN=17
             PCM_PIN=22
 
             #I2S_SOUND
 
-            #PWM_SOUND
+            PWM_SOUND
             PWM_BEEPER=28
             PWM_LEFT_CHANNEL=26
             PWM_RIGHT_CHANNEL=27
