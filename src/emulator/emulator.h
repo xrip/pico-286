@@ -250,7 +250,8 @@ extern int16_t covox_sample;
 #define INLINE __inline
 #define ALIGN(x, y) __declspec(align(x)) y
 #elif defined(__GNUC__)
-#define INLINE __not_in_flash("was_inline")
+#define INLINE inline
+///__not_in_flash("was_inline")
 #if PICO_ON_DEVICE
 #define ALIGN(x, y) y __attribute__((aligned(x)))
 #else
