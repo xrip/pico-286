@@ -65,10 +65,8 @@ extern uint8_t HMA[(HMA_END - HMA_START) + 4];
 extern uint8_t EMS[EMS_MEMORY_SIZE + 4];
 extern uint8_t XMS[XMS_SIZE + 4];
 
-extern union _bytewordregs_ {
-    uint16_t wordregs[8];
-    uint8_t byteregs[8];
-} regs;
+extern uint16_t wordregs[8];
+#define byteregs ((uint8_t*)wordregs)
 
 extern uint8_t cf, pf, af, zf, sf, tf, ifl, df, of;
 extern uint16_t segregs[4];
@@ -252,7 +250,8 @@ extern int16_t covox_sample;
 #define INLINE __inline
 #define ALIGN(x, y) __declspec(align(x)) y
 #elif defined(__GNUC__)
-#define INLINE __inline__
+#define INLINE inline
+///__not_in_flash("was_inline")
 #if PICO_ON_DEVICE
 #define ALIGN(x, y) y __attribute__((aligned(x)))
 #else
