@@ -73,9 +73,7 @@ static INLINE int32_t sine_lookup(const uint32_t angle) {
                ? sin_m128[index < 1024 ? index : 2047 - index]
                : -sin_m128[index < 3072 ? index - 2048 : 4095 - index];
 }
-static ///INLINE
- int16_t __time_critical_func()
- midi_sample() {
+static INLINE int16_t midi_sample() {
     if (!active_voice_bitmask) return 0;
 
     int32_t sample = 0;

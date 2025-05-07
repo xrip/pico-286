@@ -345,7 +345,7 @@ int main() {
     vreg_set_voltage(VREG_VOLTAGE_1_60);
     sleep_ms(10);
     *qmi_m0_timing = 0x60007204;
-    set_sys_clock_hz(436 * 1000000, 0);
+    set_sys_clock_hz(424 * 1000000, 0);
     *qmi_m0_timing = 0x60007303;
 #else
     memcpy_wrapper_replace(NULL);
@@ -354,7 +354,7 @@ int main() {
     set_sys_clock_khz(396 * 1000, true);
 #endif
 #ifdef ONBOARD_PSRAM
-    psram_init(47);
+    psram_init(19);
     int psram = 1;
 #else
     int psram = init_psram();

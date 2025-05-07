@@ -15,7 +15,7 @@ endif()
 set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 cmake_minimum_required(VERSION 3.22)
-include(pico_sdk_import.cmake)
+include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(286 C CXX ASM)
 enable_language(CXX)
@@ -39,7 +39,7 @@ endforeach()
 message(STATUS "")
 
 if (PICO_PLATFORM STREQUAL "host")
-    add_compile_options(-fms-extensions)
+    add_compile_options(-fms-extensions -O2)
     add_executable(${PROJECT_NAME} ${SRC} src/win32-main.cpp src/WinMiniFB.c src/printf/printf.c)
 
     target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
