@@ -122,7 +122,7 @@ static INLINE void xms_move_from(register uint32_t source, register uint32_t des
 
 #define to_physical_offset(offset) (((uint16_t)(((offset) >> 16) & 0xFFFF) << 4) + (uint16_t)((offset) & 0xFFFF))
 
-uint8_t xms_handler() {
+uint8_t __not_in_flash() xms_handler() {
 
     switch (CPU_AH) {
         case XMS_VERSION: { // Get XMS Version

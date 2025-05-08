@@ -42,7 +42,7 @@ static const uint8_t __not_in_flash("cpu.pf") parity[0x100] = {
         0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1
 };
 
-static INLINE void modregrm() {
+static __not_in_flash() void modregrm() {
     addrbyte = getmem8(CPU_CS, CPU_IP);
     StepIP(1);
     mode = addrbyte >> 6;
@@ -509,9 +509,7 @@ static inline void flag_adc16(uint16_t v1, uint16_t v2, uint16_t v3) {
 
 static inline void flag_add8(uint8_t v1, uint8_t v2) {
     /* v1 = destination operand, v2 = source operand */
-    uint16_t dst;
-
-    dst = (uint16_t) v1 + (uint16_t) v2;
+    register uint32_t dst = (uint16_t)((uint16_t) v1 + (uint16_t) v2);
     flag_szp8((uint8_t) dst);
     if (dst & 0xFF00) {
         cf = 1;
@@ -534,9 +532,7 @@ static inline void flag_add8(uint8_t v1, uint8_t v2) {
 
 static inline void flag_add16(uint16_t v1, uint16_t v2) {
     /* v1 = destination operand, v2 = source operand */
-    uint32_t dst;
-
-    dst = (uint32_t) v1 + (uint32_t) v2;
+    register uint32_t dst = (uint32_t) v1 + (uint32_t) v2;
     flag_szp16((uint16_t) dst);
     if (dst & 0xFFFF0000) {
         cf = 1;
@@ -674,7 +670,7 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
 #define op_sbb8() { res8 = oper1b - (oper2b + cf); flag_sbb8(oper1b, oper2b, cf); }
 #define op_sbb16() { res16 = oper1 - (oper2 + cf); flag_sbb16(oper1, oper2, cf); }
 
-static inline uint8_t op_grp2_8(uint8_t cnt) {
+static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt) {
     uint16_t s = oper1b;
 #ifdef CPU_LIMIT_SHIFT_COUNT
     cnt &= 0x1F;
@@ -794,9 +790,8 @@ static inline uint8_t op_grp2_8(uint8_t cnt) {
     return s & 0xFF;
 }
 
-static inline uint16_t op_grp2_16(uint8_t cnt) {
-
-    uint32_t s = oper1;
+static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
+    register uint32_t s = oper1;
 #ifdef CPU_LIMIT_SHIFT_COUNT
     cnt &= 0x1F;
 #endif
@@ -990,8 +985,7 @@ static inline void op_idiv16(uint32_t valdiv, uint16_t divisor) {
     CPU_DX = (uint16_t) remainder;
 }
 
-
-static inline void op_grp3_16() {
+static __not_in_flash() void op_grp3_16() {
     switch (reg) {
         case 0:
         case 1: /* TEST */
@@ -1062,7 +1056,7 @@ static inline void op_grp3_16() {
     }
 }
 
-static inline void op_grp5() {
+static __not_in_flash() void op_grp5() {
     switch (reg) {
         case 0: /* INC Ev */
             oper2 = 1;
@@ -1128,7 +1122,7 @@ void reset86() {
     i8237_reset();
 }
 
-void exec86(uint32_t execloops) {
+void __not_in_flash() exec86(uint32_t execloops) {
     static uint16_t firstip;
 
     //counterticks = (uint64_t) ( (double) timerfreq / (double) 65536.0);
