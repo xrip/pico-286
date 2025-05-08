@@ -61,6 +61,9 @@
 #define CPU_FL_DF    df
 #define CPU_FL_OF    of
 
+#define FLAG_CF_OF_MASK ((1u << 11) | 1)
+#define FLAG_CF_AF_MASK ((1u << 4) | 1)
+
 #define CPU_CS        segregs[regcs]
 #define CPU_DS        segregs[regds]
 #define CPU_ES        segregs[reges]

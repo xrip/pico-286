@@ -1,7 +1,7 @@
 #include <time.h>
 #include "emulator.h"
 
-#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
+//#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
 //#define CPU_LIMIT_SHIFT_COUNT
 #define CPU_NO_SALC
 //#define CPU_SET_HIGH_FLAGS
@@ -25,7 +25,7 @@ x86_flags_t x86_flags;
 
 static const uint8_t __not_in_flash("cpu.regt") byteregtable[8] = {regal, regcl, regdl, regbl, regah, regch, regdh, regbh};
 
-uint8_t oper1b, oper2b, res8, nestlev, addrbyte;
+uint8_t oper1b, oper2b, nestlev, addrbyte;
 uint16_t saveip, savecs, oper1, oper2, res16, disp16, temp16, dummy, stacksize, frametemp;
 uint32_t ea;
 
@@ -450,14 +450,12 @@ static inline void flag_szp16(uint16_t value) {
 
 static inline void flag_log8(uint8_t value) {
     flag_szp8(value);
-    cf = 0;
-    of = 0; /* bitwise logic ops always clear carry and overflow */
+    x86_flags.value &= ~FLAG_CF_OF_MASK;
 }
 
 static inline void flag_log16(uint16_t value) {
     flag_szp16(value);
-    cf = 0;
-    of = 0; /* bitwise logic ops always clear carry and overflow */
+    x86_flags.value &= ~FLAG_CF_OF_MASK;
 }
 
 static inline void flag_adc8(uint8_t v1, uint8_t v2, uint8_t v3) {
@@ -952,82 +950,6 @@ static inline void op_idiv8(uint16_t valdiv, uint8_t divisor) {
     CPU_AL = (uint8_t) quotient;
 }
 
-static inline void op_grp3_8() {
-    oper1 = signext(oper1b);
-    oper2 = signext(oper2b);
-    switch (reg) {
-        case 0:
-        case 1: /* TEST */
-            flag_log8(oper1b & getmem8(CPU_CS, CPU_IP));
-            StepIP(1);
-            break;
-
-        case 2: /* NOT */
-            res8 = ~oper1b;
-            break;
-
-        case 3: /* NEG */
-            res8 = (~oper1b) + 1;
-            flag_sub8(0, oper1b);
-            if (res8 == 0) {
-                cf = 0;
-            } else {
-                cf = 1;
-            }
-            break;
-
-        case 4: {/* MUL */
-            register uint32_t temp1 = (uint32_t) oper1b * (uint32_t) CPU_AL;
-            CPU_AX = temp1 & 0xFFFF;
-            flag_szp8((uint8_t) temp1);
-            if (CPU_AH) {
-                cf = 1;
-                of = 1;
-            } else {
-                cf = 0;
-                of = 0;
-            }
-#ifdef CPU_CLEAR_ZF_ON_MUL
-            zf = 0;
-#endif
-            break;
-        }
-        case 5: { /* IMUL */
-            oper1 = signext(oper1b);
-            register uint32_t temp1 = signext(CPU_AL);
-            register uint32_t temp2 = oper1;
-            if ((temp1 & 0x80) == 0x80) {
-                temp1 = temp1 | 0xFFFFFF00;
-            }
-
-            if ((temp2 & 0x80) == 0x80) {
-                temp2 = temp2 | 0xFFFFFF00;
-            }
-
-            CPU_AX = (temp1 * temp2) & 0xFFFF;
-            if (CPU_AH) {
-                cf = 1;
-                of = 1;
-            } else {
-                cf = 0;
-                of = 0;
-            }
-#ifdef CPU_CLEAR_ZF_ON_MUL
-            zf = 0;
-#endif
-            break;
-        }
-        case 6: /* DIV */
-            op_div8(CPU_AX, oper1b);
-            break;
-
-        case 7: /* IDIV */
-            op_idiv8(CPU_AX, oper1b);
-            break;
-    }
-}
-
-
 static inline void op_div16(uint32_t valdiv, uint16_t divisor) {
     if (divisor == 0 || valdiv / divisor > 0xFFFF) {
         intcall86(0);
@@ -1097,11 +1019,9 @@ static inline void op_grp3_16() {
             CPU_DX = temp1 >> 16;
             flag_szp16((uint16_t) temp1);
             if (CPU_DX) {
-                cf = 1;
-                of = 1;
+                x86_flags.value |= FLAG_CF_OF_MASK;
             } else {
-                cf = 0;
-                of = 0;
+                x86_flags.value &= ~FLAG_CF_OF_MASK;
             }
 #ifdef CPU_CLEAR_ZF_ON_MUL
             zf = 0;
@@ -1123,11 +1043,9 @@ static inline void op_grp3_16() {
             CPU_AX = temp1 & 0xFFFF; /* into register ax */
             CPU_DX = temp1 >> 16; /* into register dx */
             if (CPU_DX) {
-                cf = 1;
-                of = 1;
+                x86_flags.value |= FLAG_CF_OF_MASK;
             } else {
-                cf = 0;
-                of = 0;
+                x86_flags.value &= ~FLAG_CF_OF_MASK;
             }
 #ifdef CPU_CLEAR_ZF_ON_MUL
             zf = 0;
@@ -1279,6 +1197,7 @@ void exec86(uint32_t execloops) {
             }
         }
 
+        register uint8_t res8;
         switch (opcode) {
             case 0x0:    /* 00 ADD Eb Gb */
                 modregrm();
@@ -1286,8 +1205,7 @@ void exec86(uint32_t execloops) {
                 oper1b = readrm8(rm);
                 oper2b = getreg8(reg);
                 op_add8();
-                writerm8(rm, res8
-                );
+                writerm8(rm, res8);
                 break;
 
             case 0x1:    /* 01 ADD Ev Gv */
@@ -1761,11 +1679,9 @@ void exec86(uint32_t execloops) {
             case 0x37:    /* 37 AAA ASCII */
                 if (((CPU_AL & 0xF) > 9) || (af == 1)) {
                     CPU_AX = CPU_AX + 0x106;
-                    af = 1;
-                    cf = 1;
+                    x86_flags.value |= FLAG_CF_AF_MASK;
                 } else {
-                    af = 0;
-                    cf = 0;
+                    x86_flags.value &= ~FLAG_CF_AF_MASK;
                 }
 
                 CPU_AL = CPU_AL & 0xF;
@@ -1827,11 +1743,9 @@ void exec86(uint32_t execloops) {
                 if (((CPU_AL & 0xF) > 9) || (af == 1)) {
                     CPU_AX = CPU_AX - 6;
                     CPU_AH = CPU_AH - 1;
-                    af = 1;
-                    cf = 1;
+                    x86_flags.value |= FLAG_CF_AF_MASK;
                 } else {
-                    af = 0;
-                    cf = 0;
+                    x86_flags.value &= ~FLAG_CF_AF_MASK;
                 }
 
                 CPU_AL = CPU_AL & 0xF;
@@ -2118,11 +2032,9 @@ void exec86(uint32_t execloops) {
                 temp1 *= temp2;
                 putreg16(reg, temp1 &0xFFFFL);
                 if (temp1 & 0xFFFF0000L) {
-                    cf = 1;
-                    of = 1;
+                    x86_flags.value |= FLAG_CF_OF_MASK;
                 } else {
-                    cf = 0;
-                    of = 0;
+                    x86_flags.value &= ~FLAG_CF_OF_MASK;
                 }
                 break;
             }
@@ -2148,11 +2060,9 @@ void exec86(uint32_t execloops) {
                 temp1 *= temp2;
                 putreg16(reg, temp1 & 0xFFFFL);
                 if (temp1 & 0xFFFF0000L) {
-                    cf = 1;
-                    of = 1;
+                    x86_flags.value |= FLAG_CF_OF_MASK;
                 } else {
-                    cf = 0;
-                    of = 0;
+                    x86_flags.value &= ~FLAG_CF_OF_MASK;
                 }
                 break;
             }
@@ -3445,9 +3355,75 @@ break;
 
             case 0xF6:    /* F6 GRP3a Eb */
                 modregrm();
-
                 oper1b = readrm8(rm);
-                op_grp3_8();
+                oper1 = signext(oper1b);
+                switch (reg) {
+                    case 0:
+                    case 1: /* TEST */
+                        flag_log8(oper1b & getmem8(CPU_CS, CPU_IP));
+                        StepIP(1);
+                        break;
+
+                    case 2: /* NOT */
+                        res8 = ~oper1b;
+                        break;
+
+                    case 3: /* NEG */
+                        res8 = (~oper1b) + 1;
+                        flag_sub8(0, oper1b);
+                        if (res8 == 0) {
+                            cf = 0;
+                        } else {
+                            cf = 1;
+                        }
+                        break;
+
+                    case 4: {/* MUL */
+                        register uint32_t temp1 = (uint32_t) oper1b * (uint32_t) CPU_AL;
+                        CPU_AX = temp1 & 0xFFFF;
+                        flag_szp8((uint8_t) temp1);
+                        if (CPU_AH) {
+                            x86_flags.value |= FLAG_CF_OF_MASK;
+                        } else {
+                            x86_flags.value &= ~FLAG_CF_OF_MASK;
+                        }
+                        #ifdef CPU_CLEAR_ZF_ON_MUL
+                        zf = 0;
+                        #endif
+                        break;
+                    }
+                    case 5: { /* IMUL */
+                        oper1 = signext(oper1b);
+                        register uint32_t temp1 = signext(CPU_AL);
+                        register uint32_t temp2 = oper1;
+                        if ((temp1 & 0x80) == 0x80) {
+                            temp1 = temp1 | 0xFFFFFF00;
+                        }
+
+                        if ((temp2 & 0x80) == 0x80) {
+                            temp2 = temp2 | 0xFFFFFF00;
+                        }
+
+                        CPU_AX = (temp1 * temp2) & 0xFFFF;
+                        if (CPU_AH) {
+                            x86_flags.value |= FLAG_CF_OF_MASK;
+                        } else {
+                            x86_flags.value &= ~FLAG_CF_OF_MASK;
+                        }
+                        #ifdef CPU_CLEAR_ZF_ON_MUL
+                        zf = 0;
+                        #endif
+                        break;
+                    }
+                    case 6: /* DIV */
+                        op_div8(CPU_AX, oper1b);
+                        break;
+
+                    case 7: /* IDIV */
+                        op_idiv8(CPU_AX, oper1b);
+                        break;
+                }
+
                 if ((reg > 1) && (reg < 4)) {
                     writerm8(rm, res8
                     );
