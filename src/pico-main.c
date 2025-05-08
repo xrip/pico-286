@@ -354,7 +354,7 @@ int main() {
     set_sys_clock_khz(396 * 1000, true);
 #endif
 #ifdef ONBOARD_PSRAM
-    psram_init(47);
+    psram_init(19);
     int psram = 1;
 #else
     int psram = init_psram();
