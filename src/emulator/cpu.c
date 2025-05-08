@@ -18,19 +18,20 @@
 #endif
 
 int videomode = 3;
-uint8_t opcode, segoverride, reptype;
+uint8_t segoverride, reptype;
 uint16_t segregs[4], ip, useseg, oldsp;
-uint8_t tempcf, oldcf, cf, pf, af, zf, sf, tf, ifl, df, of, mode, reg, rm;
+uint8_t tempcf, oldcf, mode, reg, rm;
+x86_flags_t x86_flags;
 
-uint8_t byteregtable[8] = {regal, regcl, regdl, regbl, regah, regch, regdh, regbh};
+static const uint8_t __not_in_flash("cpu.regt") byteregtable[8] = {regal, regcl, regdl, regbl, regah, regch, regdh, regbh};
 
 uint8_t oper1b, oper2b, res8, nestlev, addrbyte;
 uint16_t saveip, savecs, oper1, oper2, res16, disp16, temp16, dummy, stacksize, frametemp;
-uint32_t temp1, temp2, temp3, ea;
+uint32_t ea;
 
 uint16_t wordregs[8];
 
-static const uint8_t __not_in_flash("cpu") parity[0x100] = {
+static const uint8_t __not_in_flash("cpu.pf") parity[0x100] = {
         1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
         0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
         0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
@@ -76,10 +77,8 @@ static INLINE void modregrm() {
     }
 }
 
-static INLINE void getea(uint8_t rmval) {
-    uint32_t tempea;
-
-    tempea = 0;
+static __not_in_flash() void getea(uint8_t rmval) {
+    register uint32_t tempea = 0;
     switch (mode) {
         case 0:
             switch (rmval) {
@@ -190,21 +189,11 @@ static INLINE void writerm8(uint8_t rmval, uint8_t value) {
 }
 
 static INLINE uint16_t makeflagsword(void) {
-    return 2 | (uint16_t) cf | ((uint16_t) pf << 2) | ((uint16_t) af << 4) | ((uint16_t) zf << 6) |
-           ((uint16_t) sf << 7) |
-           ((uint16_t) tf << 8) | ((uint16_t) ifl << 9) | ((uint16_t) df << 10) | ((uint16_t) of << 11);
+    return 2 | (x86_flags.value & 0b111111010101);
 }
 
 static INLINE void decodeflagsword(uint16_t x) {
-    CPU_FL_CF = x & 1;
-    pf = (x >> 2) & 1;
-    af = (x >> 4) & 1;
-    zf = (x >> 6) & 1;
-    sf = (x >> 7) & 1;
-    tf = (x >> 8) & 1;
-    ifl = (x >> 9) & 1;
-    df = (x >> 10) & 1;
-    of = (x >> 11) & 1;
+    x86_flags.value = x;
 }
 
 void intcall86(uint8_t intnum) {
@@ -672,75 +661,20 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
     }
 }
 
-static inline void op_adc8() {
-    res8 = oper1b + oper2b + cf;
-    flag_adc8(oper1b, oper2b, cf);
-}
-
-static inline void op_adc16() {
-    res16 = oper1 + oper2 + cf;
-    flag_adc16(oper1, oper2, cf);
-}
-
-static inline void op_add8() {
-    res8 = oper1b + oper2b;
-    flag_add8(oper1b, oper2b);
-}
-
-static inline void op_add16() {
-    res16 = oper1 + oper2;
-    flag_add16(oper1, oper2);
-}
-
-static inline void op_and8() {
-    res8 = oper1b & oper2b;
-    flag_log8(res8);
-}
-
-static inline void op_and16() {
-    res16 = oper1 & oper2;
-    flag_log16(res16);
-}
-
-static inline void op_or8() {
-    res8 = oper1b | oper2b;
-    flag_log8(res8);
-}
-
-static inline void op_or16() {
-    res16 = oper1 | oper2;
-    flag_log16(res16);
-}
-
-static inline void op_xor8() {
-    res8 = oper1b ^ oper2b;
-    flag_log8(res8);
-}
-
-static inline void op_xor16() {
-    res16 = oper1 ^ oper2;
-    flag_log16(res16);
-}
-
-static inline void op_sub8() {
-    res8 = oper1b - oper2b;
-    flag_sub8(oper1b, oper2b);
-}
-
-static inline void op_sub16() {
-    res16 = oper1 - oper2;
-    flag_sub16(oper1, oper2);
-}
-
-static inline void op_sbb8() {
-    res8 = oper1b - (oper2b + cf);
-    flag_sbb8(oper1b, oper2b, cf);
-}
-
-static inline void op_sbb16() {
-    res16 = oper1 - (oper2 + cf);
-    flag_sbb16(oper1, oper2, cf);
-}
+#define op_adc8() { res8 = oper1b + oper2b + cf; flag_adc8(oper1b, oper2b, cf); }
+#define op_adc16() { res16 = oper1 + oper2 + cf; flag_adc16(oper1, oper2, cf); }
+#define op_add8() {  res8 = oper1b + oper2b; flag_add8(oper1b, oper2b); }
+#define op_add16() { res16 = oper1 + oper2; flag_add16(oper1, oper2); }
+#define op_and8() { res8 = oper1b & oper2b; flag_log8(res8); }
+#define op_and16() { res16 = oper1 & oper2; flag_log16(res16); }
+#define op_or8() { res8 = oper1b | oper2b; flag_log8(res8); }
+#define op_or16() { res16 = oper1 | oper2; flag_log16(res16); }
+#define op_xor8() { res8 = oper1b ^ oper2b; flag_log8(res8); }
+#define op_xor16() { res16 = oper1 ^ oper2; flag_log16(res16); }
+#define op_sub8() { res8 = oper1b - oper2b; flag_sub8(oper1b, oper2b); }
+#define op_sub16() { res16 = oper1 - oper2; flag_sub16(oper1, oper2); }
+#define op_sbb8() { res8 = oper1b - (oper2b + cf); flag_sbb8(oper1b, oper2b, cf); }
+#define op_sbb16() { res16 = oper1 - (oper2 + cf); flag_sbb16(oper1, oper2, cf); }
 
 static inline uint8_t op_grp2_8(uint8_t cnt) {
     uint16_t s = oper1b;
@@ -1042,8 +976,8 @@ static inline void op_grp3_8() {
             }
             break;
 
-        case 4: /* MUL */
-            temp1 = (uint32_t) oper1b * (uint32_t) CPU_AL;
+        case 4: {/* MUL */
+            register uint32_t temp1 = (uint32_t) oper1b * (uint32_t) CPU_AL;
             CPU_AX = temp1 & 0xFFFF;
             flag_szp8((uint8_t) temp1);
             if (CPU_AH) {
@@ -1057,11 +991,11 @@ static inline void op_grp3_8() {
             zf = 0;
 #endif
             break;
-
-        case 5: /* IMUL */
+        }
+        case 5: { /* IMUL */
             oper1 = signext(oper1b);
-            temp1 = signext(CPU_AL);
-            temp2 = oper1;
+            register uint32_t temp1 = signext(CPU_AL);
+            register uint32_t temp2 = oper1;
             if ((temp1 & 0x80) == 0x80) {
                 temp1 = temp1 | 0xFFFFFF00;
             }
@@ -1070,8 +1004,7 @@ static inline void op_grp3_8() {
                 temp2 = temp2 | 0xFFFFFF00;
             }
 
-            temp3 = (temp1 * temp2) & 0xFFFF;
-            CPU_AX = temp3 & 0xFFFF;
+            CPU_AX = (temp1 * temp2) & 0xFFFF;
             if (CPU_AH) {
                 cf = 1;
                 of = 1;
@@ -1083,7 +1016,7 @@ static inline void op_grp3_8() {
             zf = 0;
 #endif
             break;
-
+        }
         case 6: /* DIV */
             op_div8(CPU_AX, oper1b);
             break;
@@ -1158,8 +1091,8 @@ static inline void op_grp3_16() {
             }
             break;
 
-        case 4: /* MUL */
-            temp1 = (uint32_t) oper1 * (uint32_t) CPU_AX;
+        case 4: {/* MUL */
+            register uint32_t temp1 = (uint32_t) oper1 * (uint32_t) CPU_AX;
             CPU_AX = temp1 & 0xFFFF;
             CPU_DX = temp1 >> 16;
             flag_szp16((uint16_t) temp1);
@@ -1174,10 +1107,10 @@ static inline void op_grp3_16() {
             zf = 0;
 #endif
             break;
-
-        case 5: /* IMUL */
-            temp1 = CPU_AX;
-            temp2 = oper1;
+        }
+        case 5: { /* IMUL */
+            register uint32_t temp1 = CPU_AX;
+            register uint32_t temp2 = oper1;
             if (temp1 & 0x8000) {
                 temp1 |= 0xFFFF0000;
             }
@@ -1186,9 +1119,9 @@ static inline void op_grp3_16() {
                 temp2 |= 0xFFFF0000;
             }
 
-            temp3 = temp1 * temp2;
-            CPU_AX = temp3 & 0xFFFF; /* into register ax */
-            CPU_DX = temp3 >> 16; /* into register dx */
+            temp1 *= temp2;
+            CPU_AX = temp1 & 0xFFFF; /* into register ax */
+            CPU_DX = temp1 >> 16; /* into register dx */
             if (CPU_DX) {
                 cf = 1;
                 of = 1;
@@ -1200,7 +1133,7 @@ static inline void op_grp3_16() {
             zf = 0;
 #endif
             break;
-
+        }
         case 6: /* DIV */
             op_div16(((uint32_t) CPU_DX << 16) + CPU_AX, oper1);
             break;
@@ -1292,10 +1225,11 @@ void exec86(uint32_t execloops) {
         useseg = CPU_DS;
         uint8_t docontinue = 0;
         firstip = CPU_IP;
+        register uint8_t opcode;
 
         while (!docontinue) {
-            CPU_CS &= 0xFFFF;
-            CPU_IP &= 0xFFFF;
+   ///         CPU_CS &= 0xFFFF;
+   ///         CPU_IP &= 0xFFFF;
 //            savecs = CPU_CS;
 //            saveip = ip;
             // W/A-hack: last byte of interrupts table (actually should not be ever used as CS:IP)
@@ -2167,11 +2101,11 @@ void exec86(uint32_t execloops) {
                 StepIP(2);
                 break;
 
-            case 0x69:    /* 69 IMUL Gv Ev Iv (80186+) */
+            case 0x69: {   /* 69 IMUL Gv Ev Iv (80186+) */
                 modregrm();
 
-                temp1 = readrm16(rm);
-                temp2 = getmem16(CPU_CS, CPU_IP);
+                register uint32_t temp1 = readrm16(rm);
+                register uint32_t temp2 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 if ((temp1 & 0x8000L) == 0x8000L) {
                     temp1 = temp1 | 0xFFFF0000L;
@@ -2181,10 +2115,9 @@ void exec86(uint32_t execloops) {
                     temp2 = temp2 | 0xFFFF0000L;
                 }
 
-                temp3 = temp1 * temp2;
-                putreg16(reg, temp3
-                        &0xFFFFL);
-                if (temp3 & 0xFFFF0000L) {
+                temp1 *= temp2;
+                putreg16(reg, temp1 &0xFFFFL);
+                if (temp1 & 0xFFFF0000L) {
                     cf = 1;
                     of = 1;
                 } else {
@@ -2192,17 +2125,17 @@ void exec86(uint32_t execloops) {
                     of = 0;
                 }
                 break;
-
+            }
             case 0x6A:    /* 6A PUSH Ib (80186+) */
                 push((uint16_t) signext(getmem8(CPU_CS, CPU_IP)));
                 StepIP(1);
                 break;
 
-            case 0x6B:    /* 6B IMUL Gv Eb Ib (80186+) */
+            case 0x6B: {   /* 6B IMUL Gv Eb Ib (80186+) */
                 modregrm();
 
-                temp1 = readrm16(rm);
-                temp2 = signext(getmem8(CPU_CS, CPU_IP));
+                register uint32_t temp1 = readrm16(rm);
+                register uint32_t temp2 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if ((temp1 & 0x8000L) == 0x8000L) {
                     temp1 = temp1 | 0xFFFF0000L;
@@ -2212,10 +2145,9 @@ void exec86(uint32_t execloops) {
                     temp2 = temp2 | 0xFFFF0000L;
                 }
 
-                temp3 = temp1 * temp2;
-                putreg16(reg, temp3
-                        &0xFFFFL);
-                if (temp3 & 0xFFFF0000L) {
+                temp1 *= temp2;
+                putreg16(reg, temp1 & 0xFFFFL);
+                if (temp1 & 0xFFFF0000L) {
                     cf = 1;
                     of = 1;
                 } else {
@@ -2223,7 +2155,7 @@ void exec86(uint32_t execloops) {
                     of = 0;
                 }
                 break;
-
+            }
             case 0x6C:    /* 6E INSB */
                 if (reptype && (CPU_CX == 0)) {
                     break;
