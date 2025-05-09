@@ -12,7 +12,7 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
-set(PICO_BOARD pico2 CACHE STRING "Board type")
+set(PICO_BOARD pico CACHE STRING "Board type")
 
 cmake_minimum_required(VERSION 3.22)
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
@@ -131,7 +131,9 @@ else ()
             EMU8950_ASM=1
 
             PICO_FLASH_SIZE_BYTES=16777216
-          #  ONBOARD_PSRAM
+           # ONBOARD_PSRAM
+           # PSRAM
+            TOTAL_VIRTUAL_MEMORY_KBS=2048
 
             # VGA 8 pins starts from pin:
             VGA_BASE_PIN=6
@@ -153,7 +155,6 @@ else ()
             SDCARD_PIN_SPI0_MOSI=3
             SDCARD_PIN_SPI0_MISO=4
 
-            PSRAM
             #PSRAM_MUTEX=1
             PSRAM_SPINLOCK=1
             PSRAM_ASYNC=1

@@ -17,6 +17,11 @@
 
 #endif
 
+#ifdef TOTAL_VIRTUAL_MEMORY_KBS
+#undef __not_in_flash
+#define __not_in_flash(group)
+#endif
+
 int videomode = 3;
 uint8_t segoverride, reptype;
 uint16_t segregs[4], ip, useseg, oldsp;

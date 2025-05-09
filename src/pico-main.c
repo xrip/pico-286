@@ -8,7 +8,9 @@
 
 
 #ifndef ONBOARD_PSRAM
+#ifndef TOTAL_VIRTUAL_MEMORY_KBS
 #include "psram_spi.h"
+#endif
 #endif
 #if PICO_RP2040
 #include "../../memops_opt/memops_opt.h"
@@ -102,10 +104,6 @@ void __time_critical_func() second_core() {
     pwm_config_set_wrap(&pwm, (1 << 12) - 1); // MAX PWM value
     pwm_init(pwm_gpio_to_slice_num(PCM_PIN), &pwm, true);
 #endif
-
-
-
-
 
     uint64_t tick = time_us_64();
     uint64_t last_timer_tick = tick, last_cursor_blink = tick, last_sound_tick = tick, last_frame_tick = tick;
@@ -354,10 +352,14 @@ int main() {
     set_sys_clock_khz(396 * 1000, true);
 #endif
 #ifdef ONBOARD_PSRAM
-    psram_init(19);
+    psram_init(47);
     int psram = 1;
 #else
-    int psram = init_psram();
+    #ifdef TOTAL_VIRTUAL_MEMORY_KBS
+    init_swap();
+    #else
+    init_psram();
+    #endif
 #endif
     exception_set_exclusive_handler(HARDFAULT_EXCEPTION, sigbus);
     gpio_init(PICO_DEFAULT_LED_PIN);

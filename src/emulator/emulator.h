@@ -18,7 +18,13 @@ extern "C" {
 //#include "swap.h"
 #else
 //#define RAM_SIZE (146 << 10)
+
+#ifdef TOTAL_VIRTUAL_MEMORY_KBS
+#define RAM_SIZE (76 << 10)
+#else
 #define RAM_SIZE (116 << 10)
+#endif
+
 #endif
 #else
 #include "printf/printf.h"
@@ -329,6 +335,7 @@ static INLINE uint16_t read16psram(const uint32_t address) {
 }
 #endif
 #else
+#include "swap.h"
 static INLINE void write8psram(uint32_t address, uint8_t value) {
     swap_write(address, value);
 }
