@@ -17,7 +17,8 @@ extern "C" {
 #define RAM_SIZE (350 << 10)
 //#include "swap.h"
 #else
-#define RAM_SIZE (146 << 10)
+//#define RAM_SIZE (146 << 10)
+#define RAM_SIZE (116 << 10)
 #endif
 #else
 #include "printf/printf.h"
