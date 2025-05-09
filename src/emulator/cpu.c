@@ -25,7 +25,7 @@ x86_flags_t x86_flags;
 
 static const uint8_t __not_in_flash("cpu.regt") byteregtable[8] = {regal, regcl, regdl, regbl, regah, regch, regdh, regbh};
 
-uint8_t oper1b, oper2b, nestlev, addrbyte;
+uint8_t nestlev, addrbyte;
 uint16_t saveip, savecs, oper1, oper2, res16, disp16, temp16, dummy, stacksize, frametemp;
 uint32_t ea;
 
@@ -670,7 +670,7 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
 #define op_sbb8() { res8 = oper1b - (oper2b + cf); flag_sbb8(oper1b, oper2b, cf); }
 #define op_sbb16() { res16 = oper1 - (oper2 + cf); flag_sbb16(oper1, oper2, cf); }
 
-static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt) {
+static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
     uint16_t s = oper1b;
 #ifdef CPU_LIMIT_SHIFT_COUNT
     cnt &= 0x1F;
@@ -1192,6 +1192,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
         }
 
         register uint8_t res8;
+        register uint8_t oper1b;
+        register uint8_t oper2b;
         switch (opcode) {
             case 0x0:    /* 00 ADD Eb Gb */
                 modregrm();
@@ -3018,8 +3020,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 oper1b = readrm8(rm);
                 oper2b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
-                writerm8(rm, op_grp2_8(oper2b)
-                );
+                writerm8(rm, op_grp2_8(oper2b, oper1b));
                 break;
 
             case 0xC1:    /* C1 GRP2 word imm8 (80186+) */
@@ -3150,8 +3151,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 modregrm();
 
                 oper1b = readrm8(rm);
-                writerm8(rm, op_grp2_8(1)
-                );
+                writerm8(rm, op_grp2_8(1, oper1b));
                 break;
 
             case 0xD1:    /* D1 GRP2 Ev 1 */
@@ -3166,8 +3166,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 modregrm();
 
                 oper1b = readrm8(rm);
-                writerm8(rm, op_grp2_8(CPU_CL)
-                );
+                writerm8(rm, op_grp2_8(CPU_CL, oper1b));
                 break;
 
             case 0xD3:    /* D3 GRP2 Ev CPU_CL */
