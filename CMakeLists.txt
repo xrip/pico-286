@@ -131,7 +131,7 @@ else ()
             EMU8950_ASM=1
 
             PICO_FLASH_SIZE_BYTES=16777216
-            ONBOARD_PSRAM
+          #  ONBOARD_PSRAM
 
             # VGA 8 pins starts from pin:
             VGA_BASE_PIN=6

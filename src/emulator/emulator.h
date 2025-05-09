@@ -14,7 +14,7 @@ extern "C" {
 #ifdef PICO_ON_DEVICE
 #define VIDEORAM_SIZE (64 << 10)
 #if PICO_RP2350
-#define RAM_SIZE (400 << 10)
+#define RAM_SIZE (350 << 10)
 //#include "swap.h"
 #else
 #define RAM_SIZE (146 << 10)
@@ -68,7 +68,25 @@ extern uint8_t XMS[XMS_SIZE + 4];
 extern uint16_t wordregs[8];
 #define byteregs ((uint8_t*)wordregs)
 
-extern uint8_t cf, pf, af, zf, sf, tf, ifl, df, of;
+typedef union {
+    uint32_t value;
+    struct {
+        unsigned CF : 1;  // 0 bit of value
+        unsigned _1 : 1;  // 1
+        unsigned PF : 1;  // 2
+        unsigned _3 : 1;  // 3
+        unsigned AF : 1;  // 4
+        unsigned _5 : 1;  // 5
+        unsigned ZF : 1;  // 6
+        unsigned SF : 1;  // 7
+        unsigned TF : 1;  // 8
+        unsigned IF : 1;  // 9
+        unsigned DF : 1;  // 10
+        unsigned OF : 1;  // 11
+    } bits;
+} x86_flags_t;
+
+extern x86_flags_t x86_flags;
 extern uint16_t segregs[4];
 
 // i8259

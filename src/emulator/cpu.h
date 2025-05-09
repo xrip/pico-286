@@ -41,6 +41,15 @@
 #define putsegreg(regid, writeval)  segregs[regid] = writeval
 #define segbase(x)  ((uint32_t) (x) << 4)
 
+#define cf  x86_flags.bits.CF
+#define pf  x86_flags.bits.PF
+#define af  x86_flags.bits.AF
+#define zf  x86_flags.bits.ZF
+#define sf  x86_flags.bits.SF
+#define tf  x86_flags.bits.TF
+#define ifl x86_flags.bits.IF
+#define df  x86_flags.bits.DF
+#define of  x86_flags.bits.OF
 
 #define CPU_FL_CF    cf
 #define CPU_FL_PF    pf
@@ -48,9 +57,12 @@
 #define CPU_FL_ZF    zf
 #define CPU_FL_SF    sf
 #define CPU_FL_TF    tf
-#define CPU_FL_IFL    ifl
+#define CPU_FL_IFL   ifl
 #define CPU_FL_DF    df
 #define CPU_FL_OF    of
+
+#define FLAG_CF_OF_MASK ((1u << 11) | 1)
+#define FLAG_CF_AF_MASK ((1u << 4) | 1)
 
 #define CPU_CS        segregs[regcs]
 #define CPU_DS        segregs[regds]
