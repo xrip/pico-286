@@ -14,8 +14,13 @@ extern "C" {
 #ifdef PICO_ON_DEVICE
 #define VIDEORAM_SIZE (64 << 10)
 #if PICO_RP2350
+
+#ifdef TOTAL_VIRTUAL_MEMORY_KBS
+#define RAM_SIZE (200 << 10)
+#else
 #define RAM_SIZE (350 << 10)
-//#include "swap.h"
+#endif
+
 #else
 //#define RAM_SIZE (146 << 10)
 
