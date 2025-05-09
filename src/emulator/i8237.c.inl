@@ -223,7 +223,11 @@ INLINE uint8_t i8237_read(const uint8_t channel) {
     if (dma_channels[channel].masked) return 0;
 
     const uint32_t address = dma_channels[channel].page + dma_channels[channel].address;
+    #ifdef ONBOARD_PSRAM
     const uint8_t result = read86(address);
+    #else
+    const uint8_t result = 0;
+    #endif
     update_count(channel);
 
     return result;
@@ -234,5 +238,7 @@ INLINE void i8237_write(const uint8_t channel, const uint8_t value) {
            dma_channels[channel].count, value);
     register uint32_t address = dma_channels[channel].page + dma_channels[channel].address;
     update_count(channel);
+    #ifdef ONBOARD_PSRAM
     write86(address, value);
+    #endif
 }
