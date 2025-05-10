@@ -409,7 +409,7 @@ int main() {
 
 #if 1
         if (!mouse_available) {
-#define MOUSE_SPEED 8
+#define MOUSE_SPEED 4
             nespad_read();
             sermouseevent(nespad_state & DPAD_A | ((nespad_state & DPAD_B) != 0) << 1,
                           nespad_state & DPAD_LEFT ? -MOUSE_SPEED : nespad_state & DPAD_RIGHT ? MOUSE_SPEED : 0,
