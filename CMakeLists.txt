@@ -131,8 +131,8 @@ else ()
             EMU8950_ASM=1
 
             PICO_FLASH_SIZE_BYTES=16777216
-           # ONBOARD_PSRAM
-            PSRAM
+            ONBOARD_PSRAM_GPIO=19 #47 - for pimoroni
+           # PSRAM
            # TOTAL_VIRTUAL_MEMORY_KBS=2048
 
             # VGA 8 pins starts from pin:

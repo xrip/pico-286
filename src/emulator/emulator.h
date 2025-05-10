@@ -72,9 +72,6 @@ extern uint8_t log_debug;
 extern uint8_t VIDEORAM[VIDEORAM_SIZE + 4];
 extern uint8_t RAM[RAM_SIZE + 4];
 
-extern uint8_t UMB[(UMB_END - UMB_START) + 4];
-extern uint8_t HMA[(HMA_END - HMA_START) + 4];
-
 extern uint16_t wordregs[8];
 #define byteregs ((uint8_t*)wordregs)
 
@@ -315,7 +312,7 @@ extern void get_sound_sample(int16_t other_sample, int16_t *samples);
 #endif
 
 #ifndef TOTAL_VIRTUAL_MEMORY_KBS
-#if PICO_ON_DEVICE && !ONBOARD_PSRAM
+#if PICO_ON_DEVICE && !ONBOARD_PSRAM_GPIO
 #include "psram_spi.h"
 
 #else

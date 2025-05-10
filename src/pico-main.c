@@ -7,7 +7,7 @@
 #include <pico/multicore.h>
 
 
-#ifndef ONBOARD_PSRAM
+#ifndef ONBOARD_PSRAM_GPIO
 #ifndef TOTAL_VIRTUAL_MEMORY_KBS
 #include "psram_spi.h"
 #endif
@@ -351,8 +351,8 @@ int main() {
     sleep_ms(33);
     set_sys_clock_khz(396 * 1000, true);
 #endif
-#ifdef ONBOARD_PSRAM
-    psram_init(47);
+#ifdef ONBOARD_PSRAM_GPIO
+    psram_init(ONBOARD_PSRAM_GPIO);
 #else
     #ifdef TOTAL_VIRTUAL_MEMORY_KBS
     init_swap();

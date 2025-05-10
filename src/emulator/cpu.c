@@ -1,7 +1,7 @@
 #include <time.h>
 #include "emulator.h"
 
-//#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
+#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
 //#define CPU_LIMIT_SHIFT_COUNT
 #define CPU_NO_SALC
 //#define CPU_SET_HIGH_FLAGS
@@ -1108,6 +1108,10 @@ static __not_in_flash() void op_grp5() {
     }
 }
 
+#if !PICO_ON_DEVICE
+extern uint8_t UMB[(UMB_END - UMB_START) + 4];
+extern uint8_t HMA[(HMA_END - HMA_START) + 4];
+#endif
 
 void reset86() {
     CPU_CS = 0xFFFF;
@@ -1119,17 +1123,17 @@ void reset86() {
 #if !PICO_ON_DEVICE
     memset(UMB, 0, sizeof(UMB));
     memset(HMA, 0, sizeof(HMA));
-    memset(EMS, 0, sizeof(EMS));
-    memset(XMS, 0, sizeof(HMA));
+    //memset(EMS, 0, sizeof(EMS));
+    //memset(XMS, 0, sizeof(XMS));
 #else
-    #ifdef ONBOARD_PSRAM
-    memset(PSRAM_DATA + UMB_START, 0, sizeof(UMB));
-    memset(PSRAM_DATA + HMA_START, 0, sizeof(HMA));
+    #ifdef ONBOARD_PSRAM_GPIO
+    memset(PSRAM_DATA + UMB_START, 0, (UMB_END - UMB_START) + 4);
+    memset(PSRAM_DATA + HMA_START, 0, (HMA_END - HMA_START) + 4);
     #else
-    for (uint32_t a = UMB_START;  a < sizeof(UMB); a += 4) {
+    for (uint32_t a = UMB_START;  a < (UMB_END - UMB_START) + 4); a += 4) {
         write32psram(a, 0);
     }
-    for (uint32_t a = HMA_START;  a < sizeof(HMA); a += 4) {
+    for (uint32_t a = HMA_START;  a < (HMA_END - HMA_START) + 4; a += 4) {
         write32psram(a, 0);
     }
     #endif
