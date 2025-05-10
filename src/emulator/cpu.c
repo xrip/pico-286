@@ -1,7 +1,7 @@
 #include <time.h>
 #include "emulator.h"
 
-#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
+//#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
 //#define CPU_LIMIT_SHIFT_COUNT
 #define CPU_NO_SALC
 //#define CPU_SET_HIGH_FLAGS
@@ -1130,10 +1130,10 @@ void reset86() {
     memset(PSRAM_DATA + UMB_START, 0, (UMB_END - UMB_START) + 4);
     memset(PSRAM_DATA + HMA_START, 0, (HMA_END - HMA_START) + 4);
     #else
-    for (uint32_t a = UMB_START;  a < (UMB_END - UMB_START) + 4); a += 4) {
+    for (uint32_t a = UMB_START;  a < ((UMB_END - UMB_START) + 4); a += 4) {
         write32psram(a, 0);
     }
-    for (uint32_t a = HMA_START;  a < (HMA_END - HMA_START) + 4; a += 4) {
+    for (uint32_t a = HMA_START;  a < ((HMA_END - HMA_START) + 4); a += 4) {
         write32psram(a, 0);
     }
     #endif
