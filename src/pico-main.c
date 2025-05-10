@@ -380,7 +380,7 @@ int main() {
     sleep_ms(5);
     nespad_read();
 
-    const int mouse_available = !nespad_state;
+    const uint8_t mouse_available = nespad_state;
     if (mouse_available) {
         mouse_init();
     }
