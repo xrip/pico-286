@@ -353,7 +353,6 @@ int main() {
 #endif
 #ifdef ONBOARD_PSRAM
     psram_init(47);
-    int psram = 1;
 #else
     #ifdef TOTAL_VIRTUAL_MEMORY_KBS
     init_swap();
@@ -385,8 +384,6 @@ int main() {
     if (mouse_available) {
         mouse_init();
     }
-
-
 
     sem_init(&vga_start_semaphore, 0, 1);
     multicore_launch_core1(second_core);

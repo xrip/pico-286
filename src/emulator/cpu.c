@@ -418,8 +418,8 @@ void intcall86(uint8_t intnum) {
                     CPU_AL = 0x80;
                     return;
                 case 0x4310: {
-                    CPU_ES = 0x0000; //
-                    CPU_BX = 0x03FF; //
+                    CPU_ES = XMS_FN_CS; // to be handled by DOS memory manager using
+                    CPU_BX = XMS_FN_IP; // CALL FAR ES:BX
                     return;
                 }
 #if 0
@@ -1121,6 +1121,18 @@ void reset86() {
     memset(HMA, 0, sizeof(HMA));
     memset(EMS, 0, sizeof(EMS));
     memset(XMS, 0, sizeof(HMA));
+#else
+    #ifdef ONBOARD_PSRAM
+    memset(PSRAM_DATA + UMB_START, 0, sizeof(UMB));
+    memset(PSRAM_DATA + HMA_START, 0, sizeof(HMA));
+    #else
+    for (uint32_t a = UMB_START;  a < sizeof(UMB); a += 4) {
+        write32psram(a, 0);
+    }
+    for (uint32_t a = HMA_START;  a < sizeof(HMA); a += 4) {
+        write32psram(a, 0);
+    }
+    #endif
 #endif
 
     ip = 0x0000;

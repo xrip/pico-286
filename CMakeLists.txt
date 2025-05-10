@@ -132,8 +132,8 @@ else ()
 
             PICO_FLASH_SIZE_BYTES=16777216
            # ONBOARD_PSRAM
-           # PSRAM
-            TOTAL_VIRTUAL_MEMORY_KBS=2048
+            PSRAM
+           # TOTAL_VIRTUAL_MEMORY_KBS=2048
 
             # VGA 8 pins starts from pin:
             VGA_BASE_PIN=6
