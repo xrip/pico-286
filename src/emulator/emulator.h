@@ -14,10 +14,22 @@ extern "C" {
 #ifdef PICO_ON_DEVICE
 #define VIDEORAM_SIZE (64 << 10)
 #if PICO_RP2350
-#define RAM_SIZE (350 << 10)
-//#include "swap.h"
+
+#ifdef TOTAL_VIRTUAL_MEMORY_KBS
+#define RAM_SIZE (200 << 10)
 #else
-#define RAM_SIZE (146 << 10)
+#define RAM_SIZE (350 << 10)
+#endif
+
+#else
+//#define RAM_SIZE (146 << 10)
+
+#ifdef TOTAL_VIRTUAL_MEMORY_KBS
+#define RAM_SIZE (76 << 10)
+#else
+#define RAM_SIZE (116 << 10)
+#endif
+
 #endif
 #else
 #include "printf/printf.h"
@@ -49,8 +61,8 @@ extern "C" {
 
 #define BIOS_START (0xFE000)
 
-#define EMS_MEMORY_SIZE (2048 << 10)
-#define XMS_SIZE (4096 << 10)
+#define EMS_MEMORY_SIZE (2048 << 10) // 2 MB
+#define XMS_MEMORY_SIZE (4096 << 10) // 4 MB
 
 #define BIOS_MEMORY_SIZE                0x413
 #define BIOS_TRUE_MEMORY_SIZE           0x415
@@ -59,11 +71,6 @@ extern uint8_t log_debug;
 
 extern uint8_t VIDEORAM[VIDEORAM_SIZE + 4];
 extern uint8_t RAM[RAM_SIZE + 4];
-
-extern uint8_t UMB[(UMB_END - UMB_START) + 4];
-extern uint8_t HMA[(HMA_END - HMA_START) + 4];
-extern uint8_t EMS[EMS_MEMORY_SIZE + 4];
-extern uint8_t XMS[XMS_SIZE + 4];
 
 extern uint16_t wordregs[8];
 #define byteregs ((uint8_t*)wordregs)
@@ -305,7 +312,7 @@ extern void get_sound_sample(int16_t other_sample, int16_t *samples);
 #endif
 
 #ifndef TOTAL_VIRTUAL_MEMORY_KBS
-#if PICO_ON_DEVICE && !ONBOARD_PSRAM
+#if PICO_ON_DEVICE && !ONBOARD_PSRAM_GPIO
 #include "psram_spi.h"
 
 #else
@@ -328,6 +335,7 @@ static INLINE uint16_t read16psram(const uint32_t address) {
 }
 #endif
 #else
+#include "swap.h"
 static INLINE void write8psram(uint32_t address, uint8_t value) {
     swap_write(address, value);
 }

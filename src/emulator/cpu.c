@@ -17,6 +17,11 @@
 
 #endif
 
+#ifdef TOTAL_VIRTUAL_MEMORY_KBS
+#undef __not_in_flash
+#define __not_in_flash(group)
+#endif
+
 int videomode = 3;
 uint8_t segoverride, reptype;
 uint16_t segregs[4], ip, useseg, oldsp;
@@ -413,8 +418,8 @@ void intcall86(uint8_t intnum) {
                     CPU_AL = 0x80;
                     return;
                 case 0x4310: {
-                    CPU_ES = 0x0000; //
-                    CPU_BX = 0x03FF; //
+                    CPU_ES = XMS_FN_CS; // to be handled by DOS memory manager using
+                    CPU_BX = XMS_FN_IP; // CALL FAR ES:BX
                     return;
                 }
 #if 0
@@ -1103,6 +1108,10 @@ static __not_in_flash() void op_grp5() {
     }
 }
 
+#if !PICO_ON_DEVICE
+extern uint8_t UMB[(UMB_END - UMB_START) + 4];
+extern uint8_t HMA[(HMA_END - HMA_START) + 4];
+#endif
 
 void reset86() {
     CPU_CS = 0xFFFF;
@@ -1114,8 +1123,20 @@ void reset86() {
 #if !PICO_ON_DEVICE
     memset(UMB, 0, sizeof(UMB));
     memset(HMA, 0, sizeof(HMA));
-    memset(EMS, 0, sizeof(EMS));
-    memset(XMS, 0, sizeof(HMA));
+    //memset(EMS, 0, sizeof(EMS));
+    //memset(XMS, 0, sizeof(XMS));
+#else
+    #ifdef ONBOARD_PSRAM_GPIO
+    memset(PSRAM_DATA + UMB_START, 0, (UMB_END - UMB_START) + 4);
+    memset(PSRAM_DATA + HMA_START, 0, (HMA_END - HMA_START) + 4);
+    #else
+    for (uint32_t a = UMB_START;  a < ((UMB_END - UMB_START) + 4); a += 4) {
+        write32psram(a, 0);
+    }
+    for (uint32_t a = HMA_START;  a < ((HMA_END - HMA_START) + 4); a += 4) {
+        write32psram(a, 0);
+    }
+    #endif
 #endif
 
     ip = 0x0000;

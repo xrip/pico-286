@@ -76,13 +76,13 @@ umb_t *get_free_umb_block(uint16_t size) {
     return NULL;
 }
 
-uint32_t xms_available = XMS_SIZE;
+uint32_t xms_available = XMS_MEMORY_SIZE;
 uint8_t xms_handles = 0;
 
 int a20_enabled = 0;
 
 #if !PICO_ON_DEVICE
-uint8_t ALIGN(4, XMS[XMS_SIZE + 4]) = {0};
+uint8_t ALIGN(4, XMS[XMS_MEMORY_SIZE + 4]) = {0};
 static INLINE void xms_move_to(register uint32_t destination, register uint32_t source, register uint32_t length) {
     register uint16_t *dest_ptr = (uint16_t *)&XMS[destination];
     length /= 2;
@@ -164,7 +164,7 @@ uint8_t __not_in_flash() xms_handler() {
 #if DEBUG_XMS
             printf("[XMS] Query free\r\n");
 #endif
-            CPU_AX = XMS_SIZE >> 10;
+            CPU_AX = XMS_MEMORY_SIZE >> 10;
             CPU_DX = XMS_HANDLES;
             CPU_BL = 0;
             break;

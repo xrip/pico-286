@@ -6,6 +6,9 @@
 #include <pico.h>
 #include <hardware/gpio.h>
 
+#undef printf_
+#define printf_(...)
+
 #define PAGE_CHANGE_FLAG 0x8000
 #define PAGE_ID_MASK 0x7FFF
 
@@ -97,9 +100,9 @@ bool init_swap() {
         for (size_t i = 0; i < (TOTAL_VIRTUAL_MEMORY_KBS << 10); i += SWAP_PAGE_SIZE) {
             result = f_write(&swap_file, SWAP_PAGES_CACHE, SWAP_PAGE_SIZE, &bytes_written);
             if(i)printf_("%d         \r", (TOTAL_VIRTUAL_MEMORY_KBS << 10) / i);
-            if (result != FR_OK) return printf("Error initializing pagefile\n"), false;
+            if (result != FR_OK) return /*printf("Error initializing pagefile\n"),*/ false;
         }
-    } else return printf("Error creating pagefile\n"), false;
+    } else return /*printf("Error creating pagefile\n"),*/ false;
     printf("Done!\n");
     f_close(&swap_file);
     return f_open(&swap_file, path, FA_READ | FA_WRITE) == FR_OK;

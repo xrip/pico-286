@@ -7,8 +7,10 @@
 #include <pico/multicore.h>
 
 
-#ifndef ONBOARD_PSRAM
+#ifndef ONBOARD_PSRAM_GPIO
+#ifndef TOTAL_VIRTUAL_MEMORY_KBS
 #include "psram_spi.h"
+#endif
 #endif
 #if PICO_RP2040
 #include "../../memops_opt/memops_opt.h"
@@ -102,10 +104,6 @@ void __time_critical_func() second_core() {
     pwm_config_set_wrap(&pwm, (1 << 12) - 1); // MAX PWM value
     pwm_init(pwm_gpio_to_slice_num(PCM_PIN), &pwm, true);
 #endif
-
-
-
-
 
     uint64_t tick = time_us_64();
     uint64_t last_timer_tick = tick, last_cursor_blink = tick, last_sound_tick = tick, last_frame_tick = tick;
@@ -345,19 +343,22 @@ int main() {
     vreg_set_voltage(VREG_VOLTAGE_1_60);
     sleep_ms(10);
     *qmi_m0_timing = 0x60007204;
-    set_sys_clock_hz(424 * 1000000, 0);
+    set_sys_clock_hz(CPU_FREQ_MHZ * 1000000, 0);
     *qmi_m0_timing = 0x60007303;
 #else
     memcpy_wrapper_replace(NULL);
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
     sleep_ms(33);
-    set_sys_clock_khz(396 * 1000, true);
+    set_sys_clock_khz(CPU_FREQ_MHZ * 1000, true);
 #endif
-#ifdef ONBOARD_PSRAM
-    psram_init(19);
-    int psram = 1;
+#ifdef ONBOARD_PSRAM_GPIO
+    psram_init(ONBOARD_PSRAM_GPIO);
 #else
-    int psram = init_psram();
+    #ifdef TOTAL_VIRTUAL_MEMORY_KBS
+    init_swap();
+    #else
+    init_psram();
+    #endif
 #endif
     exception_set_exclusive_handler(HARDFAULT_EXCEPTION, sigbus);
     gpio_init(PICO_DEFAULT_LED_PIN);
@@ -383,8 +384,6 @@ int main() {
     if (mouse_available) {
         mouse_init();
     }
-
-
 
     sem_init(&vga_start_semaphore, 0, 1);
     multicore_launch_core1(second_core);
