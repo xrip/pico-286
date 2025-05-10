@@ -12,7 +12,7 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
-set(PICO_BOARD pico CACHE STRING "Board type")
+set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 cmake_minimum_required(VERSION 3.22)
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
@@ -130,7 +130,7 @@ else ()
 #            USE_ZONE_FOR_MALLOC=1
             EMU8950_ASM=1
 
-            CPU_FREQ_MHZ=366
+            CPU_FREQ_MHZ=444
 
             PICO_FLASH_SIZE_BYTES=16777216
            # ONBOARD_PSRAM_GPIO=47

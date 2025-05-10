@@ -403,17 +403,31 @@ int main() {
 
     sn76489_reset();
     reset86();
-
+    nespad_read();
+    float mouse_throttle = 3;
+    bool left = nespad_state & DPAD_LEFT;
+    bool right = nespad_state & DPAD_RIGHT;
+    bool up = nespad_state & DPAD_UP;
+    bool down = nespad_state & DPAD_DOWN;
     while (true) {
         exec86(32768);
 
 #if 1
         if (!mouse_available) {
-#define MOUSE_SPEED 4
             nespad_read();
-            sermouseevent(nespad_state & DPAD_A | ((nespad_state & DPAD_B) != 0) << 1,
-                          nespad_state & DPAD_LEFT ? -MOUSE_SPEED : nespad_state & DPAD_RIGHT ? MOUSE_SPEED : 0,
-                          nespad_state & DPAD_DOWN ? MOUSE_SPEED : nespad_state & DPAD_UP ? -MOUSE_SPEED : 0);
+            if (left && (nespad_state & DPAD_LEFT) || right && (nespad_state & DPAD_RIGHT)
+             || down && (nespad_state & DPAD_DOWN) || up && (nespad_state & DPAD_UP)) {
+                mouse_throttle += 0.2f;
+            } else {
+                mouse_throttle = 3;
+            }
+            left = nespad_state & DPAD_LEFT;
+            right = nespad_state & DPAD_RIGHT;
+            up = nespad_state & DPAD_UP;
+            down = nespad_state & DPAD_DOWN;
+            sermouseevent(nespad_state & DPAD_B | ((nespad_state & DPAD_A) != 0) << 1,
+                          left ? -mouse_throttle : right ? mouse_throttle : 0,
+                          down ? mouse_throttle : up ? -mouse_throttle : 0);
         }
 #endif
         tight_loop_contents();
