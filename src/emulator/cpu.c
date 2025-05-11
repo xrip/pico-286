@@ -198,8 +198,11 @@ static INLINE void writerm8(uint8_t rmval, uint8_t value) {
 }
 
 static INLINE uint16_t makeflagsword(void) {
+#if CPU_386_EXTENDED_OPS
     return 2 | x86_flags.value;
-    //(x86_flags.value & 0b111111010101);
+#else
+    return 2 | (x86_flags.value & 0b111111010101);
+#endif    
 }
 
 static INLINE void decodeflagsword(uint16_t x) {
@@ -2043,13 +2046,14 @@ void __not_in_flash() exec86(uint32_t execloops) {
                     }
                 }
                 break;
+#if CPU_386_EXTENDED_OPS
             case 0x66: /* Operand-Size Override (изменяет размер операндов: 16 ↔ 32 бит) */
             /// TODO:
                 break;
             case 0x67: /* Address-Size Override (изменяет размер адреса: 16 ↔ 32 бит) */
             /// TODO:
                 break;
-
+#endif
             case 0x68:    /* 68 PUSH Iv (80186+) */
                 push(getmem16(CPU_CS, CPU_IP)
                 );
