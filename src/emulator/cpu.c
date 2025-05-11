@@ -24,17 +24,21 @@
 
 int videomode = 3;
 uint8_t segoverride, reptype;
-uint16_t segregs[4], ip, useseg, oldsp;
+uint32_t segregs32[6];
+uint16_t useseg, oldsp;
+uint32_t ip32;
 uint8_t tempcf, oldcf, mode, reg, rm;
 x86_flags_t x86_flags;
 
-static const uint8_t __not_in_flash("cpu.regt") byteregtable[8] = {regal, regcl, regdl, regbl, regah, regch, regdh, regbh};
+static const uint8_t __not_in_flash("cpu.regt") byteregtable[8] = {
+    regal, regcl, regdl, regbl, regah, regch, regdh, regbh
+};
 
 uint8_t nestlev, addrbyte;
 uint16_t saveip, savecs, oper1, oper2, res16, disp16, temp16, dummy, stacksize, frametemp;
 uint32_t ea;
 
-uint16_t wordregs[8];
+uint32_t dwordregs[8];
 
 static const uint8_t __not_in_flash("cpu.pf") parity[0x100] = {
         1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
@@ -194,7 +198,8 @@ static INLINE void writerm8(uint8_t rmval, uint8_t value) {
 }
 
 static INLINE uint16_t makeflagsword(void) {
-    return 2 | (x86_flags.value & 0b111111010101);
+    return 2 | x86_flags.value;
+    //(x86_flags.value & 0b111111010101);
 }
 
 static INLINE void decodeflagsword(uint16_t x) {
@@ -1197,13 +1202,27 @@ void __not_in_flash() exec86(uint32_t execloops) {
                     segoverride = 1;
                     break;
 
-                    /* repetition prefix check */
-                case 0xF3: /* REP/REPE/REPZ */
-                    reptype = 1;
+                case 0x64: /* segment CPU_FS */
+                    useseg = CPU_FS;
+                    segoverride = 1;
+                    break;
+
+                case 0x65: /* segment CPU_GS */
+                    useseg = CPU_GS;
+                    segoverride = 1;
+                    break;
+
+                case 0xF0: /* LOCK (блокировка шины, для атомарных операций) */
+                /// TODO:
                     break;
 
                 case 0xF2: /* REPNE/REPNZ */
                     reptype = 2;
+                    break;
+
+                    /* repetition prefix check */
+                case 0xF3: /* REP/REPE/REPZ */
+                    reptype = 1;
                     break;
 
                 default:
@@ -1218,7 +1237,6 @@ void __not_in_flash() exec86(uint32_t execloops) {
         switch (opcode) {
             case 0x0:    /* 00 ADD Eb Gb */
                 modregrm();
-
                 oper1b = readrm8(rm);
                 oper2b = getreg8(reg);
                 op_add8();
@@ -2025,6 +2043,12 @@ void __not_in_flash() exec86(uint32_t execloops) {
                     }
                 }
                 break;
+            case 0x66: /* Operand-Size Override (изменяет размер операндов: 16 ↔ 32 бит) */
+            /// TODO:
+                break;
+            case 0x67: /* Address-Size Override (изменяет размер адреса: 16 ↔ 32 бит) */
+            /// TODO:
+                break;
 
             case 0x68:    /* 68 PUSH Iv (80186+) */
                 push(getmem16(CPU_CS, CPU_IP)
@@ -2580,6 +2604,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 break;
 
             case 0x9B:    /* 9B WAIT */
+            /// TODO:
                 break;
 
             case 0x9C:    /* 9C PUSHF */
@@ -3356,6 +3381,7 @@ break;
                 break;
 
             case 0xF4:    /* F4 HLT */
+            /// TODO:
                 //hltstate = 1;
                 break;
 
