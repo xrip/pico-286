@@ -15,7 +15,8 @@
 #define regcs 1
 #define regss 2
 #define regds 3
-// todo: es, gs
+#define regfs 4
+#define reggs 5
 
 // eax
 #define regal 0
@@ -82,6 +83,8 @@
 #define CPU_DS    segregs[regds << 1]
 #define CPU_ES    segregs[reges << 1]
 #define CPU_SS    segregs[regss << 1]
+#define CPU_FS    segregs[regfs << 1]
+#define CPU_GS    segregs[reggs << 1]
 
 #define CPU_AX    wordregs[regax << 1]
 #define CPU_BX    wordregs[regbx << 1]

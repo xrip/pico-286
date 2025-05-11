@@ -198,7 +198,8 @@ static INLINE void writerm8(uint8_t rmval, uint8_t value) {
 }
 
 static INLINE uint16_t makeflagsword(void) {
-    return 2 | (x86_flags.value & 0b111111010101);
+    return 2 | x86_flags.value;
+    //(x86_flags.value & 0b111111010101);
 }
 
 static INLINE void decodeflagsword(uint16_t x) {
@@ -1201,13 +1202,27 @@ void __not_in_flash() exec86(uint32_t execloops) {
                     segoverride = 1;
                     break;
 
-                    /* repetition prefix check */
-                case 0xF3: /* REP/REPE/REPZ */
-                    reptype = 1;
+                case 0x64: /* segment CPU_FS */
+                    useseg = CPU_FS;
+                    segoverride = 1;
+                    break;
+
+                case 0x65: /* segment CPU_GS */
+                    useseg = CPU_GS;
+                    segoverride = 1;
+                    break;
+
+                case 0xF0: /* LOCK (блокировка шины, для атомарных операций) */
+                /// TODO:
                     break;
 
                 case 0xF2: /* REPNE/REPNZ */
                     reptype = 2;
+                    break;
+
+                    /* repetition prefix check */
+                case 0xF3: /* REP/REPE/REPZ */
+                    reptype = 1;
                     break;
 
                 default:
@@ -1222,7 +1237,6 @@ void __not_in_flash() exec86(uint32_t execloops) {
         switch (opcode) {
             case 0x0:    /* 00 ADD Eb Gb */
                 modregrm();
-
                 oper1b = readrm8(rm);
                 oper2b = getreg8(reg);
                 op_add8();
@@ -2029,6 +2043,12 @@ void __not_in_flash() exec86(uint32_t execloops) {
                     }
                 }
                 break;
+            case 0x66: /* Operand-Size Override (изменяет размер операндов: 16 ↔ 32 бит) */
+            /// TODO:
+                break;
+            case 0x67: /* Address-Size Override (изменяет размер адреса: 16 ↔ 32 бит) */
+            /// TODO:
+                break;
 
             case 0x68:    /* 68 PUSH Iv (80186+) */
                 push(getmem16(CPU_CS, CPU_IP)
@@ -2584,6 +2604,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 break;
 
             case 0x9B:    /* 9B WAIT */
+            /// TODO:
                 break;
 
             case 0x9C:    /* 9C PUSHF */
@@ -3360,6 +3381,7 @@ break;
                 break;
 
             case 0xF4:    /* F4 HLT */
+            /// TODO:
                 //hltstate = 1;
                 break;
 

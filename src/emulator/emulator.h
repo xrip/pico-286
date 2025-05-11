@@ -91,6 +91,17 @@ typedef union {
         unsigned IF : 1;  // 9
         unsigned DF : 1;  // 10
         unsigned OF : 1;  // 11
+        unsigned _12 : 1;
+        unsigned _13 : 1;
+        unsigned _14 : 1;
+        unsigned _15 : 1;
+        unsigned _16 : 1;
+        unsigned _17 : 1;
+        unsigned AC : 1; // 18 (Alignment Check)	Проверка выравнивания (включается в CPL=3 при CR0.AM=1)
+                         // (Alignment Check Exception) — INT 17 (11h)
+        unsigned VIF : 1; // 19 (Virtual Interrupt Flag)	Виртуальный IF для виртуализации (введён в 486, но зарезервирован с 386)
+        unsigned VIP : 1; // 20 (Virtual Interrupt Pending)	Виртуальное прерывание ожидает (аналогично — введён в 486)
+        unsigned ID : 1; // 21 (ID Flag)	Позволяет проверить поддержку CPUID инструкцией
     } bits;
 } x86_flags_t;
 
