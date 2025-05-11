@@ -24,17 +24,21 @@
 
 int videomode = 3;
 uint8_t segoverride, reptype;
-uint16_t segregs[4], ip, useseg, oldsp;
+uint32_t segregs32[6];
+uint16_t useseg, oldsp;
+uint32_t ip32;
 uint8_t tempcf, oldcf, mode, reg, rm;
 x86_flags_t x86_flags;
 
-static const uint8_t __not_in_flash("cpu.regt") byteregtable[8] = {regal, regcl, regdl, regbl, regah, regch, regdh, regbh};
+static const uint8_t __not_in_flash("cpu.regt") byteregtable[8] = {
+    regal, regcl, regdl, regbl, regah, regch, regdh, regbh
+};
 
 uint8_t nestlev, addrbyte;
 uint16_t saveip, savecs, oper1, oper2, res16, disp16, temp16, dummy, stacksize, frametemp;
 uint32_t ea;
 
-uint16_t wordregs[8];
+uint32_t dwordregs[8];
 
 static const uint8_t __not_in_flash("cpu.pf") parity[0x100] = {
         1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,

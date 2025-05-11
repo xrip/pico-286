@@ -72,8 +72,9 @@ extern uint8_t log_debug;
 extern uint8_t VIDEORAM[VIDEORAM_SIZE + 4];
 extern uint8_t RAM[RAM_SIZE + 4];
 
-extern uint16_t wordregs[8];
-#define byteregs ((uint8_t*)wordregs)
+extern uint32_t dwordregs[8];
+#define byteregs ((uint8_t*)dwordregs)
+#define wordregs ((uint16_t*)dwordregs)
 
 typedef union {
     uint32_t value;
@@ -94,7 +95,7 @@ typedef union {
 } x86_flags_t;
 
 extern x86_flags_t x86_flags;
-extern uint16_t segregs[4];
+extern uint32_t segregs32[6];
 
 // i8259
 extern struct i8259_s {
