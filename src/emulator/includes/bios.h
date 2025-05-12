@@ -1,4 +1,8 @@
+#if PICO_ON_DEVICE
 #include <pico.h>
+#else
+#define __not_in_flash(x)
+#endif
 static const unsigned char
 #ifndef TOTAL_VIRTUAL_MEMORY_KBS
 __not_in_flash("bios")
