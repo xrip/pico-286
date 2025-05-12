@@ -20,11 +20,17 @@ static INLINE uint8_t ems_read(uint32_t addr) {
 static INLINE uint16_t ems_readw(uint32_t addr) {
     return read16psram(EMS_PSRAM_OFFSET+physical_address(addr));
 }
+static INLINE uint32_t ems_readdw(uint32_t addr) {
+    return read32psram(EMS_PSRAM_OFFSET+physical_address(addr));
+}
 static INLINE void ems_write(uint32_t addr, uint8_t data) {
     write8psram(EMS_PSRAM_OFFSET+physical_address(addr), data);
 }
 static INLINE void ems_writew(uint32_t addr, uint16_t data) {
     write16psram(EMS_PSRAM_OFFSET+physical_address(addr), data);
+}
+static INLINE void ems_writedw(uint32_t addr, uint32_t data) {
+    write32psram(EMS_PSRAM_OFFSET+physical_address(addr), data);
 }
 #else
 uint8_t ALIGN(4, EMS[EMS_MEMORY_SIZE + 4]) = {0};
