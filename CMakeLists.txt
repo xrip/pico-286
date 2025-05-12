@@ -12,7 +12,7 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
-#set(PICO_BOARD pico CACHE STRING "Board type")
+set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 cmake_minimum_required(VERSION 3.22)
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
@@ -88,14 +88,13 @@ else ()
     target_link_libraries(${PROJECT_NAME} PRIVATE st7789)
     target_compile_definitions(${PROJECT_NAME} PRIVATE TFT)
     SET(BUILD_NAME "${BUILD_NAME}-TFT")
-#]]
-    #[[
+    #]]
+    # [[
     target_compile_definitions(${PROJECT_NAME} PRIVATE VGA)
     target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
     SET(BUILD_NAME "${BUILD_NAME}-VGA")
     #]]
-
-    # [[
+    #[[
         add_subdirectory(drivers/hdmi)
         target_link_libraries(${PROJECT_NAME} PRIVATE hdmi)
         target_compile_definitions(${PROJECT_NAME} PRIVATE HDMI)
@@ -130,13 +129,13 @@ else ()
 #            USE_ZONE_FOR_MALLOC=1
             EMU8950_ASM=1
 
-            CPU_FREQ_MHZ=378
+            CPU_FREQ_MHZ=460
 
             CPU_ALLOW_ILLEGAL_OP_EXCEPTION
             CPU_386_EXTENDED_OPS
 
             PICO_FLASH_SIZE_BYTES=16777216
-            ONBOARD_PSRAM_GPIO=19
+            ONBOARD_PSRAM_GPIO=47
             #PSRAM
            # TOTAL_VIRTUAL_MEMORY_KBS=2048
 
@@ -179,9 +178,9 @@ else ()
             CLOCK_PIN=17
             PCM_PIN=22
 
-            I2S_SOUND
+            #I2S_SOUND
 
-            #PWM_SOUND
+            PWM_SOUND
             PWM_BEEPER=28
             PWM_LEFT_CHANNEL=26
             PWM_RIGHT_CHANNEL=27
