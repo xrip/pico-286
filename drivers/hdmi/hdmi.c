@@ -30,14 +30,14 @@ static uint32_t palette[256];
 #define SCREEN_WIDTH (320)
 #define SCREEN_HEIGHT (240)
 //графический буфер
-static uint8_t* graphics_buffer = NULL;
+static uint8_t *graphics_buffer = NULL;
 static int graphics_buffer_width = 0;
 static int graphics_buffer_height = 0;
 static int graphics_buffer_shift_x = 0;
 static int graphics_buffer_shift_y = 0;
 
 //текстовый буфер
-uint8_t* text_buffer = NULL;
+uint8_t *text_buffer = NULL;
 
 
 //DMA каналы
@@ -50,8 +50,8 @@ static int dma_chan_pal_conv;
 
 //DMA буферы
 //основные строчные данные
-static uint32_t* dma_lines[2] = { NULL,NULL };
-static uint32_t* DMA_BUF_ADDR[2];
+static uint32_t *dma_lines[2] = {NULL,NULL};
+static uint32_t *DMA_BUF_ADDR[2];
 
 //ДМА палитра для конвертации
 //в хвосте этой памяти выделяется dma_data
@@ -122,11 +122,11 @@ static uint64_t get_ser_diff_data(const uint16_t dataR, const uint16_t dataG, co
             bB ^= 0b11;
         }
         uint8_t d6;
-        #if HDMI_PIN_RGB_notBGR
-            d6 = (bR << 4) | (bG << 2) | (bB << 0);
-        #else
+#if HDMI_PIN_RGB_notBGR
+        d6 = (bR << 4) | (bG << 2) | (bB << 0);
+#else
             d6 = (bB << 4) | (bG << 2) | (bR << 0);
-        #endif
+#endif
 
 
         out64 |= d6;
@@ -175,26 +175,22 @@ static void __time_critical_func() dma_handler_HDMI() {
 
     line = line >= 524 ? 0 : line + 1;
 
-    if (line >= 399)
-        port3DA = 8;
-    else
-        port3DA = 0;
-
-    if (line & 1)
-        port3DA |= 1;
+    // VSync
+    port3DA = ((line >= 399) ? 8 : 0) | (line & 1);
 
     if ((line & 1) == 0) return;
 
     inx_buf_dma++;
 
 
-    uint8_t* activ_buf = (uint8_t *)dma_lines[inx_buf_dma & 1];
+    uint8_t *activ_buf = (uint8_t *) dma_lines[inx_buf_dma & 1];
 
-    if (graphics_buffer && line < 480 ) {
+    if (graphics_buffer && line < 400) {
         //область изображения
-        uint8_t* input_buffer = &graphics_buffer[(line / 2) * graphics_buffer_width];
-        uint8_t* output_buffer = activ_buf + 72; //для выравнивания синхры;
-        int y = line / 2;
+        uint8_t *output_buffer = activ_buf + 72; //для выравнивания синхры;
+        const uint8_t y = line / 2;
+        const uint8_t *input_buffer_8bit;
+
         switch (graphics_mode) {
             case TEXTMODE_80x25_COLOR: {
                 for (int x = 0; x < TEXTMODE_COLS; x++) {
@@ -203,6 +199,7 @@ static void __time_critical_func() dma_handler_HDMI() {
                     const uint8_t colorIndex = text_buffer[offset + 1];
                     uint8_t glyph_row = font_4x6[c * 6 + y % 6];
 
+#pragma GCC unroll(4)
                     for (int bit = 4; bit--;) {
                         *output_buffer++ = glyph_row & 1
                                                ? textmode_palette[colorIndex & 0xf] //цвет шрифта
@@ -213,40 +210,85 @@ static void __time_critical_func() dma_handler_HDMI() {
                 }
                 break;
             }
-            default:
-            case VGA_320x200x256:
-                    //заполняем пространство сверху и снизу графического буфера
-                    if (false || (graphics_buffer_shift_y > y) || (y >= (graphics_buffer_shift_y + graphics_buffer_height))
-                        || (graphics_buffer_shift_x >= SCREEN_WIDTH) || (
-                            (graphics_buffer_shift_x + graphics_buffer_width) < 0)) {
-                        memset(output_buffer, 0,SCREEN_WIDTH);
-                        break;
-                            }
+            case CGA_320x200x4:
+            case CGA_320x200x4_BW: {
+                input_buffer_8bit = graphics_buffer + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                //2bit buf
+                for (int x = 320 / 4; x--;) {
+                    uint8_t cga_byte = *input_buffer_8bit++;
 
-            uint8_t* activ_buf_end = output_buffer + SCREEN_WIDTH;
-            //рисуем пространство слева от буфера
-            for (int i = graphics_buffer_shift_x; i-- > 0;) {
-                *output_buffer++ = 0;
-            }
-
-            //рисуем сам видеобуфер+пространство справа
-            input_buffer = &graphics_buffer[(y - graphics_buffer_shift_y) * graphics_buffer_width];
-
-            const uint8_t* input_buffer_end = input_buffer + graphics_buffer_width;
-
-            if (graphics_buffer_shift_x < 0) input_buffer -= graphics_buffer_shift_x;
-
-            while (activ_buf_end > output_buffer) {
-                if (input_buffer < input_buffer_end) {
-                    uint8_t i_color = *input_buffer++;
-                    i_color = ((i_color & BASE_HDMI_CTRL_INX) == BASE_HDMI_CTRL_INX) ? 0 : i_color;
-                    *output_buffer++ = i_color;
+                    uint8_t color = (cga_byte >> 6) & 3;
+                    *output_buffer++ = color ? color : cga_foreground_color;
+                    color = (cga_byte >> 4) & 3;
+                    *output_buffer++ = color ? color : cga_foreground_color;
+                    color = (cga_byte >> 2) & 3;
+                    *output_buffer++ = color ? color : cga_foreground_color;
+                    color = (cga_byte >> 0) & 3;
+                    *output_buffer++ = color ? color : cga_foreground_color;
                 }
-                else
-                    *output_buffer++ = 0;
+                break;
             }
+            case COMPOSITE_160x200x16_force:
+            case COMPOSITE_160x200x16:
+            case TGA_160x200x16:
+                input_buffer_8bit = tga_offset + graphics_buffer + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                for (int x = 320 / 4; x--;) {
+                    const uint8_t cga_byte = *input_buffer_8bit++; // Fetch 8 pixels from TGA memory
+                    uint8_t color1 = ((cga_byte >> 4) & 15);
+                    uint8_t color2 = (cga_byte & 15);
 
-            break;
+                    if (!color1 && videomode == 0x8) color1 = cga_foreground_color;
+                    if (!color2 && videomode == 0x8) color2 = cga_foreground_color;
+
+                    *output_buffer++ = color1;
+                    *output_buffer++ = color1;
+                    *output_buffer++ = color2;
+                    *output_buffer++ = color2;
+                }
+                break;
+            case TGA_320x200x16: {
+                //4bit buf
+                input_buffer_8bit = tga_offset + graphics_buffer + (y & 3) * 8192 + __fast_mul(y >> 2, 160);
+                for (int x = SCREEN_WIDTH / 2; x--;) {
+                    *output_buffer++ = *input_buffer_8bit >> 4 & 15;
+                    *output_buffer++ = *input_buffer_8bit & 15;
+                    input_buffer_8bit++;
+                }
+                break;
+            }
+            case VGA_320x200x256x4:
+                input_buffer_8bit = graphics_buffer + __fast_mul(y, 80);
+                for (int x = 640 / 4; x--;) {
+                    //*output_buffer_16bit++=current_palette[*input_buffer_8bit++];
+                    *output_buffer++ = *input_buffer_8bit;
+                    *output_buffer++ = *(input_buffer_8bit + 16000);
+                    *output_buffer++ = *(input_buffer_8bit + 32000);
+                    *output_buffer++ = *(input_buffer_8bit + 48000);
+                    input_buffer_8bit++;
+                }
+                break;
+            case EGA_320x200x16x4: {
+                input_buffer_8bit = graphics_buffer + __fast_mul(y, 40);
+                for (int x = 0; x < 40; x++) {
+                    for (int bit = 7; bit--;) {
+                        *output_buffer++ = input_buffer_8bit[0] >> bit & 1 |
+                                           (input_buffer_8bit[16000] >> bit & 1) << 1 |
+                                           (input_buffer_8bit[32000] >> bit & 1) << 2 |
+                                           (input_buffer_8bit[48000] >> bit & 1) << 3;
+                    }
+                    input_buffer_8bit++;
+                }
+                break;
+            }
+            default:
+            case VGA_320x200x256: {
+                input_buffer_8bit = &graphics_buffer[__fast_mul(y, SCREEN_WIDTH)];
+                for (unsigned int x = SCREEN_WIDTH; x--;) {
+                    const uint8_t color = *input_buffer_8bit++;
+                    *output_buffer++ = (color & BASE_HDMI_CTRL_INX) == BASE_HDMI_CTRL_INX ? 0 : color;
+                }
+                break;
+            }
         }
 
 
@@ -267,8 +309,7 @@ static void __time_critical_func() dma_handler_HDMI() {
         //   memset(activ_buf+320,BASE_HDMI_CTRL_INX,8);
         //   memset(activ_buf+328,BASE_HDMI_CTRL_INX+1,48);
         //   memset(activ_buf+376,BASE_HDMI_CTRL_INX,24);
-    }
-    else {
+    } else {
         if ((line >= 490) && (line < 492)) {
             //кадровый синхроимпульс
             //для выравнивания синхры
@@ -283,11 +324,9 @@ static void __time_critical_func() dma_handler_HDMI() {
             // memset(activ_buf,BASE_HDMI_CTRL_INX+2,328);
             // memset(activ_buf+328,BASE_HDMI_CTRL_INX+3,48);
             // memset(activ_buf+376,BASE_HDMI_CTRL_INX+2,24);
-        }
-        else {
+        } else {
             //ССИ без изображения
             //для выравнивания синхры
-
             memset(activ_buf + 48,BASE_HDMI_CTRL_INX, 352);
             memset(activ_buf,BASE_HDMI_CTRL_INX + 1, 48);
 
@@ -319,8 +358,7 @@ static inline bool hdmi_init() {
     //выключение прерывания DMA
     if (VIDEO_DMA_IRQ == DMA_IRQ_0) {
         dma_channel_set_irq0_enabled(dma_chan_ctrl, false);
-    }
-    else {
+    } else {
         dma_channel_set_irq1_enabled(dma_chan_ctrl, false);
     }
 
@@ -348,10 +386,10 @@ static inline bool hdmi_init() {
 
     offs_prg1 = pio_add_program(PIO_VIDEO_ADDR, &pio_program_conv_addr_HDMI);
     offs_prg0 = pio_add_program(PIO_VIDEO, &program_PIO_HDMI);
-    pio_set_x(PIO_VIDEO_ADDR, SM_conv, ((uint32_t)conv_color >> 12));
+    pio_set_x(PIO_VIDEO_ADDR, SM_conv, ((uint32_t) conv_color >> 12));
 
     //240-243 служебные данные(синхра) напрямую вносим в массив -конвертер
-    uint64_t* conv_color64 = (uint64_t *)conv_color;
+    uint64_t *conv_color64 = (uint64_t *) conv_color;
     const uint16_t b0 = 0b1101010100;
     const uint16_t b1 = 0b0010101011;
     const uint16_t b2 = 0b0101010100;
@@ -511,8 +549,7 @@ static inline bool hdmi_init() {
     if (VIDEO_DMA_IRQ == DMA_IRQ_0) {
         dma_channel_acknowledge_irq0(dma_chan_ctrl);
         dma_channel_set_irq0_enabled(dma_chan_ctrl, true);
-    }
-    else {
+    } else {
         dma_channel_acknowledge_irq1(dma_chan_ctrl);
         dma_channel_set_irq1_enabled(dma_chan_ctrl, true);
     }
@@ -534,7 +571,7 @@ void graphics_set_palette(uint8_t i, uint32_t color888) {
 
     if ((i >= BASE_HDMI_CTRL_INX) && (i != 255)) return; //не записываем "служебные" цвета
 
-    uint64_t* conv_color64 = (uint64_t *)conv_color;
+    uint64_t *conv_color64 = (uint64_t *) conv_color;
     const uint8_t R = (color888 >> 16) & 0xff;
     const uint8_t G = (color888 >> 8) & 0xff;
     const uint8_t B = (color888 >> 0) & 0xff;
@@ -542,7 +579,7 @@ void graphics_set_palette(uint8_t i, uint32_t color888) {
     conv_color64[i * 2 + 1] = conv_color64[i * 2] ^ 0x0003ffffffffffffl;
 };
 
-void graphics_set_buffer(uint8_t* buffer, uint16_t width, uint16_t height) {
+void graphics_set_buffer(uint8_t *buffer, uint16_t width, uint16_t height) {
     graphics_buffer = buffer;
     graphics_buffer_width = width;
     graphics_buffer_height = height;
@@ -573,6 +610,6 @@ void graphics_set_offset(int x, int y) {
     graphics_buffer_shift_y = y;
 };
 
-void graphics_set_textbuffer(uint8_t* buffer) {
+void graphics_set_textbuffer(uint8_t *buffer) {
     text_buffer = buffer;
 };

@@ -170,7 +170,7 @@ void cga_portout(uint16_t portnum, uint16_t value) {
 }
 
 uint16_t cga_portin(uint16_t portnum) {
-     //port3DA ^= 1;
+     // port3DA ^= 1;
      // if (!(port3DA & 1)) port3DA ^= 8;
      // return port3DA;
      return hercules_mode ? 0xFF : port3DA;
