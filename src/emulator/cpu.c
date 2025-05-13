@@ -198,8 +198,8 @@ static INLINE void writerm8(uint8_t rmval, uint8_t value) {
 }
 
 static INLINE uint16_t makeflagsword(void) {
-    return 2 | x86_flags.value;
-    //(x86_flags.value & 0b111111010101);
+    return 2 | (x86_flags.value & 0b111111010101);
+//    return 2 | x86_flags.value; // 386
 }
 
 static INLINE void decodeflagsword(uint16_t x) {

@@ -89,13 +89,13 @@ else ()
     target_compile_definitions(${PROJECT_NAME} PRIVATE TFT)
     SET(BUILD_NAME "${BUILD_NAME}-TFT")
 #]]
-    #[[
+    # [[
     target_compile_definitions(${PROJECT_NAME} PRIVATE VGA)
     target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
     SET(BUILD_NAME "${BUILD_NAME}-VGA")
     #]]
 
-    # [[
+    #[[
         add_subdirectory(drivers/hdmi)
         target_link_libraries(${PROJECT_NAME} PRIVATE hdmi)
         target_compile_definitions(${PROJECT_NAME} PRIVATE HDMI)
