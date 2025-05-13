@@ -132,7 +132,7 @@ else ()
             CPU_FREQ_MHZ=460
 
             CPU_ALLOW_ILLEGAL_OP_EXCEPTION
-            CPU_386_EXTENDED_OPS
+           # CPU_386_EXTENDED_OPS
 
             PICO_FLASH_SIZE_BYTES=16777216
             ONBOARD_PSRAM_GPIO=47

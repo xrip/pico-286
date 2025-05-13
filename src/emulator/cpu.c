@@ -44,7 +44,7 @@ uint32_t ea;
 
 uint32_t dwordregs[8];
 
-static const uint8_t __not_in_flash("cpu.pf") parity[0x100] = {
+static const bool __not_in_flash("cpu.pf") parity[0x100] = {
         1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
         0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
         0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
@@ -61,6 +61,7 @@ static __not_in_flash() void modregrm() {
     mode = addrbyte >> 6;
     reg = (addrbyte >> 3) & 7;
     rm = addrbyte & 7;
+#ifdef CPU_386_EXTENDED_OPS
     if (addressSizeOverride) {
         // 32-битный адрес
         if (mode != 3 && rm == 4) {
@@ -90,6 +91,7 @@ static __not_in_flash() void modregrm() {
         }
         return;
     }
+#endif
     switch (mode) {
         case 0:
             if (rm == 6) {
@@ -123,6 +125,7 @@ static __not_in_flash() void modregrm() {
 
 static __not_in_flash() void getea(uint8_t rmval) {
     register uint32_t tempea = 0;
+#ifdef CPU_386_EXTENDED_OPS
     if (addressSizeOverride) {
         addressSizeOverride  = false;
         if (operandSizeOverride) {
@@ -276,6 +279,7 @@ static __not_in_flash() void getea(uint8_t rmval) {
             tempea += sib_value;
         }
     }
+#endif
     switch (mode) {
         case 0:
             switch (rmval) {
