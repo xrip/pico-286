@@ -257,8 +257,10 @@ static void __time_critical_func() dma_handler_HDMI() {
                     uint8_t color1 = cga_byte >> 4 & 15;
                     uint8_t color2 = cga_byte & 15;
 
-                    if (!color1 && videomode == 0x8) color1 = cga_foreground_color;
-                    if (!color2 && videomode == 0x8) color2 = cga_foreground_color;
+                    if (videomode == 0x8) {
+                        if (!color1) color1 = cga_foreground_color;
+                        if (!color2) color2 = cga_foreground_color;
+                    }
 
                     *output_buffer++ = color1;
                     *output_buffer++ = color1;
