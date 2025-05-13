@@ -67,6 +67,8 @@ static uint32_t irq_inx = 0;
 #define BASE_HDMI_CTRL_INX (250)
 //программа конвертации адреса
 
+extern int cursor_blink_state;
+
 uint16_t pio_program_instructions_conv_HDMI[] = {
     //         //     .wrap_target
     0x80a0, //  0: pull   block
@@ -193,19 +195,46 @@ static void __time_critical_func() dma_handler_HDMI() {
 
         switch (graphics_mode) {
             case TEXTMODE_80x25_COLOR: {
-                for (int x = 0; x < TEXTMODE_COLS; x++) {
-                    const uint16_t offset = (y / 6) * (80 * 2) + x * 2;
-                    const uint8_t c = text_buffer[offset];
-                    const uint8_t colorIndex = text_buffer[offset + 1];
-                    uint8_t glyph_row = font_4x6[c * 6 + y % 6];
+                const uint8_t y_div_6 = y / 6;
+                const uint8_t glyph_line = y % 6;
+                const uint8_t * text_buffer_line = text_buffer + __fast_mul(y_div_6, 160);
 
-#pragma GCC unroll(4)
-                    for (int bit = 4; bit--;) {
-                        *output_buffer++ = glyph_row & 1
-                                               ? textmode_palette[colorIndex & 0xf] //цвет шрифта
-                                               : textmode_palette[colorIndex >> 4]; //цвет фона
+                for (unsigned int column = 0; column < TEXTMODE_COLS; column++) {
+                    uint8_t glyph_pixels = font_4x6[__fast_mul(*text_buffer_line++, 6) + glyph_line];
+                    const uint8_t color = *text_buffer_line++; // TODO: cga_blinking
 
-                        glyph_row >>= 1;
+                    if (color & 0x80 && cursor_blink_state) {
+                        glyph_pixels = 0;
+                    }
+
+                    // TODO: Actual cursor size
+                    const uint8_t cursor_active = cursor_blink_state &&
+                                            y_div_6 == CURSOR_Y && column == CURSOR_X &&
+                                            glyph_line >= 4;
+
+                    if (cursor_active) {
+                        *output_buffer++ = textmode_palette[color & 0xf];
+                        *output_buffer++ = textmode_palette[color & 0xf];
+                        *output_buffer++ = textmode_palette[color & 0xf];
+                        *output_buffer++ = textmode_palette[color & 0xf];
+                    } else if (cga_blinking && color >> 7 & 1) {
+                        #pragma GCC unroll(4)
+                        for (int bit = 4; bit--;) {
+                            *output_buffer++ = cursor_blink_state ? color >> 4 & 0x7 : glyph_pixels & 1
+                                                   ? textmode_palette[color & 0xf] //цвет шрифта
+                                                   : textmode_palette[color >> 4 & 0x7]; //цвет фона
+
+                            glyph_pixels >>= 1;
+                        }
+                    } else {
+                        #pragma GCC unroll(4)
+                        for (int bit = 4; bit--;) {
+                            *output_buffer++ = glyph_pixels & 1
+                                                   ? textmode_palette[color & 0xf] //цвет шрифта
+                                                   : textmode_palette[color >> 4]; //цвет фона
+
+                            glyph_pixels >>= 1;
+                        }
                     }
                 }
                 break;
@@ -215,15 +244,15 @@ static void __time_critical_func() dma_handler_HDMI() {
                 input_buffer_8bit = graphics_buffer + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
                 //2bit buf
                 for (int x = 320 / 4; x--;) {
-                    uint8_t cga_byte = *input_buffer_8bit++;
+                    const uint8_t cga_byte = *input_buffer_8bit++;
 
-                    uint8_t color = (cga_byte >> 6) & 3;
+                    uint8_t color = cga_byte >> 6 & 3;
                     *output_buffer++ = color ? color : cga_foreground_color;
-                    color = (cga_byte >> 4) & 3;
+                    color = cga_byte >> 4 & 3;
                     *output_buffer++ = color ? color : cga_foreground_color;
-                    color = (cga_byte >> 2) & 3;
+                    color = cga_byte >> 2 & 3;
                     *output_buffer++ = color ? color : cga_foreground_color;
-                    color = (cga_byte >> 0) & 3;
+                    color = cga_byte >> 0 & 3;
                     *output_buffer++ = color ? color : cga_foreground_color;
                 }
                 break;
@@ -234,11 +263,13 @@ static void __time_critical_func() dma_handler_HDMI() {
                 input_buffer_8bit = tga_offset + graphics_buffer + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
                 for (int x = 320 / 4; x--;) {
                     const uint8_t cga_byte = *input_buffer_8bit++; // Fetch 8 pixels from TGA memory
-                    uint8_t color1 = ((cga_byte >> 4) & 15);
-                    uint8_t color2 = (cga_byte & 15);
+                    uint8_t color1 = cga_byte >> 4 & 15;
+                    uint8_t color2 = cga_byte & 15;
 
-                    if (!color1 && videomode == 0x8) color1 = cga_foreground_color;
-                    if (!color2 && videomode == 0x8) color2 = cga_foreground_color;
+                    if (videomode == 0x8) {
+                        if (!color1) color1 = cga_foreground_color;
+                        if (!color2) color2 = cga_foreground_color;
+                    }
 
                     *output_buffer++ = color1;
                     *output_buffer++ = color1;
@@ -282,8 +313,8 @@ static void __time_critical_func() dma_handler_HDMI() {
             }
             default:
             case VGA_320x200x256: {
-                input_buffer_8bit = &graphics_buffer[__fast_mul(y, SCREEN_WIDTH)];
-                for (unsigned int x = SCREEN_WIDTH; x--;) {
+                input_buffer_8bit = graphics_buffer +__fast_mul(y, 320);
+                for (unsigned int x = 320; x--;) {
                     const uint8_t color = *input_buffer_8bit++;
                     *output_buffer++ = (color & BASE_HDMI_CTRL_INX) == BASE_HDMI_CTRL_INX ? 0 : color;
                 }

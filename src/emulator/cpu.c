@@ -480,6 +480,10 @@ void intcall86(uint8_t intnum) {
                             // TODO: Overscan/Border 17th color
                             return;
                         }
+                        case 0x03: {
+                            cga_blinking = CPU_BL;
+                            return;
+                        }
                         case 0x10: {// Set One DAC Color Register
                             vga_palette[CPU_BL] = rgb((CPU_DH & 63) << 2, (CPU_CH & 63) << 2,
                                                       (CPU_CL & 63) << 2);
