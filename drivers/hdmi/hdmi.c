@@ -217,8 +217,17 @@ static void __time_critical_func() dma_handler_HDMI() {
                         *output_buffer++ = textmode_palette[color & 0xf];
                         *output_buffer++ = textmode_palette[color & 0xf];
                         *output_buffer++ = textmode_palette[color & 0xf];
+                    } else if (cga_blinking && color >> 7 & 1) {
+                        #pragma GCC unroll(4)
+                        for (int bit = 4; bit--;) {
+                            *output_buffer++ = cursor_blink_state ? color >> 4 & 0x7 : glyph_pixels & 1
+                                                   ? textmode_palette[color & 0xf] //цвет шрифта
+                                                   : textmode_palette[color >> 4 & 0x7]; //цвет фона
+
+                            glyph_pixels >>= 1;
+                        }
                     } else {
-#pragma GCC unroll(4)
+                        #pragma GCC unroll(4)
                         for (int bit = 4; bit--;) {
                             *output_buffer++ = glyph_pixels & 1
                                                    ? textmode_palette[color & 0xf] //цвет шрифта
