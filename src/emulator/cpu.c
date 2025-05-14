@@ -485,7 +485,8 @@ void intcall86(uint8_t intnum) {
                             return;
                         }
                         case 0x03: {
-                            cga_blinking = CPU_BL;
+                            // TODO:
+                        //    cga_blinking = CPU_BL;
                             return;
                         }
                         case 0x10: {// Set One DAC Color Register
@@ -1445,8 +1446,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
                     op_add32();
                     writerm32(rm, res32);
                 } else {
-                    oper1 = readrm16(rm);
-                    oper2 = getreg16(reg);
+                    register uint32_t oper1 = readrm16(rm);
+                    register uint32_t oper2 = getreg16(reg);
                     op_add16();
                     writerm16(rm, res16);
                 }
@@ -1460,16 +1461,14 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 putreg8(reg, res8);
                 break;
 
-            case 0x3:    /* 03 ADD Gv Ev */
+            case 0x3: {   /* 03 ADD Gv Ev */
                 modregrm();
-
-                oper1 = getreg16(reg);
-                oper2 = readrm16(rm);
+                register uint32_t oper1 = getreg16(reg);
+                register uint32_t oper2 = readrm16(rm);
                 op_add16();
-                putreg16(reg, res16
-                );
+                putreg16(reg, res16);
                 break;
-
+            }
             case 0x4:    /* 04 ADD CPU_AL Ib */
                 oper1b = CPU_AL;
                 oper2b = getmem8(CPU_CS, CPU_IP);
@@ -1478,14 +1477,14 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AL = res8;
                 break;
 
-            case 0x5:    /* 05 ADD eAX Iv */
-                oper1 = CPU_AX;
-                oper2 = getmem16(CPU_CS, CPU_IP);
+            case 0x5: {   /* 05 ADD eAX Iv */
+                register uint32_t oper1 = CPU_AX;
+                register uint32_t oper2 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 op_add16();
                 CPU_AX = res16;
                 break;
-
+            }
             case 0x6:    /* 06 PUSH CPU_ES */
                 push(CPU_ES);
                 break;
@@ -1983,78 +1982,78 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AL = CPU_AL & 0xF;
                 break;
 
-            case 0x40:    /* 40 INC eAX */
-                oldcf = cf;
-                oper1 = CPU_AX;
-                oper2 = 1;
-                op_add16();
-                cf = oldcf;
-                CPU_AX = res16;
+            case 0x40: {   /* 40 INC eAX */
+                register uint32_t oper1 = CPU_AX;
+                register uint32_t dst = oper1 + 1;
+                flag_szp16(dst);
+                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
+                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
+                CPU_AX = (uint16_t)dst;
                 break;
-
-            case 0x41:    /* 41 INC eCX */
-                oldcf = cf;
-                oper1 = CPU_CX;
-                oper2 = 1;
-                op_add16();
-                cf = oldcf;
-                CPU_CX = res16;
+            }
+            case 0x41: {   /* 41 INC eCX */
+                register uint32_t oper1 = CPU_CX;
+                register uint32_t dst = oper1 + 1;
+                flag_szp16(dst);
+                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
+                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
+                CPU_CX = (uint16_t)dst;
                 break;
-
-            case 0x42:    /* 42 INC eDX */
-                oldcf = cf;
-                oper1 = CPU_DX;
-                oper2 = 1;
-                op_add16();
-                cf = oldcf;
-                CPU_DX = res16;
+            }
+            case 0x42: {   /* 42 INC eDX */
+                register uint32_t oper1 = CPU_DX;
+                register uint32_t dst = oper1 + 1;
+                flag_szp16(dst);
+                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
+                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
+                CPU_DX = (uint16_t)dst;
                 break;
-
-            case 0x43:    /* 43 INC eBX */
-                oldcf = cf;
-                oper1 = CPU_BX;
-                oper2 = 1;
-                op_add16();
-                cf = oldcf;
-                CPU_BX = res16;
+            }
+            case 0x43: {   /* 43 INC eBX */
+                register uint32_t oper1 = CPU_BX;
+                register uint32_t dst = oper1 + 1;
+                flag_szp16(dst);
+                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
+                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
+                CPU_BX = (uint16_t)dst;
                 break;
-
-            case 0x44:    /* 44 INC eSP */
-                oldcf = cf;
-                oper1 = CPU_SP;
-                oper2 = 1;
-                op_add16();
-                cf = oldcf;
-                CPU_SP = res16;
+            }
+            case 0x44: {   /* 44 INC eSP */
+                register uint32_t oper1 = CPU_SP;
+                register uint32_t dst = oper1 + 1;
+                flag_szp16(dst);
+                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
+                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
+                CPU_SP = (uint16_t)dst;
                 break;
-
-            case 0x45:    /* 45 INC eBP */
-                oldcf = cf;
-                oper1 = CPU_BP;
-                oper2 = 1;
-                op_add16();
-                cf = oldcf;
-                CPU_BP = res16;
+            }
+            case 0x45: {    /* 45 INC eBP */
+                register uint32_t oper1 = CPU_BP;
+                register uint32_t dst = oper1 + 1;
+                flag_szp16(dst);
+                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
+                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
+                CPU_BP = (uint16_t)dst;
                 break;
-
-            case 0x46:    /* 46 INC eSI */
-                oldcf = cf;
-                oper1 = CPU_SI;
-                oper2 = 1;
-                op_add16();
-                cf = oldcf;
-                CPU_SI = res16;
+            }
+            case 0x46: {   /* 46 INC eSI */
+                register uint32_t oper1 = CPU_SI;
+                register uint32_t dst = oper1 + 1;
+                flag_szp16(dst);
+                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
+                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
+                CPU_SI = (uint16_t)dst;
                 break;
-
-            case 0x47:    /* 47 INC eDI */
-                oldcf = cf;
-                oper1 = CPU_DI;
-                oper2 = 1;
-                op_add16();
-                cf = oldcf;
-                CPU_DI = res16;
+            }
+            case 0x47: {   /* 47 INC eDI */
+                register uint32_t oper1 = CPU_DI;
+                register uint32_t dst = oper1 + 1;
+                flag_szp16(dst);
+                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
+                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
+                CPU_DI = (uint16_t)dst;
                 break;
-
+            }
             case 0x48:    /* 48 DEC eAX */
                 oldcf = cf;
                 oper1 = CPU_AX;
