@@ -760,7 +760,14 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
 #define op_xor16() { res16 = oper1 ^ oper2; flag_log16(res16); }
 #define op_xor32() { res32 = oper1 ^ oper2; flag_log32(res32); }
 #define op_sub8() { res8 = oper1b - oper2b; flag_sub8(oper1b, oper2b); }
-#define op_sub16() { res16 = oper1 - oper2; flag_sub16(oper1, oper2); }
+#define op_sub16() { \
+    register uint32_t dst = (uint32_t) oper1 - (uint32_t) oper2; \
+    flag_szp16((uint16_t) dst); \
+    cf = (dst & 0xFFFF0000) != 0; \
+    of = ((dst ^ oper1) & (oper1 ^ oper2) & 0x8000) != 0; \
+    af = ((oper1 ^ oper2 ^ dst) & 0x10) != 0; \
+    res16 = (uint16_t) dst; \
+}
 #define op_sub32() { res32 = oper1 - oper2; flag_sub32(oper1, oper2); }
 #define op_sbb8() { res8 = oper1b - (oper2b + cf); flag_sbb8(oper1b, oper2b, cf); }
 #define op_sbb16() { res16 = oper1 - (oper2 + cf); flag_sbb16(oper1, oper2, cf); }
@@ -807,7 +814,7 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
 
         case 2: /* RCL r/m8 */
             for (int shift = 1; shift <= cnt; shift++) {
-                oldcf = cf;
+                register bool oldcf = cf;
                 if (s & 0x80) {
                     cf = 1;
                 } else {
@@ -825,7 +832,7 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
 
         case 3: /* RCR r/m8 */
             for (int shift = 1; shift <= cnt; shift++) {
-                oldcf = cf;
+                register uint8_t oldcf = cf;
                 cf = s & 1;
                 s = (s >> 1) | (oldcf << 7);
             }
@@ -922,7 +929,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
 
         case 2: /* RCL r/m8 */
             for (int shift = 1; shift <= cnt; shift++) {
-                oldcf = cf;
+                register bool oldcf = cf;
                 if (s & 0x8000) {
                     cf = 1;
                 } else {
@@ -940,7 +947,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
 
         case 3: /* RCR r/m8 */
             for (int shift = 1; shift <= cnt; shift++) {
-                oldcf = cf;
+                register uint32_t oldcf = cf;
                 cf = s & 1;
                 s = (s >> 1) | (oldcf << 15);
             }
@@ -1673,16 +1680,18 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x29:    /* 29 SUB Ev Gv */
+            case 0x29: {   /* 29 SUB Ev Gv */
                 modregrm();
-
-                oper1 = readrm16(rm);
-                oper2 = getreg16(reg);
-                op_sub16();
-                writerm16(rm, res16
-                );
+                register uint32_t oper1 = readrm16(rm);
+                register uint32_t oper2 = getreg16(reg);
+                register uint32_t dst = oper1 - oper2;
+                flag_szp16((uint16_t) dst);
+                cf = (dst & 0xFFFF0000) != 0;
+                of = ((dst ^ oper1) & (oper1 ^ oper2) & 0x8000) != 0;
+                af = ((oper1 ^ oper2 ^ dst) & 0x10) != 0;
+                writerm16(rm, (uint16_t) dst);
                 break;
-
+            }
             case 0x2A:    /* 2A SUB Gb Eb */
                 modregrm();
 
