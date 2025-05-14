@@ -631,19 +631,19 @@ void intcall86(uint8_t intnum) {
 }
 
 static inline void flag_szp8(uint8_t value) {
-    zf = value ? 0 : 1;
+    zf = value == 0;
     sf = value >> 7;
     pf = parity[value];
 }
 
 static inline void flag_szp16(uint16_t value) {
-    zf = value ? 0 : 1;
+    zf = value == 0;
     sf = value >> 15;
     pf = parity[value & 255];
 }
 
 static inline void flag_szp32(uint32_t value) {
-    zf = value ? 0 : 1;
+    zf = value == 0;
     sf = value >> 31;
     pf = parity[value & 255];
 }
@@ -660,173 +660,65 @@ static inline void flag_log16(uint16_t value) {
 
 static inline void flag_adc8(uint8_t v1, uint8_t v2, uint8_t v3) {
     /* v1 = destination operand, v2 = source operand, v3 = carry flag */
-    uint16_t dst;
-
-    dst = (uint16_t) v1 + (uint16_t) v2 + (uint16_t) v3;
+    uint16_t dst = (uint16_t) v1 + (uint16_t) v2 + (uint16_t) v3;
     flag_szp8((uint8_t) dst);
-    if (((dst ^ v1) & (dst ^ v2) & 0x80) == 0x80) {
-        of = 1;
-    } else {
-        of = 0; /* set or clear overflow flag */
-    }
-
-    if (dst & 0xFF00) {
-        cf = 1;
-    } else {
-        cf = 0; /* set or clear carry flag */
-    }
-
-    if (((v1 ^ v2 ^ dst) & 0x10) == 0x10) {
-        af = 1;
-    } else {
-        af = 0; /* set or clear auxilliary flag */
-    }
+    of = ((dst ^ v1) & (dst ^ v2) & 0x80) == 0x80;
+    cf = (dst & 0xFF00) != 0;
+    af = ((v1 ^ v2 ^ dst) & 0x10) == 0x10;
 }
 
 static inline void flag_adc16(uint16_t v1, uint16_t v2, uint16_t v3) {
-    uint32_t dst;
-
-    dst = (uint32_t) v1 + (uint32_t) v2 + (uint32_t) v3;
+    register uint32_t dst = (uint32_t) v1 + (uint32_t) v2 + (uint32_t) v3;
     flag_szp16((uint16_t) dst);
-    if ((((dst ^ v1) & (dst ^ v2)) & 0x8000) == 0x8000) {
-        of = 1;
-    } else {
-        of = 0;
-    }
-
-    if (dst & 0xFFFF0000) {
-        cf = 1;
-    } else {
-        cf = 0;
-    }
-
-    if (((v1 ^ v2 ^ dst) & 0x10) == 0x10) {
-        af = 1;
-    } else {
-        af = 0;
-    }
+    of = (((dst ^ v1) & (dst ^ v2)) & 0x8000) == 0x8000;
+    cf = (dst & 0xFFFF0000) != 0;
+    af = ((v1 ^ v2 ^ dst) & 0x10) == 0x10;
 }
 
 static inline void flag_add8(uint8_t v1, uint8_t v2) {
     /* v1 = destination operand, v2 = source operand */
     register uint32_t dst = (uint16_t)((uint16_t) v1 + (uint16_t) v2);
     flag_szp8((uint8_t) dst);
-    if (dst & 0xFF00) {
-        cf = 1;
-    } else {
-        cf = 0;
-    }
-
-    if (((dst ^ v1) & (dst ^ v2) & 0x80) == 0x80) {
-        of = 1;
-    } else {
-        of = 0;
-    }
-
-    if (((v1 ^ v2 ^ dst) & 0x10) == 0x10) {
-        af = 1;
-    } else {
-        af = 0;
-    }
+    cf = (dst & 0xFF00) != 0;
+    of = ((dst ^ v1) & (dst ^ v2) & 0x80) == 0x80;
+    af = ((v1 ^ v2 ^ dst) & 0x10) == 0x10;
 }
 
 static inline void flag_add32(uint32_t v1, uint32_t v2, uint32_t res32) {
     /* v1 = destination operand, v2 = source operand */
     flag_szp32(res32);
-    if (((uint64_t) v1 + (uint64_t) v2) & 0xF00000000) {
-        cf = 1;
-    } else {
-        cf = 0;
-    }
-
-    if (((res32 ^ v1) & (res32 ^ v2) & 0x8000) == 0x8000) {
-        of = 1;
-    } else {
-        of = 0;
-    }
-
-    if (((v1 ^ v2 ^ res32) & 0x10) == 0x10) {
-        af = 1;
-    } else {
-        af = 0;
-    }
+    cf = (((uint64_t) v1 + (uint64_t) v2) & 0xF00000000) != 0;
+    of = ((res32 ^ v1) & (res32 ^ v2) & 0x8000) == 0x8000;
+    af = ((v1 ^ v2 ^ res32) & 0x10) == 0x10;
 }
 
 static inline void flag_sbb8(uint8_t v1, uint8_t v2, uint8_t v3) {
     /* v1 = destination operand, v2 = source operand, v3 = carry flag */
-    uint16_t dst;
-
     v2 += v3;
-    dst = (uint16_t) v1 - (uint16_t) v2;
+    uint16_t dst = (uint16_t) v1 - (uint16_t) v2;
     flag_szp8((uint8_t) dst);
-    if (dst & 0xFF00) {
-        cf = 1;
-    } else {
-        cf = 0;
-    }
-
-    if ((dst ^ v1) & (v1 ^ v2) & 0x80) {
-        of = 1;
-    } else {
-        of = 0;
-    }
-
-    if ((v1 ^ v2 ^ dst) & 0x10) {
-        af = 1;
-    } else {
-        af = 0;
-    }
+    cf = (dst & 0xFF00) != 0;
+    of = ((dst ^ v1) & (v1 ^ v2) & 0x80) != 0;
+    af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
 }
 
 static inline void flag_sbb16(uint16_t v1, uint16_t v2, uint16_t v3) {
     /* v1 = destination operand, v2 = source operand, v3 = carry flag */
-    uint32_t dst;
-
     v2 += v3;
-    dst = (uint32_t) v1 - (uint32_t) v2;
+    register uint32_t dst = (uint32_t) v1 - (uint32_t) v2;
     flag_szp16((uint16_t) dst);
-    if (dst & 0xFFFF0000) {
-        cf = 1;
-    } else {
-        cf = 0;
-    }
-
-    if ((dst ^ v1) & (v1 ^ v2) & 0x8000) {
-        of = 1;
-    } else {
-        of = 0;
-    }
-
-    if ((v1 ^ v2 ^ dst) & 0x10) {
-        af = 1;
-    } else {
-        af = 0;
-    }
+    cf = (dst & 0xFFFF0000) != 0;
+    of = ((dst ^ v1) & (v1 ^ v2) & 0x8000) != 0;
+    af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
 }
 
 static inline void flag_sub8(uint8_t v1, uint8_t v2) {
     /* v1 = destination operand, v2 = source operand */
-    uint16_t dst;
-
-    dst = (uint16_t) v1 - (uint16_t) v2;
+    uint16_t dst = (uint16_t) v1 - (uint16_t) v2;
     flag_szp8((uint8_t) dst);
-    if (dst & 0xFF00) {
-        cf = 1;
-    } else {
-        cf = 0;
-    }
-
-    if ((dst ^ v1) & (v1 ^ v2) & 0x80) {
-        of = 1;
-    } else {
-        of = 0;
-    }
-
-    if ((v1 ^ v2 ^ dst) & 0x10) {
-        af = 1;
-    } else {
-        af = 0;
-    }
+    cf = (dst & 0xFF00) != 0;
+    of = ((dst ^ v1) & (v1 ^ v2) & 0x80) != 0;
+    af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
 }
 
 static inline void flag_sub16(uint16_t v1, uint16_t v2) {
@@ -853,7 +745,7 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
     register uint32_t dst = (uint32_t)oper1 + (uint32_t)oper2; \
     res16 = dst; \
     flag_szp16(dst); \
-    cf = (dst & 0xFFFF0000) != 0; \
+    cf = (dst & 0x10000) >> 16; \
     of = (((dst ^ oper1) & (dst ^ oper2) & 0x8000) != 0); \
     af = (((oper1 ^ oper2 ^ dst) & 0x10) != 0); \
 }
