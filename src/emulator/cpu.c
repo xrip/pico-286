@@ -660,15 +660,6 @@ static inline void flag_log16(uint16_t value) {
     x86_flags.value &= ~FLAG_CF_OF_MASK;
 }
 
-static inline void flag_adc8(uint8_t v1, uint8_t v2, uint8_t v3) {
-    /* v1 = destination operand, v2 = source operand, v3 = carry flag */
-    uint16_t dst = (uint16_t) v1 + (uint16_t) v2 + (uint16_t) v3;
-    flag_szp8((uint8_t) dst);
-    of = ((dst ^ v1) & (dst ^ v2) & 0x80) != 0;
-    cf = (dst & 0xFF00) != 0;
-    af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
-}
-
 static inline void flag_adc16(uint16_t v1, uint16_t v2, uint16_t v3) {
     register uint32_t dst = (uint32_t) v1 + (uint32_t) v2 + (uint32_t) v3;
     flag_szp16((uint16_t) dst);
@@ -732,24 +723,42 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
     af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
 }
 
-#define op_adc8() { res8 = oper1b + oper2b + cf; flag_adc8(oper1b, oper2b, cf); }
-#define op_adc16() { res16 = oper1 + oper2 + cf; flag_adc16(oper1, oper2, cf); }
+static inline void flag_cof8(uint32_t dst, uint8_t oper1b, uint8_t oper2b) {
+    cf = (dst & 0xFF00) != 0;
+    of = ((dst ^ oper1b) & (dst ^ oper2b) & 0x80) != 0;
+    af = ((oper1b ^ oper2b ^ dst) & 0x10) != 0;
+}
+
+static inline void flag_cof16(uint32_t dst, uint16_t v1, uint16_t v2) {
+    cf = (dst & 0xFFFF0000) != 0;
+    of = ((dst ^ v1) & (v1 ^ v2) & 0x8000) != 0;
+    af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
+}
+
+#define op_adc8() { \
+    register uint32_t dst = oper1b + oper2b + cf; \
+    res8 = (uint8_t)dst; \
+    flag_szp8((uint8_t) dst); \
+    flag_cof8(dst, oper1b, oper2b); \
+}
+#define op_adc16() { \
+    register uint32_t dst = (uint32_t)oper1 + (uint32_t)oper2 + cf; \
+    res16 = (uint16_t)dst; \
+    flag_szp16((uint16_t) dst); \
+    flag_cof16(dst, oper1, oper2); \
+}
 #define op_adc32() { res32 = oper1 + oper2 + cf; flag_adc32(oper1, oper2, cf); }
 #define op_add8() { \
     register uint32_t dst = (uint16_t)((uint16_t)oper1b + (uint16_t)oper2b); \
-    res8 = dst; \
-    flag_szp8(res8); \
-    cf = (dst & 0xFF00) != 0; \
-    of = ((dst ^ oper1b) & (dst ^ oper2b) & 0x80) != 0; \
-    af = ((oper1b ^ oper2b ^ dst) & 0x10) != 0; \
+    res8 = (uint8_t)dst; \
+    flag_szp8((uint8_t)dst); \
+    flag_cof8(dst, oper1b, oper2b); \
 }
 #define op_add16() { \
     register uint32_t dst = (uint32_t)oper1 + (uint32_t)oper2; \
-    res16 = dst; \
-    flag_szp16(dst); \
-    cf = (dst & 0xFFFF0000) != 0; \
-    of = (((dst ^ oper1) & (dst ^ oper2) & 0x8000) != 0); \
-    af = (((oper1 ^ oper2 ^ dst) & 0x10) != 0); \
+    res16 = (uint16_t)dst; \
+    flag_szp16((uint16_t)dst); \
+    flag_cof16(dst, oper1, oper2); \
 }
 #define op_add32() { res32 = oper1 + oper2; flag_add32(oper1, oper2, res32); }
 #define op_and8() { res8 = oper1b & oper2b; flag_log8(res8); }
@@ -764,11 +773,9 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
 #define op_sub8() { res8 = oper1b - oper2b; flag_sub8(oper1b, oper2b); }
 #define op_sub16() { \
     register uint32_t dst = (uint32_t) oper1 - (uint32_t) oper2; \
-    flag_szp16((uint16_t) dst); \
-    cf = (dst & 0xFFFF0000) != 0; \
-    of = ((dst ^ oper1) & (oper1 ^ oper2) & 0x8000) != 0; \
-    af = ((oper1 ^ oper2 ^ dst) & 0x10) != 0; \
     res16 = (uint16_t) dst; \
+    flag_szp16((uint16_t) dst); \
+    flag_cof16(dst, oper1, oper2); \
 }
 #define op_sub32() { res32 = oper1 - oper2; flag_sub32(oper1, oper2); }
 #define op_sbb8() { res8 = oper1b - (oper2b + cf); flag_sbb8(oper1b, oper2b, cf); }
@@ -1020,14 +1027,13 @@ static inline void op_div8(uint16_t valdiv, uint8_t divisor) {
     CPU_AL = (uint8_t) (valdiv / divisor);
 }
 
-static inline void op_idiv8(uint16_t valdiv, uint8_t divisor) {
+static inline void op_idiv8(int16_t dividend, int8_t divisor) {
     if (divisor == 0) {
         intcall86(0);
         return;
     }
 
     uint16_t quotient, remainder;
-    int16_t dividend = (int16_t) valdiv;
     int sign = (dividend < 0) != (divisor < 0);
 
     dividend = abs(dividend);
@@ -1060,14 +1066,12 @@ static inline void op_div16(uint32_t valdiv, uint16_t divisor) {
     CPU_AX = (uint16_t) (valdiv / divisor);
 }
 
-static inline void op_idiv16(uint32_t valdiv, uint16_t divisor) {
-    if (divisor == 0) {
+static inline void op_idiv16(int32_t dividend, int16_t divisor_signed) {
+    if (divisor_signed == 0) {
         intcall86(0);
         return;
     }
 
-    int32_t dividend = (int32_t) valdiv;
-    int32_t divisor_signed = (int16_t) divisor;
     int sign = (dividend < 0) != (divisor_signed < 0);
 
     dividend = abs(dividend);
@@ -1156,7 +1160,7 @@ static __not_in_flash() void op_grp3_16() {
             break;
 
         case 7: /* DIV */
-            op_idiv16(((uint32_t) CPU_DX << 16) + CPU_AX, oper1);
+            op_idiv16((int32_t)(((uint32_t) CPU_DX << 16) + CPU_AX), (int16_t)oper1);
             break;
     }
 }
@@ -3560,7 +3564,7 @@ break;
                         break;
 
                     case 7: /* IDIV */
-                        op_idiv8(CPU_AX, oper1b);
+                        op_idiv8((int16_t)CPU_AX, (int8_t)oper1b);
                         break;
                 }
 
