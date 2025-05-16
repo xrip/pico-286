@@ -132,6 +132,7 @@ static inline uint8_t nextintr() {
             i8259.isr |= (1 << i);
             return (i8259.icw[2] + i);
         }
+    return 0;
 }
 
 void out8259(uint16_t portnum, uint8_t value);
