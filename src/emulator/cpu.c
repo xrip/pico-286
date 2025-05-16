@@ -485,8 +485,9 @@ void intcall86(uint8_t intnum) {
                             return;
                         }
                         case 0x03: {
-                            // TODO:
-                        //    cga_blinking = CPU_BL;
+                            cga_blinking = CPU_BL ? 0x7F : 0xFF;
+                            cga_blinking_lock = !CPU_BL;
+                            //printf("[CPU] INT BL 0x%02x\r\n", CPU_BL);
                             return;
                         }
                         case 0x10: {// Set One DAC Color Register

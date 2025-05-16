@@ -68,8 +68,9 @@ uint32_t vga_palette[256] = {
 #if PICO_ON_DEVICE
                     graphics_set_palette(vga_register, vga_palette[vga_register]);
 #endif
-                } else {
-                    // vga[vga_register_index] = value;
+                } else if (vga_register == 0x10) { // Attribute Mode Control
+                    //printf("[VGA] value 0x%02x\r\n", value);
+                    cga_blinking = (value >> 5) & 1 ? 0x7F : 0xFF;
                 }
             } else {
                 vga_register = value & 0b1111;

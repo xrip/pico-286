@@ -159,7 +159,7 @@ extern void tga_draw_pixel(int x, int y, uint8_t color);
 extern const uint32_t cga_palette[16];
 extern const uint8_t cga_gfxpal[3][2][4];
 extern uint32_t cga_composite_palette[3][16];
-extern uint8_t cga_intensity, cga_colorset, cga_foreground_color, cga_blinking, cga_hires;
+extern uint8_t cga_intensity, cga_colorset, cga_foreground_color, cga_blinking, cga_blinking_lock, cga_hires;
 
 void cga_portout(uint16_t portnum, uint16_t value);
 

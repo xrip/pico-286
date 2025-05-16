@@ -169,7 +169,7 @@ void __time_critical_func() dma_handler_VGA() {
                                         y_div_16 == CURSOR_Y && column == CURSOR_X &&
                                         glyph_line >= cursor_start && glyph_line <= cursor_end;
 
-                if (color & 0x80 && cursor_blink_state) {
+                if (cga_blinking == 0x7F && (color & 0x80) && cursor_blink_state) {
                     glyph_pixels = 0;
                 }
 
@@ -220,7 +220,7 @@ void __time_critical_func() dma_handler_VGA() {
                              glyph_line <= cursor_start << 1)
                          : glyph_line >= cursor_start << 1 && glyph_line <= cursor_end << 1);
 
-                if (color & 0x80 && cursor_blink_state) {
+                if (cga_blinking == 0x7F && (color & 0x80) && cursor_blink_state) {
                     glyph_pixels = 0;
                 }
 
