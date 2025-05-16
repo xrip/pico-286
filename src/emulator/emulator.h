@@ -159,7 +159,7 @@ extern void tga_draw_pixel(int x, int y, uint8_t color);
 extern const uint32_t cga_palette[16];
 extern const uint8_t cga_gfxpal[3][2][4];
 extern uint32_t cga_composite_palette[3][16];
-extern uint8_t cga_intensity, cga_colorset, cga_foreground_color, cga_blinking, cga_hires;
+extern uint8_t cga_intensity, cga_colorset, cga_foreground_color, cga_blinking, cga_blinking_lock, cga_hires;
 
 void cga_portout(uint16_t portnum, uint16_t value);
 
@@ -176,10 +176,12 @@ uint16_t vga_portin(uint16_t portnum);
 
 // Memory
 extern void writew86(uint32_t addr32, uint16_t value);
+extern void writedw86(uint32_t addr32, uint32_t value);
 
 extern void write86(uint32_t addr32, uint8_t value);
 
 extern uint16_t readw86(uint32_t addr32);
+extern uint32_t readdw86(uint32_t addr32);
 
 extern uint8_t read86(uint32_t addr32);
 
@@ -338,12 +340,20 @@ static INLINE void write16psram(const uint32_t address, const uint16_t value) {
     *(uint16_t *) &PSRAM_DATA[address] = value;
 }
 
+static INLINE void write32psram(const uint32_t address, const uint32_t value) {
+    *(uint32_t *) &PSRAM_DATA[address] = value;
+}
+
 static INLINE uint8_t read8psram(const uint32_t address) {
     return PSRAM_DATA[address];
 }
 
 static INLINE uint16_t read16psram(const uint32_t address) {
     return *(uint16_t *) &PSRAM_DATA[address];
+}
+
+static INLINE uint32_t read32psram(const uint32_t address) {
+    return *(uint32_t *) &PSRAM_DATA[address];
 }
 #endif
 #else

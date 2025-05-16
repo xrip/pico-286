@@ -44,13 +44,17 @@
 #define segregs ((uint16_t*)segregs32)
 #define getmem8(x, y) read86(segbase(x) + (y))
 #define getmem16(x, y)  readw86(segbase(x) + (y))
+#define getmem32(x, y)  readdw86(segbase(x) + (y))
 #define putmem8(x, y, z)  write86(segbase(x) + (y), z)
 #define putmem16(x, y, z) writew86(segbase(x) + (y), z)
+#define putmem32(x, y, z) writedw86(segbase(x) + (y), z)
 #define signext(value)  (int16_t)(int8_t)(value)
 #define signext32(value)  (int32_t)(int16_t)(value)
 #define getreg16(regid) wordregs[(regid) << 1]
+#define getreg32(regid) dwordregs[regid]
 #define getreg8(regid)  byteregs[byteregtable[regid]]
 #define putreg16(regid, writeval) wordregs[(regid) << 1] = writeval
+#define putreg32(regid, writeval) dwordregs[regid] = writeval
 #define putreg8(regid, writeval)  byteregs[byteregtable[regid]] = writeval
 #define getsegreg(regid)            segregs[(regid) << 1]
 #define putsegreg(regid, writeval)  segregs[(regid) << 1] = writeval
@@ -85,6 +89,15 @@
 #define CPU_SS    segregs[regss << 1]
 #define CPU_FS    segregs[regfs << 1]
 #define CPU_GS    segregs[reggs << 1]
+
+#define CPU_EAX   dwordregs[regax]
+#define CPU_EBX   dwordregs[regbx]
+#define CPU_ECX   dwordregs[regcx]
+#define CPU_EDX   dwordregs[regdx]
+#define CPU_ESI   dwordregs[regsi]
+#define CPU_EDI   dwordregs[regdi]
+#define CPU_EBP   dwordregs[regbp]
+#define CPU_ESP   dwordregs[regsp]
 
 #define CPU_AX    wordregs[regax << 1]
 #define CPU_BX    wordregs[regbx << 1]
