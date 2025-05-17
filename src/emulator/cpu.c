@@ -1819,9 +1819,11 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x38:    /* 38 CMP Eb Gb */
                 modregrm();
+
                 oper1b = readrm8(rm);
                 oper2b = getreg8(reg);
-                flag_sub8(oper1b, oper2b);
+                flag_sub8(oper1b, oper2b
+                );
                 break;
 
             case 0x39:    /* 39 CMP Ev Gv */
@@ -1835,9 +1837,11 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x3A:    /* 3A CMP Gb Eb */
                 modregrm();
+
                 oper1b = getreg8(reg);
                 oper2b = readrm8(rm);
-                flag_sub8(oper1b, oper2b);
+                flag_sub8(oper1b, oper2b
+                );
                 break;
 
             case 0x3B:    /* 3B CMP Gv Ev */
@@ -1853,7 +1857,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 oper1b = CPU_AL;
                 oper2b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
-                flag_sub8(oper1b, oper2b);
+                flag_sub8(oper1b, oper2b
+                );
                 break;
 
             case 0x3D:    /* 3D CMP eAX Iv */
@@ -2463,7 +2468,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
                         op_xor8();
                         break;
                     case 7:
-                        flag_sub8(oper1b, oper2b);
+                        flag_sub8(oper1b, oper2b
+                        );
                         break;
                     default:
                         break;    /* to avoid compiler warnings */
@@ -2814,7 +2820,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
                     CPU_DI = CPU_DI + 1;
                 }
 
-                flag_sub8(oper1b, oper2b);
+                flag_sub8(oper1b, oper2b
+                );
                 if (reptype) {
                     CPU_CX = CPU_CX - 1;
                 }
@@ -3004,7 +3011,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
                 oper1b = CPU_AL;
                 oper2b = getmem8(CPU_ES, CPU_DI);
-                flag_sub8(oper1b, oper2b);
+                flag_sub8(oper1b, oper2b
+                );
                 if (df) {
                     CPU_DI = CPU_DI - 1;
                 } else {
@@ -3497,13 +3505,13 @@ break;
                         break;
 
                     case 3: /* NEG */
-                        register uint32_t dst = -(uint32_t)oper1b;
-//                        res8 = (~oper1b) + 1;
-                        res8 = (uint8_t)dst;
-                        flag_szp8(res8);
-                        cf = res8 != 0;
-                        of = (res8 & oper1b & 0x80) != 0;
-                        af = ((oper1b ^ res8) & 0x10) != 0;
+                        res8 = (~oper1b) + 1;
+                        flag_sub8(0, oper1b);
+                        if (res8 == 0) {
+                            cf = 0;
+                        } else {
+                            cf = 1;
+                        }
                         break;
 
                     case 4: {/* MUL */
