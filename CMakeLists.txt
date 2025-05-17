@@ -12,8 +12,6 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
-#set(PICO_PLATFORM host)
-set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 cmake_minimum_required(VERSION 3.22)
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
@@ -45,6 +43,7 @@ if (PICO_PLATFORM STREQUAL "host")
 
     target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
 else ()
+    set(PICO_BOARD pico2 CACHE STRING "Board type")
     pico_sdk_init()
 
     add_compile_options(-flto -fwhole-program -ffast-math -ffunction-sections -fdata-sections -fms-extensions -O2)
@@ -130,13 +129,13 @@ else ()
 #            USE_ZONE_FOR_MALLOC=1
             EMU8950_ASM=1
 
-            CPU_FREQ_MHZ=460
+            CPU_FREQ_MHZ=444
 
-            CPU_ALLOW_ILLEGAL_OP_EXCEPTION
+            #CPU_ALLOW_ILLEGAL_OP_EXCEPTION
            # CPU_386_EXTENDED_OPS
 
             PICO_FLASH_SIZE_BYTES=16777216
-            ONBOARD_PSRAM_GPIO=47
+            ONBOARD_PSRAM_GPIO=19
             #PSRAM
            # TOTAL_VIRTUAL_MEMORY_KBS=2048
 
