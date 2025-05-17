@@ -1,4 +1,5 @@
 #include <time.h>
+#include <stdbool.h>
 #include "emulator.h"
 
 //#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION

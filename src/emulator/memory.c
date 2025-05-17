@@ -209,6 +209,27 @@ void writew86(uint32_t address, uint16_t value) {
     }
 }
 
+void writedw86(uint32_t address, uint32_t value) {
+    if (address & 1) {
+        write86(address, (uint8_t) (value & 0xFF));
+        write86(address + 1, (uint8_t) ((value >> 8) & 0xFF));
+        write86(address + 2, (uint8_t) ((value >> 16) & 0xFF));
+        write86(address + 3, (uint8_t) ((value >> 24) & 0xFF));
+    } else {
+        if (address < RAM_SIZE) {
+            *(uint32_t *) &RAM[address] = value;
+        } else if (address >= VIDEORAM_START && address < VIDEORAM_END) {
+            *(uint32_t *) &VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE] = value;
+        } else if (address >= EMS_START && address < EMS_END) {
+            ems_writedw(address - EMS_START, value);
+        } else if (address >= UMB_START && address < UMB_END) {
+            *(uint32_t *) &UMB[address - UMB_START] = value;
+        } else if (address >= HMA_START && address < HMA_END) {
+            *(uint32_t *) &HMA[address - HMA_START] = value;
+        }
+    }
+}
+
 // Reads a byte from the virtual memory
 uint8_t read86(uint32_t address) {
     if (address < RAM_SIZE) {
