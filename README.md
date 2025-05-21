@@ -4,11 +4,11 @@ The Pico-286 project is an endeavor to emulate a classic PC system, reminiscent 
 
 ## Key Features
 
-*   **8086/8088 CPU Emulation:** At its core, the project emulates an Intel 8086/8088 processor.
+*   **8086/8088/80186/286 CPU Emulation:** At its core, the project emulates an Intel up to 286 processor.
 *   **Retro Peripheral Emulation:** Includes support for common peripherals from the era.
 *   **Text and Graphics Modes:** Supports various display modes common in early PCs.
 *   **Sound Emulation:** Recreates sound capabilities of classic sound cards.
-*   **Designed for Raspberry Pi Pico:** Optimized for the RP2040 with minimal external components.
+*   **Designed for Raspberry Pi Pico:** Optimized for the RP2040/RP2350 with minimal external components.
 
 ## Hardware Configuration
 
@@ -19,7 +19,7 @@ The Pico-286 emulator is designed to run on Raspberry Pi Pico (RP2040) based har
     *   External PSRAM chip (minimum 8MB recommended for broader compatibility) connected via SPI.
 
 *   **Recommended Configuration for Maximum Performance:**
-    *   Raspberry Pi RP2350 (or compatible board with RP2350)
+    *   Raspberry Pi Pico 2 (RP2350)
     *   QSPI PSRAM for faster memory access.
 
 *   **Development Platform:**
