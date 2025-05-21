@@ -4,7 +4,7 @@ The Pico-286 project is an endeavor to emulate a classic PC system, reminiscent 
 
 ## Key Features
 
-*   **8086/8088/80186/286 CPU Emulation:** At its core, the project emulates an Intel up to 286 processor.
+*   **8086/8088/80186/286 CPU Emulation:** At its core, the project emulates an Intel cpu up to 286 family.
 *   **Retro Peripheral Emulation:** Includes support for common peripherals from the era.
 *   **Text and Graphics Modes:** Supports various display modes common in early PCs.
 *   **Sound Emulation:** Recreates sound capabilities of classic sound cards.
