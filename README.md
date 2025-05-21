@@ -9,10 +9,18 @@ The Pico-286 project is an endeavor to emulate a classic PC system, reminiscent 
 *   **Text and Graphics Modes:** Supports various display modes common in early PCs.
 *   **Sound Emulation:** Recreates sound capabilities of classic sound cards.
 *   **Designed for Raspberry Pi Pico:** Optimized for the RP2040/RP2350 with minimal external components.
-
+*   Cross-platform: can be built for Raspberry Pi Pico and Windows.
+  
 ## Hardware Configuration
 
 The Pico-286 emulator is designed to run on Raspberry Pi Pico (RP2040) based hardware.
+*   Supports various hardware components, including:
+    *   PS/2 keyboard and mouse
+    *   SD card for storage
+    *   VGA and HDMI for video output
+    *   Audio output
+    *   NES gamepad
+
 
 *   **Minimal Configuration:**
     *   Raspberry Pi Pico (RP2040)
