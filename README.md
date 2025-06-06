@@ -49,7 +49,7 @@ The emulator supports the following sound card emulations:
 The emulator supports the following graphical adapter emulations:
 
 *   CGA (Color Graphics Adapter)
-*   TGA (Targa Graphics Adapter)
+*   TGA (Tandy Graphics Adapter)
 *   VGA (Video Graphics Array)
 
 ## Getting Started
