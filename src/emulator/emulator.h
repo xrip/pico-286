@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 #ifdef PICO_ON_DEVICE
-#define VIDEORAM_SIZE (64 << 10)
+#define VIDEORAM_SIZE (256 << 10) // 256KB
 #if PICO_RP2350
 
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
@@ -34,7 +34,7 @@ extern "C" {
 #endif
 #else
 #include "printf/printf.h"
-#define VIDEORAM_SIZE (64 << 10)
+#define VIDEORAM_SIZE (256 << 10) // 256KB
 #define RAM_SIZE (640 << 10)
 #endif
 #ifdef HARDWARE_SOUND
@@ -49,10 +49,10 @@ extern "C" {
 #define rgb(r, g, b) (((r)<<16) | ((g) << 8 ) | (b) )
 
 #define VIDEORAM_START (0xA0000)
-#define VIDEORAM_END (0xC0000)
+#define VIDEORAM_END (VIDEORAM_START + VIDEORAM_SIZE)
 
-#define EMS_START (0xC0000)
-#define EMS_END   (0xD0000)
+#define EMS_START (VIDEORAM_END) // EMS typically follows VRAM if VRAM is expanded
+#define EMS_END   (EMS_START + (64 << 10)) // Assuming EMS size, e.g. 64KB page frame, or could be 0 if no EMS desired with large VRAM
 
 #define UMB_START (0xD0000)
 #define UMB_END (0xFC000)
@@ -168,7 +168,7 @@ void cga_portout(uint16_t portnum, uint16_t value);
 uint16_t cga_portin(uint16_t portnum);
 
 // EGA/VGA
-#define vga_plane_size (16000)
+#define vga_plane_size (0x10000) // 64KB
 extern uint32_t vga_plane_offset;
 extern uint8_t vga_planar_mode;
 
