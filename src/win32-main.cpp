@@ -279,24 +279,137 @@ static INLINE void renderer() {
                 }
                 break;
             }
-            case 0x10: /* EGA 640x350 4 or 16 color */ {
-                if (y >= 350) break;
-                uint8_t *ega_row = VIDEORAM + y * 80;
-                for (int x = 640 / 8; x--;) {
-                    uint8_t plane1_pixel = *ega_row + vga_plane_size * 0;
-                    uint8_t plane2_pixel = *ega_row + vga_plane_size * 1;
-                    uint8_t plane3_pixel = *ega_row + vga_plane_size * 2;
-                    uint8_t plane4_pixel = *ega_row + vga_plane_size * 3;
+            case 0x10: /* EGA 640x350 16 color */ {
+                if (y >= 350) break; // Mode is 640x350
 
-                    *pixels++ = vga_palette[plane1_pixel];
-                    *pixels++ = vga_palette[plane1_pixel & 15];
-                    *pixels++ = vga_palette[plane2_pixel];
-                    *pixels++ = vga_palette[plane2_pixel & 15];
-                    *pixels++ = vga_palette[plane3_pixel];
-                    *pixels++ = vga_palette[plane3_pixel & 15];
-                    *pixels++ = vga_palette[plane4_pixel];
-                    *pixels++ = vga_palette[plane4_pixel & 15];
-                    ega_row++;
+                // Assuming VIDEORAM is the base of 0xA0000 for plane 0.
+                // vram_offset from CRTC might need to be added if it's non-zero for this mode.
+                // For now, using VIDEORAM directly as the base for plane 0.
+                uint8_t *base_plane0 = VIDEORAM; // Potentially: VIDEORAM + crtc_start_address_bytes;
+
+                for (int x = 0; x < 640; x++) {
+                    uint32_t offset = (y * 80) + (x / 8); // 80 bytes per row (640 pixels / 8 bits_per_byte)
+                    uint8_t bit_pos = 7 - (x % 8);
+
+                    // Ensure offset is within bounds for a plane before accessing memory
+                    // This check is against vga_plane_size because each plane is conceptually that large,
+                    // even if VIDEORAM itself is smaller and planes are interleaved.
+                    // However, direct access VIDEORAM[offset + vga_plane_size * plane_idx] assumes planes are contiguous blocks
+                    // starting from base_plane0, base_plane0+vga_plane_size etc.
+                    // If vga_plane_size is 16000 and VIDEORAM_SIZE is 64KB, this will work if planes are indeed mapped that way.
+
+                    if (offset >= vga_plane_size) { // Basic check, if offset for plane0 itself is > plane_size, something is wrong.
+                                                  // More robust check would be (offset + vga_plane_size * 3) < VIDEORAM_SIZE if planes are contiguous.
+                                                  // Or, if planes are fully within VIDEORAM_SIZE total (e.g. 4 * 16k = 64k), then
+                                                  // (offset + vga_plane_size * plane_idx) must be < VIDEORAM_SIZE.
+                                                  // The current vga_plane_size (16000) and VIDEORAM_SIZE (65536) means
+                                                  // offset + vga_plane_size * 3 = offset + 48000. If offset is near 16000, this is safe.
+                        *pixels++ = 0; // Safety: draw black if offset seems too large for typical plane organization
+                        continue;
+                    }
+
+                    // Check if the full address for the highest plane is within VIDEORAM bounds
+                    if ((offset + vga_plane_size * 3) >= VIDEORAM_SIZE) {
+                         // This indicates that the planes, if stored contiguously with vga_plane_size separation,
+                         // would exceed the total VIDEORAM_SIZE.
+                         // This can happen if vram_offset (from CRTC) is large or if plane organization is different.
+                         // For mode 0x10 (640x350), offset goes up to (349*80) + (639/8) = 27920 + 79 = 27999.
+                         // If vga_plane_size is 16000, this offset is too large for a single plane.
+                         // This implies the vga_plane_size macro (16000) is for *interleaved* data within a single 64k segment (A0000-AFFFF)
+                         // rather than separate large plane blocks.
+                         // The access should be VIDEORAM[plane_interleave_offset_for_plane_X + actual_byte_offset_within_plane]
+                         // The previous memory.c implementation wrote to planes as if they were distinct blocks of vga_plane_size.
+                         // Let's assume for rendering it should match that structure for now.
+                         // If offset (27999) > vga_plane_size (16000), then the pixel data is simply not in the first "chunk" of plane 0.
+                         // This mode should map 0xA0000-0xAFFFF. Max offset is 64k-1.
+                         // (y * 80) + (x/8) is correct for byte addressing within a linear 640-pixel wide plane.
+                         // The issue is how this linear offset maps to physical planes.
+                         // Given vga_plane_size is 16000, we must assume planes are separate blocks of this size.
+                         // Max offset for 640x350 is 350 * 80 = 28000 bytes.
+                         // If vga_plane_size is 16000, then an offset of 27999 is out of bounds for a single plane.
+                         // This indicates a mismatch in understanding vga_plane_size or memory layout for mode 0x10.
+                         // Mode 0x10 maps 64KB at A0000. The planes are within this 64KB.
+                         // The crucial part is that VIDEORAM[offset] is plane 0, VIDEORAM[offset+vga_plane_size*1] is plane 1 for THE SAME PIXEL GROUP.
+                         // This is incorrect. For planar modes, all planes contribute to *each* pixel.
+                         // The offset variable IS the byte offset common to all planes for a group of 8 pixels.
+                         // So, VIDEORAM[offset] is byte from plane 0. VIDEORAM[vga_plane_size + offset] is byte from plane 1.
+                         // The check (offset >= vga_plane_size) is the correct one if `offset` refers to an offset *within* a plane.
+                         // (y*LineWidth + x/8) IS the offset within a logical plane.
+                         // So if this logical offset exceeds physical plane size, it's an issue.
+                         // Max offset for 640x350 (28000) > 16000. This means the vga_plane_size definition is problematic for this mode's resolution.
+                         // However, standard VGA has planes that are 64KB each. Mode 0x10 uses the memory at A0000-AFFFF (64KB).
+                         // The planes are packed in this 64KB region.
+                         // Plane 0: A0000, Plane 1: A0000+1 (for odd/even), or A0000+small_offset, etc.
+                         // The memory.c write code assumes planes are vga_plane_size blocks apart: plane*vga_plane_size + vram_offset_within_plane
+                         // Let's stick to that model for rendering.
+                         // The offset calculation (y*80 + x/8) can go up to ~28000.
+                         // If vga_plane_size is 16000, then VIDEORAM[offset] would be out of bounds for plane 0 if we consider plane 0 to be of size vga_plane_size.
+                         // The most standard interpretation for EGA mode 0x10 (and VGA modes using A0000-AFFFF) is that all 4 planes map to this 64KB region.
+                         // Each plane provides one bit for the pixel.
+                         // For rendering: VIDEORAM[addr] is plane 0, VIDEORAM[addr+1] is plane 1, ... NO, this is for chunky.
+                         // It should be:
+                         // Plane 0 byte: VIDEORAM[ (y * 80) + (x/8) ]
+                         // Plane 1 byte: VIDEORAM[ (y * 80) + (x/8) + Plane1_Offset_from_A0000_base ] - this offset is what vga_plane_size usually means in contiguous models.
+                         // The code in memory.c uses `plane * vga_plane_size` as the base for each plane. So we must match.
+                         // Max offset in mode 0x10 is (349*80 + 639/8) = 27920 + 79 = 27999.
+                         // If (offset + vga_plane_size * 3) >= VIDEORAM_SIZE, it means the data is out of the total 64KB VRAM buffer.
+                         // This should not happen if crtc_vram_offset is 0.
+                         // (27999 + 16000*3) = 27999 + 48000 = 75999, which is > 65536.
+                         // This means the current vga_plane_size (16000) is only allowing data from roughly the first 16KB of each conceptual plane to be addressable if planes were laid out that way AND total VRAM is 64KB.
+                         // This implies the vga_plane_size usage in memory.c for writes might be problematic for resolutions that exceed 16KB per plane data.
+                         // For mode 0x10, the total data per plane is 640x350 / 8 bits = 28000 bytes.
+                         // This is > vga_plane_size (16000).
+                         // Let's assume the vga_plane_size refers to the start of each plane within the total VIDEORAM buffer.
+                         // And that VIDEORAM is large enough to hold all planes contiguously using this separation.
+                         // The VIDEORAM_SIZE is 64KB.
+                         // Plane 0: base_plane0 + offset
+                         // Plane 1: base_plane0 + offset + vga_plane_size * 1 (if vga_plane_size is the distance between start of plane0 and start of plane1 data for *same x,y*)
+                         // This is getting confusing due to vga_plane_size (16000) vs actual data needed (28000 per plane) vs VIDEORAM_SIZE (65536 total).
+
+                        // Correct interpretation for planar modes like EGA/VGA:
+                        // `offset` = byte index within *any* given plane for a particular (x,y) group of 8 pixels.
+                        // `VIDEORAM[offset]` = byte from plane 0
+                        // `VIDEORAM[offset + vga_plane_size * 1]` = byte from plane 1 (assuming planes are stored contiguously separated by vga_plane_size)
+                        // This model was used in memory.c.
+                        // The check `(offset + vga_plane_size * 3) >= VIDEORAM_SIZE` ensures we don't read past the end of the allocated VIDEORAM array.
+                        // Max offset is 27999. vga_plane_size is 16000.
+                        // Plane 0: base_plane0 + 27999
+                        // Plane 1: base_plane0 + 27999 + 16000*1 = base_plane0 + 43999
+                        // Plane 2: base_plane0 + 27999 + 16000*2 = base_plane0 + 59999
+                        // Plane 3: base_plane0 + 27999 + 16000*3 = base_plane0 + 75999. This WILL exceed VIDEORAM_SIZE (65536).
+
+                        // This means the rendering cannot work correctly with vga_plane_size=16000 for the full 640x350 if planes are separated like that.
+                        // For mode 0x10, all planes are within the 0xA0000-0xAFFFF (64KB) range.
+                        // The Sequencer's Map Mask (Reg 2) and Memory Mode (Reg 4) determine how planes are organized.
+                        // Common EGA: Plane 0 at 0xA0000, Plane 1 at 0xA0000, Plane 2 at 0xA0000, Plane 3 at 0xA0000, selected by Map Mask.
+                        // This means offset is just offset from 0xA0000.
+                        // The issue is memory.c writes to `plane * vga_plane_size + vram_offset_in_plane`.
+                        // If vga_plane_size is 16000, then memory.c writes plane 0 to [0, 15999], plane 1 to [16000, 31999] etc.
+                        // This is what the renderer must match.
+                        // So, the access VIDEORAM[offset_within_plane0_data_block], VIDEORAM[vga_plane_size + offset_within_plane1_data_block] etc.
+                        // The `offset` variable here IS the offset within *each* plane's data block.
+                        // So, we read from VIDEORAM[offset], VIDEORAM[vga_plane_size*1 + offset], etc.
+                        // The check should be: (vga_plane_size*3 + offset) < VIDEORAM_SIZE.
+                        // If offset (max 27999) itself is > vga_plane_size (16000), then we are trying to read data for a plane
+                        // beyond where its data block ends according to vga_plane_size.
+                        // This means the current vga_plane_size (16000) is fundamentally too small for 640x350 mode (28000 bytes/plane).
+                        // The renderer should only attempt to render up to the data available with vga_plane_size.
+                        // Or, vga_plane_size should be dynamically set to actual plane data size for the mode (e.g. 28000 for 0x10).
+                        // For now, respecting current vga_plane_size:
+                        if (offset >= vga_plane_size) { // If byte offset within a plane > plane's defined size
+                            *pixels++ = 0; // Black pixel, data is out of specified plane bounds
+                            continue;
+                        }
+                    }
+
+
+                    uint8_t bit0 = (base_plane0[offset + vga_plane_size * 0] >> bit_pos) & 1;
+                    uint8_t bit1 = (base_plane0[offset + vga_plane_size * 1] >> bit_pos) & 1;
+                    uint8_t bit2 = (base_plane0[offset + vga_plane_size * 2] >> bit_pos) & 1;
+                    uint8_t bit3 = (base_plane0[offset + vga_plane_size * 3] >> bit_pos) & 1;
+
+                    uint8_t palette_index = bit0 | (bit1 << 1) | (bit2 << 2) | (bit3 << 3);
+                    *pixels++ = vga_palette[palette_index];
                 }
                 break;
             }

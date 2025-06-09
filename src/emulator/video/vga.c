@@ -153,7 +153,7 @@ uint32_t vga_palette[256] = {
                 7 Color Don't Care
                 8 Bit Mask
              */
-            graphics_control_register = value & 8;
+            graphics_control_register = value & 0x0F;
 //            printf("3CE %x\n", value);
         }
         case 0x3CF: { // Graphics 1 and 2 Address Register

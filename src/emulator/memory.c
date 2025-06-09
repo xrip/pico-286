@@ -20,7 +20,78 @@ void __time_critical_func() write86(uint32_t address, uint8_t value) {
     } else if (address < VIDEORAM_START) {
         write8psram(address, value);
     } else if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-        VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE] = value;
+        // Check for EGA/VGA planar mode
+        if (vga_planar_mode == 2 || vga_planar_mode == 4) { // Or other conditions indicating planar mode
+            uint8_t map_mask = vga_sequencer[2];
+            uint8_t write_mode = vga_graphics_control[5] & 0x03;
+            uint8_t data_rotate_count = vga_graphics_control[3] & 0x07;
+            // uint8_t rotate_function = (vga_graphics_control[3] >> 3) & 0x03; // Ignoring for now
+            uint8_t bit_mask = vga_graphics_control[8];
+            uint8_t set_reset_data = vga_graphics_control[0];
+            uint8_t enable_set_reset = vga_graphics_control[1];
+            // uint8_t read_mode = (vga_graphics_control[5] >> 3) & 0x01; // Ignoring color compare for writes for now
+
+            uint32_t vram_offset = address - VIDEORAM_START;
+            uint8_t cpu_data = value;
+            uint8_t rotated_data = (cpu_data >> data_rotate_count) | (cpu_data << (8 - data_rotate_count));
+
+            for (int plane = 0; plane < 4; ++plane) {
+                if (map_mask & (1 << plane)) {
+                    uint32_t current_plane_base_addr = plane * vga_plane_size;
+                    // Ensure the offset calculation is within the bounds of a single plane when added to current_plane_base_addr
+                    // The vram_offset should be relative to the start of the linear VGA buffer (0xA0000)
+                    // and then be used to address into the specific plane.
+                    // The modulo VIDEORAM_SIZE should be applied to the final plane address if planes wrap around within VIDEORAM total size,
+                    // or vga_plane_size if each plane is a distinct block.
+                    // Given vga_plane_offset is used in the original code, it implies a linear mapping that might be adjusted by sequencer.
+                    // For planar modes, vram_offset is the direct offset in the 64k bank.
+                    uint32_t current_plane_addr = current_plane_base_addr + vram_offset;
+
+                    // Make sure current_plane_addr is within the total VIDEORAM bounds
+                    // This check might need refinement based on how planes are mapped in VIDEORAM
+                    if (current_plane_addr >= VIDEORAM_SIZE) {
+                        // This case should ideally not happen if vram_offset and vga_plane_size are correct
+                        // and mem_address is within 0xA0000-0xAFFFF (for typical 64k segment)
+                        continue;
+                    }
+
+                    uint8_t vram_byte = VIDEORAM[current_plane_addr]; // Read current byte from VRAM for logical ops
+                    uint8_t plane_data_to_write;
+
+                    if (enable_set_reset & (1 << plane)) {
+                        plane_data_to_write = (set_reset_data & (1 << plane)) ? 0xFF : 0x00;
+                    } else {
+                        uint8_t data_for_op = rotated_data;
+                        switch (write_mode) {
+                            case 0:
+                                plane_data_to_write = data_for_op;
+                                break;
+                            case 1: // VRAM data is latched, then ANDed with rotated_data
+                                plane_data_to_write = vram_byte & data_for_op;
+                                break;
+                            case 2: // Write rotated_data ORed with latched VRAM data
+                                plane_data_to_write = vram_byte | data_for_op;
+                                break;
+                            case 3: // Write rotated_data XORed with latched VRAM data
+                                plane_data_to_write = vram_byte ^ data_for_op;
+                                break;
+                            default: // Should not happen
+                                plane_data_to_write = data_for_op;
+                                break;
+                        }
+                    }
+                    VIDEORAM[current_plane_addr] = (plane_data_to_write & bit_mask) | (vram_byte & ~bit_mask);
+                }
+            }
+        } else {
+            // Default VGA write (linear or simple map, uses vga_plane_offset from sequencer)
+            // The original calculation was (vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE
+            // vga_plane_offset is usually 0 for graphics modes, but can be set by sequencer for specific mappings.
+            // For standard VGA modes like 13h (linear), vga_plane_offset would be 0.
+            // For planar modes, direct addressing into planes is handled above.
+            // This path should handle non-planar modes or modes where vga_planar_mode is not set.
+            VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE] = value;
+        }
     } else if (address >= EMS_START && address < EMS_END) {
         ems_write(address - EMS_START, value);
     } else if (address >= UMB_START && address < UMB_END) {
@@ -175,9 +246,60 @@ void write86(uint32_t address, uint8_t value) {
     if (address < RAM_SIZE) {
         RAM[address] = value;
     } else if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-        if (log_debug)
-            printf("Writing %04X %02x\n", (vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE, value);
-        VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE] = value;
+        if (vga_planar_mode == 2 || vga_planar_mode == 4) { // Or other conditions indicating planar mode
+            uint8_t map_mask = vga_sequencer[2];
+            uint8_t write_mode = vga_graphics_control[5] & 0x03;
+            uint8_t data_rotate_count = vga_graphics_control[3] & 0x07;
+            uint8_t bit_mask = vga_graphics_control[8];
+            uint8_t set_reset_data = vga_graphics_control[0];
+            uint8_t enable_set_reset = vga_graphics_control[1];
+
+            uint32_t vram_offset = address - VIDEORAM_START;
+            uint8_t cpu_data = value;
+            uint8_t rotated_data = (cpu_data >> data_rotate_count) | (cpu_data << (8 - data_rotate_count));
+
+            for (int plane = 0; plane < 4; ++plane) {
+                if (map_mask & (1 << plane)) {
+                    uint32_t current_plane_base_addr = plane * vga_plane_size;
+                    uint32_t current_plane_addr = current_plane_base_addr + vram_offset;
+
+                    if (current_plane_addr >= VIDEORAM_SIZE) {
+                         continue;
+                    }
+
+                    uint8_t vram_byte = VIDEORAM[current_plane_addr];
+                    uint8_t plane_data_to_write;
+
+                    if (enable_set_reset & (1 << plane)) {
+                        plane_data_to_write = (set_reset_data & (1 << plane)) ? 0xFF : 0x00;
+                    } else {
+                        uint8_t data_for_op = rotated_data;
+                        switch (write_mode) {
+                            case 0:
+                                plane_data_to_write = data_for_op;
+                                break;
+                            case 1:
+                                plane_data_to_write = vram_byte & data_for_op;
+                                break;
+                            case 2:
+                                plane_data_to_write = vram_byte | data_for_op;
+                                break;
+                            case 3:
+                                plane_data_to_write = vram_byte ^ data_for_op;
+                                break;
+                            default:
+                                plane_data_to_write = data_for_op;
+                                break;
+                        }
+                    }
+                    VIDEORAM[current_plane_addr] = (plane_data_to_write & bit_mask) | (vram_byte & ~bit_mask);
+                }
+            }
+        } else {
+            if (log_debug)
+                printf("Writing %04X %02x\n", (vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE, value);
+            VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE] = value;
+        }
     } else if (address >= EMS_START && address < EMS_END) {
         ems_write(address - EMS_START, value);
     } else if (address >= UMB_START && address < UMB_END) {

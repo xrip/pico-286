@@ -7,6 +7,7 @@
 #endif
 #include <stdint.h>
 #include "cpu.h"
+#include "video/vga.h"
 
 #ifdef __cplusplus
 extern "C" {
