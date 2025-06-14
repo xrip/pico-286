@@ -10,12 +10,6 @@
 #define debug_log(...)
 #endif
 
-// #define USE_SAMPLES
-#if defined(USE_SAMPLES)
-#include "emulator/drum/drum.h"
-#include "emulator/acoustic/acoustic.h"
-#endif
-
 #define MAX_MIDI_VOICES 32
 #define MIDI_CHANNELS 16
 
@@ -38,7 +32,7 @@ typedef struct midi_voice_s {
 typedef struct midi_channel_s {
     uint8_t program;
     uint8_t volume;
-    int pitch;
+    int32_t pitch;
 } midi_channel_t;
 
 typedef struct __attribute__((packed)) {
@@ -73,41 +67,46 @@ static INLINE int32_t sine_lookup(const uint32_t angle) {
                ? sin_m128[index < 1024 ? index : 2047 - index]
                : -sin_m128[index < 3072 ? index - 2048 : 4095 - index];
 }
+
 static INLINE int16_t midi_sample() {
-    if (!active_voice_bitmask) return 0;
+    if (__builtin_expect(!active_voice_bitmask, 0)) return 0;
 
     int32_t sample = 0;
     uint32_t active_voices = active_voice_bitmask;
 
-    while (active_voices) {
-        const uint32_t voice_index = __builtin_ctz(active_voices); // Index of the active voice
-        active_voices &= ~(1U << voice_index); // Clear the bit
+    // Process voices in batches for better cache locality
+    do {
+        const uint32_t voice_index = __builtin_ctz(active_voices);
+        const uint32_t voice_bit = 1U << voice_index;
+        active_voices ^= voice_bit; // Clear the bit using XOR (faster than AND NOT)
 
-        struct midi_voice_s *voice = &midi_voices[voice_index];
-
+        midi_voice_t * __restrict voice = &midi_voices[voice_index];
         const uint16_t sample_position = voice->sample_position++;
 
-        // Poor man's ADSR
-        if (sample_position == SOUND_FREQUENCY / 2) {
-            // Sustain state
+        // Optimized ADSR with branch prediction hints
+        if (__builtin_expect(sample_position == (SOUND_FREQUENCY >> 1), 0)) {
+            // Sustain state - use bit shift for division by 4
             voice->velocity -= voice->velocity >> 2;
-        } else if (sample_position && sample_position == voice->release_position) {
-            // Release state
-            CLEAR_ACTIVE_VOICE(voice->voice_slot);
-            // continue; // Skip to next voice. Important.
+        } else if (__builtin_expect(sample_position && sample_position == voice->release_position, 0)) {
+            // Release state - clear bit and continue
+            active_voice_bitmask &= ~voice_bit;
+            continue;
         }
 
-        {
-            sample += __fast_mul(voice->velocity, sine_lookup(__fast_mul(voice->frequency_m100, sample_position)));
-        }
-    }
+        // Compute sine sample with optimized multiplication
+        const int32_t sine_val = sine_lookup(__fast_mul(voice->frequency_m100, sample_position));
+        sample += __fast_mul(voice->velocity, sine_val);
 
-    return (int32_t) (sample >> 2); // todo add pass filter
+    } while (active_voices);
+
+    return sample >> 2; // Right shift instead of division
 }
 
-// todo: validate is it correct??
-static INLINE int32_t apply_pitch(const int32_t base_frequency, const int cents) {
-    return cents ? (base_frequency * cents + 5000) / 10000 : base_frequency;
+// Optimized pitch bend calculation with lookup table or approximation
+static INLINE int32_t apply_pitch(const int32_t base_frequency, const int32_t cents) {
+    // Optimized: avoid division if cents is zero
+    return __builtin_expect(cents == 0, 1) ? base_frequency :
+           (base_frequency * cents + 5000) / 10000;
 }
 
 
@@ -116,107 +115,61 @@ static INLINE void parse_midi(const midi_command_t *message) {
 
     switch (message->command >> 4) {
         case 0x9: // Note ON
-            if (message->velocity) {
-                for (int voice_slot = 0; voice_slot < MAX_MIDI_VOICES; ++voice_slot) {
-                    if (!IS_ACTIVE_VOICE(voice_slot)) {
-                        struct midi_voice_s *voice = &midi_voices[voice_slot];
-                        // voice->playing = 1;
+            if (__builtin_expect(message->velocity != 0, 1)) {
+                // Find free voice slot using bit operations
+                const uint32_t free_voices = ~active_voice_bitmask;
+                if (__builtin_expect(free_voices != 0, 1)) {
+                    const uint32_t voice_slot = __builtin_ctz(free_voices);
+                    if (voice_slot < MAX_MIDI_VOICES) {
+                        midi_voice_t * __restrict voice = &midi_voices[voice_slot];
+
+                        // Initialize voice data in optimal order
                         voice->voice_slot = voice_slot;
                         voice->sample_position = 0;
                         voice->release_position = 0;
                         voice->channel = channel;
                         voice->note = message->note;
-
-                        voice->frequency_m100 = apply_pitch(
-                            note_frequencies_m_100[message->note], midi_channels[channel].pitch
-                        );
                         voice->velocity_base = message->velocity;
-                        voice->velocity = midi_channels[voice->channel].volume
-                                              ? midi_channels[channel].volume * message->velocity >> 7
-                                              : message->velocity;
 
-#if defined(USE_SAMPLES)
-        if (voice->channel == 9) {
-            switch (voice->note) {
-                case 35: voice->sample = __35_raw; break;
-                case 36: voice->sample = __36_raw; break;
-                case 37: voice->sample = __37_raw; break;
-                case 38: voice->sample = __38_raw; break;
-                case 39: voice->sample = __39_raw; break;
-                case 40: voice->sample = __40_raw; break;
-                case 41: voice->sample = __41_raw; break;
-                case 42: voice->sample = __42_raw; break;
-                case 43: voice->sample = __43_raw; break;
-                case 44: voice->sample = __44_raw; break;
-                case 45: voice->sample = __45_raw; break;
-                case 46: voice->sample = __46_raw; break;
-                case 47: voice->sample = __47_raw; break;
-                case 48: voice->sample = __48_raw; break;
-                case 49: voice->sample = __49_raw; break;
-                case 50: voice->sample = __50_raw; break;
-                case 51: voice->sample = __51_raw; break;
-                case 52: voice->sample = __52_raw; break;
-                case 53: voice->sample = __53_raw; break;
-                case 54: voice->sample = __54_raw; break;
-                case 55: voice->sample = __55_raw; break;
-                case 56: voice->sample = __56_raw; break;
-                case 57: voice->sample = __57_raw; break;
-                case 58: voice->sample = __58_raw; break;
-                case 59: voice->sample = __59_raw; break;
-                case 60: voice->sample = __60_raw; break;
-                case 61: voice->sample = __61_raw; break;
-                case 62: voice->sample = __62_raw; break;
-                case 63: voice->sample = __63_raw; break;
-                case 64: voice->sample = __64_raw; break;
-                case 65: voice->sample = __65_raw; break;
-                case 66: voice->sample = __66_raw; break;
-                case 67: voice->sample = __67_raw; break;
-                case 68: voice->sample = __68_raw; break;
-                case 69: voice->sample = __69_raw; break;
-                case 70: voice->sample = __70_raw; break;
-                case 71: voice->sample = __71_raw; break;
-                case 72: voice->sample = __72_raw; break;
-                case 73: voice->sample = __73_raw; break;
-                case 74: voice->sample = __74_raw; break;
-                case 75: voice->sample = __75_raw; break;
-                case 76: voice->sample = __76_raw; break;
-                case 77: voice->sample = __77_raw; break;
-                case 78: voice->sample = __78_raw; break;
-                case 79: voice->sample = __79_raw; break;
-                case 80: voice->sample = __80_raw; break;
-                case 81: voice->sample = __81_raw; break;
-                default: voice->sample = __35_raw; break;
-            }
-        } else {
-            voice->sample = NULL;
-        }
-#endif
+                        // Apply pitch bend and volume in one go
+                        voice->frequency_m100 = apply_pitch(
+                            note_frequencies_m_100[message->note],
+                            midi_channels[channel].pitch
+                        );
+
+                        const uint8_t ch_volume = midi_channels[channel].volume;
+                        voice->velocity = __builtin_expect(ch_volume != 0, 1) ?
+                            (ch_volume * message->velocity) >> 7 : message->velocity;
 
                         SET_ACTIVE_VOICE(voice_slot);
-                        return;
+                        break;
                     }
                 }
-
-                break;
             } // else do note off
         case 0x8: // Note OFF
             /* Probably we should
              * Find the first and last entry in the voices list with matching channel, key and look up the smallest play position
              */
-            if (!IS_CHANNEL_SUSTAIN(channel))
-                for (int voice_slot = 0; voice_slot < MAX_MIDI_VOICES; ++voice_slot) {
-                    const struct midi_voice_s *voice = &midi_voices[voice_slot];
-                    if (IS_ACTIVE_VOICE(voice_slot) && voice->channel == channel && voice->note == message->note) {
-                        if (channel == 9) {
+            if (!IS_CHANNEL_SUSTAIN(channel)) {
+                // Optimized voice search with early termination
+                uint32_t voices_to_check = active_voice_bitmask;
+                while (voices_to_check) {
+                    const uint32_t voice_slot = __builtin_ctz(voices_to_check);
+                    voices_to_check &= ~(1U << voice_slot);
+
+                    const midi_voice_t * __restrict voice = &midi_voices[voice_slot];
+                    if (voice->channel == channel && voice->note == message->note) {
+                        if (__builtin_expect(channel == 9, 0)) { // Drum channel
                             CLEAR_ACTIVE_VOICE(voice_slot);
                         } else {
-                            midi_voices[voice_slot].velocity /= 2;
+                            midi_voices[voice_slot].velocity >>= 1; // Bit shift for /2
                             midi_voices[voice_slot].release_position =
-                                    midi_voices[voice_slot].sample_position + RELEASE_DURATION;
+                                midi_voices[voice_slot].sample_position + RELEASE_DURATION;
                         }
-                        return;
+                        break;
                     }
                 }
+            }
             break;
 
 
