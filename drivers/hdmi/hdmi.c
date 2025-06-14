@@ -71,11 +71,11 @@ extern int cursor_blink_state;
  * This program converts 8-bit palette indices to TMDS-encoded RGB data
  */
 uint16_t pio_instructions_address_converter[] = {
-     0x80a0, //  0: pull   block           ; Get palette index from DMA
-     0x40e8, //  1: in     osr, 8          ; Shift 8 bits into ISR
-     0x4034, //  2: in     x, 20           ; Shift 20 bits from X (base address)
-     0x8020, //  3: push   block           ; Push converted address to output
- };
+    0x80a0, //  0: pull   block           ; Get palette index from DMA
+    0x40e8, //  1: in     osr, 8          ; Shift 8 bits into ISR
+    0x4034, //  2: in     x, 20           ; Shift 20 bits from X (base address)
+    0x8020, //  3: push   block           ; Push converted address to output
+};
 
 
 const struct pio_program pio_program_address_converter = {
@@ -115,14 +115,14 @@ static const struct pio_program pio_program_hdmi_output = {
  * @return 64-bit serialized differential pair data
  */
 static uint64_t generate_hdmi_differential_data(const uint16_t red_data,
-                                               const uint16_t green_data,
-                                               const uint16_t blue_data) {
+                                                const uint16_t green_data,
+                                                const uint16_t blue_data) {
     uint64_t serialized_output = 0;
 
     // Process each of the 10 bits in the TMDS data
     for (int bit_index = 0; bit_index < 10; bit_index++) {
         serialized_output <<= 6;
-        if (bit_index == 5) serialized_output <<= 2;  // Extra shift for timing
+        if (bit_index == 5) serialized_output <<= 2; // Extra shift for timing
 
         // Extract current bit from each channel
         uint8_t red_bit = (red_data >> (9 - bit_index)) & 1;
@@ -134,11 +134,11 @@ static uint64_t generate_hdmi_differential_data(const uint16_t red_data,
         green_bit |= (green_bit ^ 1) << 1;
         blue_bit |= (blue_bit ^ 1) << 1;
 
+#if HDMI_PIN_invert_diffpairs
         // Apply differential pair inversion if configured
-#if (HDMI_PIN_invert_diffpairs)
-            red_bit ^= 0b11;
-            green_bit ^= 0b11;
-            blue_bit ^= 0b11;
+        red_bit ^= 0b11;
+        green_bit ^= 0b11;
+        blue_bit ^= 0b11;
 #endif
 
         // Pack into a 6-bit output word
@@ -165,7 +165,7 @@ static inline uint tmds_encode_8b10b(const uint8_t input_byte) {
     bool use_xnor = ones_count > 4 || ones_count == 4 && (input_byte & 1) == 0;
 
     // Generate 8-bit encoded data
-    uint16_t encoded_data = input_byte & 1;  // Start with LSB
+    uint16_t encoded_data = input_byte & 1; // Start with LSB
     uint16_t previous_bit = encoded_data;
 
     for (int i = 1; i < 8; i++) {
@@ -201,7 +201,7 @@ static inline void pio_set_x_register(PIO pio, const int state_machine, const ui
 
 static void __time_critical_func() hdmi_scanline_interrupt_handler() {
     static uint32_t buffer_index;
-    static uint current_scanline  = 0;
+    static uint current_scanline = 0;
 
     interrupt_counter++;
 
@@ -211,7 +211,7 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
     // Set up the next scanline buffer
     dma_channel_set_read_addr(dma_channel_control, &dma_buffer_addresses[buffer_index & 1], false);
 
-    current_scanline  = current_scanline  >= 524 ? 0 : current_scanline  + 1;
+    current_scanline = current_scanline >= 524 ? 0 : current_scanline + 1;
 
     // VSync
     port3DA = ((current_scanline >= 399) ? 8 : 0) | (current_scanline & 1);
@@ -222,19 +222,19 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
     buffer_index++;
 
 
-    uint8_t *current_scanline_buffer  = (uint8_t *) scanline_buffers[buffer_index & 1];
+    uint8_t *current_scanline_buffer = (uint8_t *) scanline_buffers[buffer_index & 1];
 
-    if (graphics_framebuffer && current_scanline  < 400) {
+    if (graphics_framebuffer && current_scanline < 400) {
         //область изображения
-        uint8_t *output_buffer = current_scanline_buffer  + 72; //для выравнивания синхры;
-        const uint8_t y = current_scanline  / 2;
+        uint8_t *output_buffer = current_scanline_buffer + 72; //для выравнивания синхры;
+        const uint8_t y = current_scanline / 2;
         const uint8_t *input_buffer_8bit;
 
         switch (graphics_mode) {
             case TEXTMODE_80x25_COLOR: {
                 const uint8_t y_div_6 = y / 6;
                 const uint8_t glyph_line = y - y_div_6 * 6; // Optimized modulo
-                const uint8_t * text_buffer_line = text_buffer + __fast_mul(y_div_6, 160);
+                const uint8_t *text_buffer_line = text_buffer + __fast_mul(y_div_6, 160);
 
                 for (unsigned int column = 0; column < TEXTMODE_COLS; column++) {
                     uint8_t glyph_pixels = font_4x6[__fast_mul(*text_buffer_line++, 6) + glyph_line];
@@ -246,8 +246,8 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
 
                     // TODO: Actual cursor size
                     const uint8_t cursor_active = cursor_blink_state &&
-                                            y_div_6 == CURSOR_Y && column == CURSOR_X &&
-                                            glyph_line >= 4;
+                                                  y_div_6 == CURSOR_Y && column == CURSOR_X &&
+                                                  glyph_line >= 4;
 
                     if (cursor_active) {
                         *output_buffer++ = textmode_palette[color & 0xf];
@@ -255,16 +255,18 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
                         *output_buffer++ = textmode_palette[color & 0xf];
                         *output_buffer++ = textmode_palette[color & 0xf];
                     } else if (cga_blinking && color >> 7 & 1) {
-                        #pragma GCC unroll(4)
+#pragma GCC unroll(4)
                         for (int bit = 4; bit--;) {
-                            *output_buffer++ = cursor_blink_state ? color >> 4 & 0x7 : glyph_pixels & 1
-                                                   ? textmode_palette[color & 0xf] //цвет шрифта
-                                                   : textmode_palette[color >> 4 & 0x7]; //цвет фона
+                            *output_buffer++ = cursor_blink_state
+                                                   ? color >> 4 & 0x7
+                                                   : glyph_pixels & 1
+                                                         ? textmode_palette[color & 0xf] //цвет шрифта
+                                                         : textmode_palette[color >> 4 & 0x7]; //цвет фона
 
                             glyph_pixels >>= 1;
                         }
                     } else {
-                        #pragma GCC unroll(4)
+#pragma GCC unroll(4)
                         for (int bit = 4; bit--;) {
                             *output_buffer++ = glyph_pixels & 1
                                                    ? textmode_palette[color & 0xf] //цвет шрифта
@@ -350,7 +352,7 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
             }
             default:
             case VGA_320x200x256: {
-                input_buffer_8bit = graphics_framebuffer +__fast_mul(y, 320);
+                input_buffer_8bit = graphics_framebuffer + __fast_mul(y, 320);
                 for (unsigned int x = 320; x--;) {
                     const uint8_t color = *input_buffer_8bit++;
                     *output_buffer++ = (color & HDMI_CTRL_BASE_INDEX) == HDMI_CTRL_BASE_INDEX ? 0 : color;
@@ -367,9 +369,9 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
 
         // --|_|---|_|---|_|----
         //---|___________|-----
-        memset(current_scanline_buffer  + 48,HDMI_CTRL_BASE_INDEX, 24);
-        memset(current_scanline_buffer ,HDMI_CTRL_BASE_INDEX + 1, 48);
-        memset(current_scanline_buffer  + 392,HDMI_CTRL_BASE_INDEX, 8);
+        memset(current_scanline_buffer + 48,HDMI_CTRL_BASE_INDEX, 24);
+        memset(current_scanline_buffer,HDMI_CTRL_BASE_INDEX + 1, 48);
+        memset(current_scanline_buffer + 392,HDMI_CTRL_BASE_INDEX, 8);
 
         //без выравнивания
         // --|_|---|_|---|_|----
@@ -378,13 +380,13 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
         //   memset(activ_buf+328,BASE_HDMI_CTRL_INX+1,48);
         //   memset(activ_buf+376,BASE_HDMI_CTRL_INX,24);
     } else {
-        if ((current_scanline  >= 490) && (current_scanline  < 492)) {
+        if ((current_scanline >= 490) && (current_scanline < 492)) {
             //кадровый синхроимпульс
             //для выравнивания синхры
             // --|_|---|_|---|_|----
             //---|___________|-----
-            memset(current_scanline_buffer  + 48,HDMI_CTRL_BASE_INDEX + 2, 352);
-            memset(current_scanline_buffer ,HDMI_CTRL_BASE_INDEX + 3, 48);
+            memset(current_scanline_buffer + 48,HDMI_CTRL_BASE_INDEX + 2, 352);
+            memset(current_scanline_buffer,HDMI_CTRL_BASE_INDEX + 3, 48);
             //без выравнивания
             // --|_|---|_|---|_|----
             //-------|___________|----
@@ -395,8 +397,8 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
         } else {
             //ССИ без изображения
             //для выравнивания синхры
-            memset(current_scanline_buffer  + 48,HDMI_CTRL_BASE_INDEX, 352);
-            memset(current_scanline_buffer ,HDMI_CTRL_BASE_INDEX + 1, 48);
+            memset(current_scanline_buffer + 48,HDMI_CTRL_BASE_INDEX, 352);
+            memset(current_scanline_buffer,HDMI_CTRL_BASE_INDEX + 1, 48);
 
             // memset(activ_buf,BASE_HDMI_CTRL_INX,328);
             // memset(activ_buf+328,BASE_HDMI_CTRL_INX+1,48);
@@ -458,46 +460,46 @@ static inline bool initialize_hdmi_output() {
     pio_set_x_register(PIO_VIDEO_ADDR, sm_address_converter, (uint32_t) tmds_palette_buffer >> 12);
 
     //240-243 служебные данные(синхра) напрямую вносим в массив -конвертер
-    uint64_t *tmds_buffer_64  = (uint64_t *) tmds_palette_buffer;
+    uint64_t *tmds_buffer_64 = (uint64_t *) tmds_palette_buffer;
     const uint16_t ctrl_symbol_0 = 0b1101010100;
     const uint16_t ctrl_symbol_1 = 0b0010101011;
     const uint16_t ctrl_symbol_2 = 0b0101010100;
     const uint16_t ctrl_symbol_3 = 0b1010101011;
 
-    const int base_index  = HDMI_CTRL_BASE_INDEX;
+    const int base_index = HDMI_CTRL_BASE_INDEX;
 
     // H-sync low, V-sync low
-    tmds_buffer_64 [2 * base_index  + 0] = generate_hdmi_differential_data(ctrl_symbol_0 , ctrl_symbol_0 , ctrl_symbol_3);
-    tmds_buffer_64 [2 * base_index  + 1] = generate_hdmi_differential_data(ctrl_symbol_0 , ctrl_symbol_0 , ctrl_symbol_3);
+    tmds_buffer_64[2 * base_index + 0] = generate_hdmi_differential_data(ctrl_symbol_0, ctrl_symbol_0, ctrl_symbol_3);
+    tmds_buffer_64[2 * base_index + 1] = generate_hdmi_differential_data(ctrl_symbol_0, ctrl_symbol_0, ctrl_symbol_3);
 
     // H-sync high, V-sync low
-    tmds_buffer_64 [2 * (base_index  + 1) + 0] = generate_hdmi_differential_data(ctrl_symbol_0 , ctrl_symbol_0 , ctrl_symbol_2);
-    tmds_buffer_64 [2 * (base_index  + 1) + 1] = generate_hdmi_differential_data(ctrl_symbol_0 , ctrl_symbol_0 , ctrl_symbol_2);
+    tmds_buffer_64[2 * (base_index + 1) + 0] = generate_hdmi_differential_data(ctrl_symbol_0, ctrl_symbol_0, ctrl_symbol_2);
+    tmds_buffer_64[2 * (base_index + 1) + 1] = generate_hdmi_differential_data(ctrl_symbol_0, ctrl_symbol_0, ctrl_symbol_2);
 
     // H-sync low, V-sync high
-    tmds_buffer_64 [2 * (base_index  + 2) + 0] = generate_hdmi_differential_data(ctrl_symbol_0 , ctrl_symbol_0 , ctrl_symbol_1);
-    tmds_buffer_64 [2 * (base_index  + 2) + 1] = generate_hdmi_differential_data(ctrl_symbol_0 , ctrl_symbol_0 , ctrl_symbol_1);
+    tmds_buffer_64[2 * (base_index + 2) + 0] = generate_hdmi_differential_data(ctrl_symbol_0, ctrl_symbol_0, ctrl_symbol_1);
+    tmds_buffer_64[2 * (base_index + 2) + 1] = generate_hdmi_differential_data(ctrl_symbol_0, ctrl_symbol_0, ctrl_symbol_1);
 
     // H-sync high, V-sync high
-    tmds_buffer_64 [2 * (base_index  + 3) + 0] = generate_hdmi_differential_data(ctrl_symbol_0 , ctrl_symbol_0 , ctrl_symbol_0 );
-    tmds_buffer_64 [2 * (base_index  + 3) + 1] = generate_hdmi_differential_data(ctrl_symbol_0 , ctrl_symbol_0 , ctrl_symbol_0 );
+    tmds_buffer_64[2 * (base_index + 3) + 0] = generate_hdmi_differential_data(ctrl_symbol_0, ctrl_symbol_0, ctrl_symbol_0);
+    tmds_buffer_64[2 * (base_index + 3) + 1] = generate_hdmi_differential_data(ctrl_symbol_0, ctrl_symbol_0, ctrl_symbol_0);
 
     //настройка PIO SM для конвертации
 
-    pio_sm_config config  = pio_get_default_sm_config();
-    sm_config_set_wrap(&config , pio_program_offset_converter, pio_program_offset_converter + (pio_program_address_converter.length - 1));
-    sm_config_set_in_shift(&config , true, false, 32);
+    pio_sm_config config = pio_get_default_sm_config();
+    sm_config_set_wrap(&config, pio_program_offset_converter, pio_program_offset_converter + (pio_program_address_converter.length - 1));
+    sm_config_set_in_shift(&config, true, false, 32);
 
-    pio_sm_init(PIO_VIDEO_ADDR, sm_address_converter, pio_program_offset_converter, &config );
+    pio_sm_init(PIO_VIDEO_ADDR, sm_address_converter, pio_program_offset_converter, &config);
     pio_sm_set_enabled(PIO_VIDEO_ADDR, sm_address_converter, true);
 
     //настройка PIO SM для вывода данных
-    config  = pio_get_default_sm_config();
-    sm_config_set_wrap(&config , pio_program_offset_video, pio_program_offset_video + (pio_program_hdmi_output.length - 1));
+    config = pio_get_default_sm_config();
+    sm_config_set_wrap(&config, pio_program_offset_video, pio_program_offset_video + (pio_program_hdmi_output.length - 1));
 
     //настройка side set
-    sm_config_set_sideset_pins(&config ,beginHDMI_PIN_clk);
-    sm_config_set_sideset(&config , 2,false,false);
+    sm_config_set_sideset_pins(&config,beginHDMI_PIN_clk);
+    sm_config_set_sideset(&config, 2,false,false);
 
     for (int i = 0; i < 2; i++) {
         pio_gpio_init(PIO_VIDEO, beginHDMI_PIN_clk + i);
@@ -516,14 +518,14 @@ static inline bool initialize_hdmi_output() {
     }
     pio_sm_set_consecutive_pindirs(PIO_VIDEO, sm_video_output, beginHDMI_PIN_data, 6, true);
     //конфигурация пинов на выход
-    sm_config_set_out_pins(&config , beginHDMI_PIN_data, 6);
+    sm_config_set_out_pins(&config, beginHDMI_PIN_data, 6);
 
     //
-    sm_config_set_out_shift(&config , true, true, 30);
-    sm_config_set_fifo_join(&config , PIO_FIFO_JOIN_TX);
+    sm_config_set_out_shift(&config, true, true, 30);
+    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
 
-    sm_config_set_clkdiv(&config , clock_get_hz(clk_sys) / 252000000.0f);
-    pio_sm_init(PIO_VIDEO, sm_video_output, pio_program_offset_video, &config );
+    sm_config_set_clkdiv(&config, clock_get_hz(clk_sys) / 252000000.0f);
+    pio_sm_init(PIO_VIDEO, sm_video_output, pio_program_offset_video, &config);
     pio_sm_set_enabled(PIO_VIDEO, sm_video_output, true);
 
     //настройки DMA
@@ -538,8 +540,7 @@ static inline bool initialize_hdmi_output() {
     channel_config_set_read_increment(&dma_config, true);
     channel_config_set_write_increment(&dma_config, false);
 
-    uint dreq = (PIO_VIDEO_ADDR == pio0) ? DREQ_PIO0_TX0 + sm_address_converter :
-                                           DREQ_PIO1_TX0 + sm_address_converter;
+    uint dreq = (PIO_VIDEO_ADDR == pio0) ? DREQ_PIO0_TX0 + sm_address_converter : DREQ_PIO1_TX0 + sm_address_converter;
 
     channel_config_set_dreq(&dma_config, dreq);
 
@@ -632,11 +633,12 @@ static inline bool initialize_hdmi_output() {
     dma_start_channel_mask((1u << dma_channel_control));
 
     return true;
-};
+}
+
 //выбор видеорежима
 void graphics_set_mode(enum graphics_mode_t mode) {
     graphics_mode = mode;
-};
+}
 
 void graphics_set_palette(uint8_t i, uint32_t color888) {
     color_palette[i] = color888 & 0x00ffffff;
@@ -650,13 +652,13 @@ void graphics_set_palette(uint8_t i, uint32_t color888) {
     const uint8_t B = (color888 >> 0) & 0xff;
     conv_color64[i * 2] = generate_hdmi_differential_data(tmds_encode_8b10b(R), tmds_encode_8b10b(G), tmds_encode_8b10b(B));
     conv_color64[i * 2 + 1] = conv_color64[i * 2] ^ 0x0003ffffffffffffl;
-};
+}
 
 void graphics_set_buffer(uint8_t *buffer, uint16_t width, uint16_t height) {
     graphics_framebuffer = buffer;
     framebuffer_width = width;
     framebuffer_height = height;
-};
+}
 
 
 //выделение и настройка общих ресурсов - 4 DMA канала, PIO программ и 2 SM
@@ -676,13 +678,13 @@ void graphics_init() {
 void graphics_set_bgcolor(uint32_t color888) //определяем зарезервированный цвет в палитре
 {
     graphics_set_palette(255, color888);
-};
+}
 
 void graphics_set_offset(int x, int y) {
     framebuffer_offset_x = x;
     framebuffer_offset_y = y;
-};
+}
 
 void graphics_set_textbuffer(uint8_t *buffer) {
     text_buffer = buffer;
-};
+}
