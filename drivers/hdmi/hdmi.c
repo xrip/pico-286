@@ -206,7 +206,7 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
     current_scanline = current_scanline >= 524 ? 0 : current_scanline + 1;
 
     // VSync
-    port3DA = ((current_scanline >= 399) ? 8 : 0) | (current_scanline & 1);
+    port3DA = (current_scanline >= 399 ? 8 : 0) | current_scanline & 1;
 
     // Skip processing on even scanlines (simple line doubling for 240p output)
     if ((current_scanline & 1) == 0) return;
