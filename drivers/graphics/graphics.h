@@ -65,7 +65,7 @@ void graphics_set_buffer(uint8_t *buffer, uint16_t width, uint16_t height);
 
 void graphics_set_offset(int x, int y);
 
-void graphics_set_palette(uint8_t i, uint32_t color);
+void graphics_set_palette(uint8_t index, uint32_t color);
 
 void graphics_set_textbuffer(uint8_t *buffer);
 

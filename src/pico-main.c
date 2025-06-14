@@ -1,17 +1,19 @@
 #pragma GCC optimize("Ofast")
+
 #include <pico/time.h>
-#include "hardware/clocks.h"
 #include <pico/stdlib.h>
+#include <pico/multicore.h>
+#include <hardware/clocks.h>
 #include <hardware/vreg.h>
 #include <hardware/pwm.h>
-#include <pico/multicore.h>
-
+#include <hardware/exception.h>
 
 #ifndef ONBOARD_PSRAM_GPIO
 #ifndef TOTAL_VIRTUAL_MEMORY_KBS
 #include "psram_spi.h"
 #endif
 #endif
+
 #if PICO_RP2040
 #include "../../memops_opt/memops_opt.h"
 #else
@@ -20,7 +22,6 @@
 #endif
 
 #include "emulator/emulator.h"
-
 #include "audio.h"
 #include "graphics.h"
 #include "ps2.h"
@@ -29,16 +30,35 @@
 #include "emu8950.h"
 #include "ps2_mouse.h"
 
+#if HARDWARE_SOUND
+#include "74hc595/74hc595.h"
+#endif
+
+// Global variables
 extern OPL *emu8950_opl;
+extern uint16_t timeconst;
+extern bool PSRAM_AVAILABLE;
+
 FATFS fs;
+struct semaphore vga_start_semaphore;
+int cursor_blink_state = 0;
 
 #if I2S_SOUND
 i2s_config_t i2s_config;
-#elif PWM_SOUND
+#elif PWM_SOUND || HARDWARE_SOUND
 pwm_config pwm;
-#elif HARDWARE_SOUND
-pwm_config pwm;
-#include "74hc595/74hc595.h"
+#endif
+
+// Debug VRAM for text output
+uint8_t __aligned(4) DEBUG_VRAM[80 * 10] = {0};
+
+// Function declarations
+bool handleScancode(uint32_t ps2scancode);
+void second_core(void);
+void sigbus(void);
+void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused const char *fmt, ...);
+#if PICO_RP2350
+void __no_inline_not_in_flash_func(psram_init)(uint cs_pin);
 #endif
 
 bool handleScancode(uint32_t ps2scancode) {
@@ -48,12 +68,46 @@ bool handleScancode(uint32_t ps2scancode) {
     return true;
 }
 
-int cursor_blink_state = 0;
-struct semaphore vga_start_semaphore;
+INLINE void _putchar(char character) {
+    static uint8_t color = 0xf;
+    static int x = 0, y = 0;
 
-extern uint16_t timeconst;
+    // Handle screen scrolling
+    if (y == 10) {
+        y = 9;
+        memmove(DEBUG_VRAM, DEBUG_VRAM + 80, 80 * 9);
+        memset(DEBUG_VRAM + 80 * 9, 0, 80);
+    }
+
+    uint8_t *vidramptr = DEBUG_VRAM + __fast_mul(y, 80) + x;
+
+    if ((unsigned)character >= 32) {
+        // Convert to uppercase if lowercase
+        if (character >= 96) {
+            character -= 32;
+        }
+        *vidramptr = ((character - 32) & 63) | 0 << 6;
+
+        if (x == 80) {
+            x = 0;
+            y++;
+        } else {
+            x++;
+        }
+    } else if (character == '\n') {
+        x = 0;
+        y++;
+    } else if (character == '\r') {
+        x = 0;
+    } else if (character == 8 && x > 0) {
+        x--;
+        *vidramptr = 0;
+    }
+}
+
 /* Renderer loop on Pico's second core */
-void __time_critical_func() second_core() {
+void __time_critical_func() second_core(void) {
+    // Initialize graphics subsystem
     graphics_init();
     graphics_set_buffer(VIDEORAM, 320, 200);
     graphics_set_textbuffer(VIDEORAM + 32768);
@@ -61,10 +115,12 @@ void __time_critical_func() second_core() {
     graphics_set_offset(0, 0);
     graphics_set_flashmode(true, true);
 
+    // Set initial VGA palette
     for (uint8_t i = 0; i < 255; i++) {
         graphics_set_palette(i, vga_palette[i]);
     }
 
+    // Initialize sound hardware
 #if !HARDWARE_SOUND
     emu8950_opl = OPL_new(3579552, SOUND_FREQUENCY);
 #endif
@@ -76,6 +132,7 @@ void __time_critical_func() second_core() {
     i2s_volume(&i2s_config, 0);
     i2s_init(&i2s_config);
     sleep_ms(100);
+
 #elif PWM_SOUND
     pwm = pwm_get_default_config();
 
@@ -89,9 +146,9 @@ void __time_critical_func() second_core() {
     pwm_init(pwm_gpio_to_slice_num(PWM_RIGHT_CHANNEL), &pwm, true);
 
     gpio_set_function(PWM_BEEPER, GPIO_FUNC_PWM);
-    //    pwm_config_set_clkdiv(&config, clock_get_hz(clk_sys) / (1.19318f * MHZ));
     pwm_config_set_clkdiv(&pwm, 127);
     pwm_init(pwm_gpio_to_slice_num(PWM_BEEPER), &pwm, true);
+
 #elif HARDWARE_SOUND
     init_74hc595();
     pwm = pwm_get_default_config();
@@ -101,185 +158,156 @@ void __time_critical_func() second_core() {
     pwm_init(pwm_gpio_to_slice_num(PCM_PIN), &pwm, true);
 #endif
 
+    // Timing variables
     uint64_t tick = time_us_64();
-    uint64_t last_timer_tick = tick, last_cursor_blink = tick, last_sound_tick = tick, last_frame_tick = tick;
-
+    uint64_t last_timer_tick = tick;
+    uint64_t last_cursor_blink = tick;
+    uint64_t last_sound_tick = tick;
+    uint64_t last_frame_tick = tick;
     uint64_t last_dss_tick = 0;
     uint64_t last_sb_tick = 0;
+
     int16_t last_dss_sample = 0;
     int16_t last_sb_sample = 0;
 
+    // Main render loop
     while (true) {
-        if (tick >= last_timer_tick + (timer_period)) {
+        // Timer interrupt handling
+        if (tick >= last_timer_tick + timer_period) {
             doirq(0);
             last_timer_tick = tick;
         }
 
+        // Cursor blink handling (333ms intervals)
         if (tick >= last_cursor_blink + 333333) {
             cursor_blink_state ^= 1;
             last_cursor_blink = tick;
         }
 
-        // Dinse Sound Source frequency 7100
+        // Dinse Sound Source frequency ~7kHz
         if (tick > last_dss_tick + (1000000 / 7000)) {
             last_dss_sample = dss_sample();
-
             last_dss_tick = tick;
         }
 
 #if !PICO_RP2040
-        // Sound Blaster
+        // Sound Blaster sampling
         if (tick > last_sb_tick + timeconst) {
             last_sb_sample = blaster_sample();
-
             last_sb_tick = tick;
         }
 #endif
-        // Sound frequency 44100
+
+        // Audio output at configured sample rate
         if (tick > last_sound_tick + (1000000 / SOUND_FREQUENCY)) {
             int16_t samples[2];
             get_sound_sample(last_dss_sample + last_sb_sample, samples);
+
 #if I2S_SOUND
             i2s_dma_write(&i2s_config, samples);
 #elif PWM_SOUND
-            pwm_set_gpio_level(PWM_LEFT_CHANNEL, (uint16_t) ((int32_t) samples[0] + 0x8000L) >> 4);
-            pwm_set_gpio_level(PWM_RIGHT_CHANNEL, (uint16_t) ((int32_t) samples[1] + 0x8000L) >> 4);
+            pwm_set_gpio_level(PWM_LEFT_CHANNEL, (uint16_t)((int32_t)samples[0] + 0x8000L) >> 4);
+            pwm_set_gpio_level(PWM_RIGHT_CHANNEL, (uint16_t)((int32_t)samples[1] + 0x8000L) >> 4);
 #endif
-
             last_sound_tick = tick;
         }
 
+        // Video frame rendering (~60Hz)
         if (tick >= last_frame_tick + 16667) {
             static uint8_t old_video_mode;
+
+            // Handle video mode changes
             if (old_video_mode != videomode) {
-                if (1) {
-                    switch (videomode) {
-                        case TGA_160x200x16:
-                        case TGA_320x200x16:
-                        case TGA_640x200x16: {
-                            for (uint8_t i = 0; i < 15; i++) {
-                                graphics_set_palette(i, tga_palette[i]);
-                            }
-                            break;
+                switch (videomode) {
+                    case TGA_160x200x16:
+                    case TGA_320x200x16:
+                    case TGA_640x200x16:
+                        for (uint8_t i = 0; i < 15; i++) {
+                            graphics_set_palette(i, tga_palette[i]);
                         }
-                        case COMPOSITE_160x200x16:
-                            for (uint8_t i = 0; i < 15; i++) {
-                                graphics_set_palette(i, cga_composite_palette[0][i]);
-                            }
-                            break;
+                        break;
 
-                        case COMPOSITE_160x200x16_force:
-                            for (uint8_t i = 0; i < 15; i++) {
-                                graphics_set_palette(i, cga_composite_palette[cga_intensity << 1][i]);
-                            }
-                            break;
+                    case COMPOSITE_160x200x16:
+                        for (uint8_t i = 0; i < 15; i++) {
+                            graphics_set_palette(i, cga_composite_palette[0][i]);
+                        }
+                        break;
 
-                        case CGA_320x200x4_BW:
-                        case CGA_320x200x4: {
-                            for (uint8_t i = 0; i < 4; i++) {
-                                graphics_set_palette(i, cga_palette[cga_gfxpal[cga_colorset][cga_intensity][i]]);
-                            }
-                            break;
+                    case COMPOSITE_160x200x16_force:
+                        for (uint8_t i = 0; i < 15; i++) {
+                            graphics_set_palette(i, cga_composite_palette[cga_intensity << 1][i]);
                         }
-                        case VGA_320x200x256:
-                        case VGA_320x200x256x4:
-                        default: {
-                            for (uint8_t i = 0; i < 255; i++) {
-                                graphics_set_palette(i, vga_palette[i]);
-                            }
+                        break;
+
+                    case CGA_320x200x4_BW:
+                    case CGA_320x200x4:
+                        for (uint8_t i = 0; i < 4; i++) {
+                            graphics_set_palette(i, cga_palette[cga_gfxpal[cga_colorset][cga_intensity][i]]);
                         }
-                    }
-                    graphics_set_mode(videomode);
-                    old_video_mode = videomode;
+                        break;
+
+                    case VGA_320x200x256:
+                    case VGA_320x200x256x4:
+                    default:
+                        for (uint8_t i = 0; i < 255; i++) {
+                            graphics_set_palette(i, vga_palette[i]);
+                        }
+                        break;
                 }
+                graphics_set_mode(videomode);
+                old_video_mode = videomode;
             }
+
 #if defined(TFT)
-            // port3DA = 1;
-            // port3DA = 0;
-                refresh_lcd();
+            refresh_lcd();
             port3DA = 8;
             port3DA |= 1;
 #endif
             last_frame_tick = tick;
         }
+
         tick = time_us_64();
         tight_loop_contents();
     }
     __unreachable();
 }
 
-extern bool PSRAM_AVAILABLE;
-
-#if 1
-uint8_t __aligned(4) DEBUG_VRAM[80 * 10] = {0};
-
-INLINE void _putchar(char character) {
-    static uint8_t color = 0xf;
-    static int x = 0, y = 0;
-
-    if (y == 10) {
-        y = 9;
-        memmove(DEBUG_VRAM, DEBUG_VRAM + 80, 80 * 9);
-        memset(DEBUG_VRAM + 80 * 9, 0, 80);
-    }
-    uint8_t *vidramptr = DEBUG_VRAM + __fast_mul(y, 80) + x;
-
-    if ((unsigned) character >= 32) {
-        if (character >= 96) character -= 32; // uppercase
-        *vidramptr = ((character - 32) & 63) | 0 << 6;
-        if (x == 80) {
-            x = 0;
-            y++;
-        } else
-            x++;
-    } else if (character == '\n') {
-        x = 0;
-        y++;
-    } else if (character == '\r') {
-        x = 0;
-    } else if (character == 8 && x > 0) {
-        x--;
-        *vidramptr = 0;
-    }
-}
-#endif
-
 #if PICO_RP2350
 void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
     gpio_set_function(cs_pin, GPIO_FUNC_XIP_CS1);
 
-    // Enable direct mode, PSRAM CS, clkdiv of 10.
-    qmi_hw->direct_csr = 10 << QMI_DIRECT_CSR_CLKDIV_LSB | \
-                        QMI_DIRECT_CSR_EN_BITS | \
-                        QMI_DIRECT_CSR_AUTO_CS1N_BITS;
-    while (qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS)
-        ;
+    // Enable direct mode, PSRAM CS, clkdiv of 10
+    qmi_hw->direct_csr = 10 << QMI_DIRECT_CSR_CLKDIV_LSB |
+                         QMI_DIRECT_CSR_EN_BITS |
+                         QMI_DIRECT_CSR_AUTO_CS1N_BITS;
+
+    while (qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) {
+        tight_loop_contents();
+    }
 
     // Enable QPI mode on the PSRAM
     const uint CMD_QPI_EN = 0x35;
     qmi_hw->direct_tx = QMI_DIRECT_TX_NOPUSH_BITS | CMD_QPI_EN;
 
-    while (qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS)
-        ;
+    while (qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) {
+        tight_loop_contents();
+    }
 
     // Set PSRAM timing for APS6404
-    //
-    // Using an rxdelay equal to the divisor isn't enough when running the APS6404 close to 133MHz.
-    // So: don't allow running at divisor 1 above 100MHz (because delay of 2 would be too late),
-    // and add an extra 1 to the rxdelay if the divided clock is > 100MHz (i.e. sys clock > 200MHz).
     const int max_psram_freq = 166000000;
     const int clock_hz = clock_get_hz(clk_sys);
     int divisor = (clock_hz + max_psram_freq - 1) / max_psram_freq;
+
     if (divisor == 1 && clock_hz > 100000000) {
         divisor = 2;
     }
+
     int rxdelay = divisor;
     if (clock_hz / divisor > 100000000) {
         rxdelay += 1;
     }
 
-    // - Max select must be <= 8us.  The value is given in multiples of 64 system clocks.
-    // - Min deselect must be >= 18ns.  The value is given in system clock cycles - ceil(divisor / 2).
+    // Calculate timing parameters
     const int clock_period_fs = 1000000000000000ll / clock_hz;
     const int max_select = (125 * 1000000) / clock_period_fs;  // 125 = 8000ns / 64
     const int min_deselect = (18 * 1000000 + (clock_period_fs - 1)) / clock_period_fs - (divisor + 1) / 2;
@@ -291,25 +319,24 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
                           rxdelay << QMI_M1_TIMING_RXDELAY_LSB |
                           divisor << QMI_M1_TIMING_CLKDIV_LSB;
 
-    // Set PSRAM commands and formats
-    qmi_hw->m[1].rfmt =
-            QMI_M0_RFMT_PREFIX_WIDTH_VALUE_Q << QMI_M0_RFMT_PREFIX_WIDTH_LSB |\
-        QMI_M0_RFMT_ADDR_WIDTH_VALUE_Q   << QMI_M0_RFMT_ADDR_WIDTH_LSB |\
-        QMI_M0_RFMT_SUFFIX_WIDTH_VALUE_Q << QMI_M0_RFMT_SUFFIX_WIDTH_LSB |\
-        QMI_M0_RFMT_DUMMY_WIDTH_VALUE_Q  << QMI_M0_RFMT_DUMMY_WIDTH_LSB |\
-        QMI_M0_RFMT_DATA_WIDTH_VALUE_Q   << QMI_M0_RFMT_DATA_WIDTH_LSB |\
-        QMI_M0_RFMT_PREFIX_LEN_VALUE_8   << QMI_M0_RFMT_PREFIX_LEN_LSB |\
-        6                                << QMI_M0_RFMT_DUMMY_LEN_LSB;
+    // Set PSRAM read format
+    qmi_hw->m[1].rfmt = QMI_M0_RFMT_PREFIX_WIDTH_VALUE_Q << QMI_M0_RFMT_PREFIX_WIDTH_LSB |
+                        QMI_M0_RFMT_ADDR_WIDTH_VALUE_Q << QMI_M0_RFMT_ADDR_WIDTH_LSB |
+                        QMI_M0_RFMT_SUFFIX_WIDTH_VALUE_Q << QMI_M0_RFMT_SUFFIX_WIDTH_LSB |
+                        QMI_M0_RFMT_DUMMY_WIDTH_VALUE_Q << QMI_M0_RFMT_DUMMY_WIDTH_LSB |
+                        QMI_M0_RFMT_DATA_WIDTH_VALUE_Q << QMI_M0_RFMT_DATA_WIDTH_LSB |
+                        QMI_M0_RFMT_PREFIX_LEN_VALUE_8 << QMI_M0_RFMT_PREFIX_LEN_LSB |
+                        6 << QMI_M0_RFMT_DUMMY_LEN_LSB;
 
     qmi_hw->m[1].rcmd = 0xEB;
 
-    qmi_hw->m[1].wfmt =
-            QMI_M0_WFMT_PREFIX_WIDTH_VALUE_Q << QMI_M0_WFMT_PREFIX_WIDTH_LSB |\
-        QMI_M0_WFMT_ADDR_WIDTH_VALUE_Q   << QMI_M0_WFMT_ADDR_WIDTH_LSB |\
-        QMI_M0_WFMT_SUFFIX_WIDTH_VALUE_Q << QMI_M0_WFMT_SUFFIX_WIDTH_LSB |\
-        QMI_M0_WFMT_DUMMY_WIDTH_VALUE_Q  << QMI_M0_WFMT_DUMMY_WIDTH_LSB |\
-        QMI_M0_WFMT_DATA_WIDTH_VALUE_Q   << QMI_M0_WFMT_DATA_WIDTH_LSB |\
-        QMI_M0_WFMT_PREFIX_LEN_VALUE_8   << QMI_M0_WFMT_PREFIX_LEN_LSB;
+    // Set PSRAM write format
+    qmi_hw->m[1].wfmt = QMI_M0_WFMT_PREFIX_WIDTH_VALUE_Q << QMI_M0_WFMT_PREFIX_WIDTH_LSB |
+                        QMI_M0_WFMT_ADDR_WIDTH_VALUE_Q << QMI_M0_WFMT_ADDR_WIDTH_LSB |
+                        QMI_M0_WFMT_SUFFIX_WIDTH_VALUE_Q << QMI_M0_WFMT_SUFFIX_WIDTH_LSB |
+                        QMI_M0_WFMT_DUMMY_WIDTH_VALUE_Q << QMI_M0_WFMT_DUMMY_WIDTH_LSB |
+                        QMI_M0_WFMT_DATA_WIDTH_VALUE_Q << QMI_M0_WFMT_DATA_WIDTH_LSB |
+                        QMI_M0_WFMT_PREFIX_LEN_VALUE_8 << QMI_M0_WFMT_PREFIX_LEN_LSB;
 
     qmi_hw->m[1].wcmd = 0x38;
 
@@ -321,20 +348,22 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
 }
 #endif
 
-#include <hardware/exception.h>
-
 void sigbus(void) {
     printf("SIGBUS exception caught...\n");
     // reset_usb_boot(0, 0);
 }
+
 void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused const char *fmt, ...) {
     printf("*** PANIC ***");
-    if (fmt)
+    if (fmt) {
         printf(fmt);
+    }
 }
-int main() {
+
+int main(void) {
+    // Platform-specific initialization
 #if PICO_RP2350
-    volatile uint32_t *qmi_m0_timing=(uint32_t *)0x400d000c;
+    volatile uint32_t *qmi_m0_timing = (uint32_t *)0x400d000c;
     vreg_disable_voltage_limit();
     vreg_set_voltage(VREG_VOLTAGE_1_60);
     sleep_ms(10);
@@ -347,19 +376,26 @@ int main() {
     sleep_ms(33);
     set_sys_clock_khz(CPU_FREQ_MHZ * 1000, true);
 #endif
+
+    // Initialize PSRAM
 #ifdef ONBOARD_PSRAM_GPIO
     psram_init(ONBOARD_PSRAM_GPIO);
 #else
-    #ifdef TOTAL_VIRTUAL_MEMORY_KBS
+#ifdef TOTAL_VIRTUAL_MEMORY_KBS
     init_swap();
-    #else
+#else
     init_psram();
-    #endif
 #endif
+#endif
+
+    // Set exception handler
     exception_set_exclusive_handler(HARDFAULT_EXCEPTION, sigbus);
+
+    // Initialize onboard LED
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
+    // LED startup sequence
     for (int i = 0; i < 6; i++) {
         sleep_ms(23);
         gpio_put(PICO_DEFAULT_LED_PIN, true);
@@ -367,65 +403,72 @@ int main() {
         gpio_put(PICO_DEFAULT_LED_PIN, false);
     }
 
-
     sleep_ms(50);
-    // while (1) draw_text("HELLO WORLD", 1,1, 14, 0);
+
+    // Initialize peripherals
     keyboard_init();
-    //    mouse_init();
     nespad_begin(NES_GPIO_CLK, NES_GPIO_DATA, NES_GPIO_LAT);
     sleep_ms(5);
     nespad_read();
 
+    // Check for mouse availability
     const uint8_t mouse_available = nespad_state;
     if (mouse_available) {
         mouse_init();
     }
 
+    // Initialize semaphore and launch second core
     sem_init(&vga_start_semaphore, 0, 1);
     multicore_launch_core1(second_core);
     sem_release(&vga_start_semaphore);
 
-    // if (!init_psram()) {
-    if (0) {
-        printf("No PSRAM detected.");
-        //        while (1);
-    }
-
+    // Mount SD card filesystem
     if (FR_OK != f_mount(&fs, "0", 1)) {
         printf("SD Card not inserted or SD Card error!");
-        // while (1);
     }
-    // adlib_init(SOUND_FREQUENCY);
 
+    // Initialize audio and reset emulator
     sn76489_reset();
     reset86();
+
+    // Initialize mouse control variables
     nespad_read();
-    float mouse_throttle = 3;
+    float mouse_throttle = 3.0f;
     bool left = nespad_state & DPAD_LEFT;
     bool right = nespad_state & DPAD_RIGHT;
     bool up = nespad_state & DPAD_UP;
     bool down = nespad_state & DPAD_DOWN;
+
+    // Main emulation loop
     while (true) {
         exec86(32768);
 
-#if 1
+        // Handle gamepad input for mouse emulation
         if (!mouse_available) {
             nespad_read();
-            if (left && (nespad_state & DPAD_LEFT) || right && (nespad_state & DPAD_RIGHT)
-             || down && (nespad_state & DPAD_DOWN) || up && (nespad_state & DPAD_UP)) {
+
+            // Increase mouse speed when holding direction
+            if ((left && (nespad_state & DPAD_LEFT)) ||
+                (right && (nespad_state & DPAD_RIGHT)) ||
+                (down && (nespad_state & DPAD_DOWN)) ||
+                (up && (nespad_state & DPAD_UP))) {
                 mouse_throttle += 0.2f;
             } else {
-                mouse_throttle = 3;
+                mouse_throttle = 3.0f;
             }
+
+            // Update direction states
             left = nespad_state & DPAD_LEFT;
             right = nespad_state & DPAD_RIGHT;
             up = nespad_state & DPAD_UP;
             down = nespad_state & DPAD_DOWN;
+
+            // Send mouse event
             sermouseevent(nespad_state & DPAD_B | ((nespad_state & DPAD_A) != 0) << 1,
-                          left ? -mouse_throttle : right ? mouse_throttle : 0,
-                          down ? mouse_throttle : up ? -mouse_throttle : 0);
+                         left ? -mouse_throttle : right ? mouse_throttle : 0,
+                         down ? mouse_throttle : up ? -mouse_throttle : 0);
         }
-#endif
+
         tight_loop_contents();
     }
     __unreachable();

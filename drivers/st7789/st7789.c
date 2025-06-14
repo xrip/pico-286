@@ -266,6 +266,6 @@ INLINE void __time_critical_func() refresh_lcd() {
     // st7789_lcd_wait_idle(pio, sm);
 }
 
-void graphics_set_palette(const uint8_t i, const uint32_t color) {
-    palette[i] = rgb888(color >> 16, color >> 8 & 0xff, color & 0xff);
+void graphics_set_palette(const uint8_t index, const uint32_t color) {
+    palette[index] = rgb888(color >> 16, color >> 8 & 0xff, color & 0xff);
 }
