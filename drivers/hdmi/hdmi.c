@@ -24,17 +24,17 @@ static int sm_address_converter = -1;
 static enum graphics_mode_t graphics_mode = TEXTMODE_80x25_COLOR;
 
 //буфер  палитры 256 цветов в формате R8G8B8
-static uint32_t palette[256];
+static uint32_t color_palette[256];
 
 
 #define SCREEN_WIDTH (320)
 #define SCREEN_HEIGHT (240)
 //графический буфер
 static uint8_t *graphics_framebuffer = NULL;
-static int graphics_buffer_width = 0;
-static int graphics_buffer_height = 0;
-static int graphics_buffer_shift_x = 0;
-static int graphics_buffer_shift_y = 0;
+static int framebuffer_width = 0;
+static int framebuffer_height = 0;
+static int framebuffer_offset_x = 0;
+static int framebuffer_offset_y = 0;
 
 //текстовый буфер
 uint8_t *text_buffer = NULL;
@@ -51,21 +51,18 @@ static int dma_channel_palette_data;
 //DMA буферы
 //основные строчные данные
 static uint32_t *scanline_buffers[2] = {NULL,NULL};
-static uint32_t *DMA_BUF_ADDR[2];
+static uint32_t *dma_buffer_addresses[2];
 
 //ДМА палитра для конвертации
 //в хвосте этой памяти выделяется dma_data
-static alignas(4096)
-uint32_t tmds_palette_buffer[1224];
+static alignas(4096) uint32_t tmds_palette_buffer[1224];
 
 
 //индекс, проверяющий зависание
 static uint32_t interrupt_counter = 0;
 
 //функции и константы HDMI
-
 #define HDMI_CTRL_BASE_INDEX (250)
-//программа конвертации адреса
 
 extern int cursor_blink_state;
 
@@ -144,7 +141,7 @@ static uint64_t generate_hdmi_differential_data(const uint16_t red_data,
             blue_bit ^= 0b11;
 #endif
 
-        // Pack into 6-bit output word
+        // Pack into a 6-bit output word
 #if HDMI_PIN_RGB_notBGR
         serialized_output |= (red_bit << 4) | (green_bit << 2) | (blue_bit << 0);
 #else
@@ -162,24 +159,24 @@ static uint64_t generate_hdmi_differential_data(const uint16_t red_data,
  */
 static inline uint tmds_encode_8b10b(const uint8_t input_byte) {
     // Count number of 1s in input byte using builtin
-    int ones_count = __builtin_popcount(input_byte);
+    const int ones_count = __builtin_popcount(input_byte);
 
     // Determine encoding method: XOR or XNOR
-    bool use_xnor = (ones_count > 4) || ((ones_count == 4) && ((input_byte & 1) == 0));
+    bool use_xnor = ones_count > 4 || ones_count == 4 && (input_byte & 1) == 0;
 
     // Generate 8-bit encoded data
     uint16_t encoded_data = input_byte & 1;  // Start with LSB
     uint16_t previous_bit = encoded_data;
 
     for (int i = 1; i < 8; i++) {
-        uint16_t current_bit = (input_byte >> i) & 1;
-        uint16_t encoded_bit = use_xnor ? !(previous_bit ^ current_bit) : (previous_bit ^ current_bit);
+        const uint16_t current_bit = (input_byte >> i) & 1;
+        const uint16_t encoded_bit = use_xnor ? !(previous_bit ^ current_bit) : (previous_bit ^ current_bit);
         encoded_data |= encoded_bit << i;
         previous_bit = encoded_bit;
     }
 
     // Add control bits (bits 8 and 9)
-    encoded_data |= use_xnor ? (1 << 9) : (1 << 8);
+    encoded_data |= use_xnor ? 1 << 9 : 1 << 8;
 
     return encoded_data;
 }
@@ -194,9 +191,11 @@ static inline void pio_set_x_register(PIO pio, const int state_machine, const ui
 
     // Load 32-bit value as eight 4-bit nibbles
     for (int i = 0; i < 8; i++) {
-        pio_sm_exec(pio, state_machine, pio_encode_set(pio_x, (value >> (i * 4)) & 0xf));
+        const uint32_t nibble = (value >> (i * 4)) & 0xf;
+        pio_sm_exec(pio, state_machine, pio_encode_set(pio_x, nibble));
         pio_sm_exec(pio, state_machine, instr_shift);
     }
+
     pio_sm_exec(pio, state_machine, instr_mov);
 }
 
@@ -211,8 +210,8 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
     // Acknowledge DMA interrupt
     dma_hw->ints0 = 1u << dma_channel_control;
 
-    // Set up next scanline buffer
-    dma_channel_set_read_addr(dma_channel_control, &DMA_BUF_ADDR[buffer_index & 1], false);
+    // Set up the next scanline buffer
+    dma_channel_set_read_addr(dma_channel_control, &dma_buffer_addresses[buffer_index & 1], false);
 
     current_scanline  = current_scanline  >= 524 ? 0 : current_scanline  + 1;
 
@@ -563,14 +562,14 @@ static inline bool initialize_hdmi_output() {
     channel_config_set_read_increment(&dma_config, false);
     channel_config_set_write_increment(&dma_config, false);
 
-    DMA_BUF_ADDR[0] = &scanline_buffers[0][0];
-    DMA_BUF_ADDR[1] = &scanline_buffers[1][0];
+    dma_buffer_addresses[0] = &scanline_buffers[0][0];
+    dma_buffer_addresses[1] = &scanline_buffers[1][0];
 
     dma_channel_configure(
         dma_channel_control,
         &dma_config,
         &dma_hw->ch[dma_channel_data].read_addr, // Write address
-        &DMA_BUF_ADDR[0], // read address
+        &dma_buffer_addresses[0], // read address
         1, //
         false // Don't start yet
     );
@@ -642,7 +641,7 @@ void graphics_set_mode(enum graphics_mode_t mode) {
 };
 
 void graphics_set_palette(uint8_t i, uint32_t color888) {
-    palette[i] = color888 & 0x00ffffff;
+    color_palette[i] = color888 & 0x00ffffff;
 
 
     if ((i >= HDMI_CTRL_BASE_INDEX) && (i != 255)) return; //не записываем "служебные" цвета
@@ -657,8 +656,8 @@ void graphics_set_palette(uint8_t i, uint32_t color888) {
 
 void graphics_set_buffer(uint8_t *buffer, uint16_t width, uint16_t height) {
     graphics_framebuffer = buffer;
-    graphics_buffer_width = width;
-    graphics_buffer_height = height;
+    framebuffer_width = width;
+    framebuffer_height = height;
 };
 
 
@@ -682,8 +681,8 @@ void graphics_set_bgcolor(uint32_t color888) //определяем зарезе
 };
 
 void graphics_set_offset(int x, int y) {
-    graphics_buffer_shift_x = x;
-    graphics_buffer_shift_y = y;
+    framebuffer_offset_x = x;
+    framebuffer_offset_y = y;
 };
 
 void graphics_set_textbuffer(uint8_t *buffer) {
