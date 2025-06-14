@@ -1,16 +1,11 @@
 #pragma GCC optimize("Ofast")
-#include "graphics.h"
-#include <stdio.h>
-#include <string.h>
-#include "malloc.h"
 #include <stdalign.h>
-#include <pico.h>
-#include <emulator/emulator.h>
+#include <hardware/dma.h>
+#include <hardware/pio.h>
+#include <hardware/clocks.h>
 
-#include "hardware/dma.h"
-#include "hardware/pio.h"
-#include "pico/multicore.h"
-#include "hardware/clocks.h"
+#include "emulator/emulator.h"
+#include "graphics.h"
 
 //PIO параметры
 static uint pio_program_offset_video = 0;
@@ -26,9 +21,6 @@ static enum graphics_mode_t graphics_mode = TEXTMODE_80x25_COLOR;
 //буфер  палитры 256 цветов в формате R8G8B8
 static uint32_t color_palette[256];
 
-
-#define SCREEN_WIDTH (320)
-#define SCREEN_HEIGHT (240)
 //графический буфер
 static uint8_t *graphics_framebuffer = NULL;
 static int framebuffer_width = 0;
@@ -62,7 +54,7 @@ static alignas(4096) uint32_t tmds_palette_buffer[1224];
 static uint32_t interrupt_counter = 0;
 
 //функции и константы HDMI
-#define HDMI_CTRL_BASE_INDEX (250)
+#define HDMI_CTRL_BASE_INDEX (251)
 
 extern int cursor_blink_state;
 
@@ -355,7 +347,7 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
                 input_buffer_8bit = graphics_framebuffer + __fast_mul(y, 320);
                 for (unsigned int x = 320; x--;) {
                     const uint8_t color = *input_buffer_8bit++;
-                    *output_buffer++ = (color & HDMI_CTRL_BASE_INDEX) == HDMI_CTRL_BASE_INDEX ? 0 : color;
+                    *output_buffer++ = color >= HDMI_CTRL_BASE_INDEX ? 0 : color;
                 }
                 break;
             }

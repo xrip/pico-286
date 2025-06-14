@@ -22,8 +22,12 @@ extern "C" {
 #define beginHDMI_PIN_data (HDMI_BASE_PIN+2)
 #define beginHDMI_PIN_clk (HDMI_BASE_PIN)
 
-#define TEXTMODE_COLS (320/4)
-#define TEXTMODE_ROWS (240/6)
+
+#define SCREEN_WIDTH (320)
+#define SCREEN_HEIGHT (240)
+
+#define TEXTMODE_COLS (SCREEN_WIDTH/4)
+#define TEXTMODE_ROWS (SCREEN_HEIGHT/6)
 
 #define RGB888(r, g, b) ((r<<16) | (g << 8 ) | b )
 
