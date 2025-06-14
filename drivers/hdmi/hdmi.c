@@ -199,8 +199,6 @@ static inline void pio_set_x_register(PIO pio, const int state_machine, const ui
     pio_sm_exec(pio, state_machine, instr_mov);
 }
 
-
-
 static void __time_critical_func() hdmi_scanline_interrupt_handler() {
     static uint32_t buffer_index;
     static uint current_scanline  = 0;
@@ -302,7 +300,7 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
                 input_buffer_8bit = tga_offset + graphics_framebuffer + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
                 for (int x = 320 / 4; x--;) {
                     const uint8_t cga_byte = *input_buffer_8bit++; // Fetch 8 pixels from TGA memory
-                    uint8_t color1 = cga_byte >> 4 & 15;
+                    uint8_t color1 = cga_byte >> 4;
                     uint8_t color2 = cga_byte & 15;
 
                     if (videomode == 0x8) {
@@ -320,7 +318,7 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
                 //4bit buf
                 input_buffer_8bit = tga_offset + graphics_framebuffer + (y & 3) * 8192 + __fast_mul(y >> 2, 160);
                 for (int x = SCREEN_WIDTH / 2; x--;) {
-                    *output_buffer++ = *input_buffer_8bit >> 4 & 15;
+                    *output_buffer++ = *input_buffer_8bit >> 4;
                     *output_buffer++ = *input_buffer_8bit & 15;
                     input_buffer_8bit++;
                 }
