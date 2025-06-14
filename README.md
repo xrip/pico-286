@@ -1,6 +1,6 @@
 # Pico-286 Project
 
-The Pico-286 project is an endeavor to emulate a classic PC system, reminiscent of late 80s and early 90s computers, on the Raspberry Pi Pico (RP2040 microcontroller). It aims to provide a lightweight and educational platform for experiencing retro computing and understanding low-level system emulation.
+The Pico-286 project is an endeavor to emulate a classic PC system, reminiscent of late 80s and early 90s computers, on the Raspberry Pi Pico (RP2040/RP2350 microcontroller). It aims to provide a lightweight and educational platform for experiencing retro computing and understanding low-level system emulation.
 
 ## Key Features
 
