@@ -86,7 +86,7 @@ static INLINE void dss_out(const uint16_t portnum, const uint8_t value) {
         fifo_push_byte(value);
     } else if (portnum == 0x37A) {
         // Control port - check for strobe edge (bit 2: 0->1 transition)  
-        if ((value & 4) && !(control & 4)) {
+        if (value & 4 && !(control & 4)) {
             fifo_push_byte(dss_data);
         }
         control = value;
