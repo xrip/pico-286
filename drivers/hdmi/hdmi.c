@@ -213,7 +213,7 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
 
     uint8_t *current_scanline_buffer = (uint8_t *) scanline_buffers[buffer_index];
 
-    if (graphics_framebuffer && current_scanline < (graphics_mode == TEXTMODE_80x25_COLOR ? 300 : 400)) {
+    if (graphics_framebuffer && current_scanline < 400) {
         //область изображения
         uint8_t *output_buffer = current_scanline_buffer + 72; //для выравнивания синхры;
         const uint8_t y = current_scanline / 2;
