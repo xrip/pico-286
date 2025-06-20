@@ -5,54 +5,52 @@ The Pico-286 project is an endeavor to emulate a classic PC system, reminiscent 
 ## Key Features
 
 *   **8086/8088/80186/286 CPU Emulation:** At its core, the project emulates an Intel cpu up to 286 family.
+*   **Cross-platform:** Can be built for Raspberry Pi Pico and Windows.
 *   **Retro Peripheral Emulation:** Includes support for common peripherals from the era.
 *   **Text and Graphics Modes:** Supports various display modes common in early PCs.
 *   **Sound Emulation:** Recreates sound capabilities of classic sound cards.
 *   **Designed for Raspberry Pi Pico:** Optimized for the RP2040/RP2350 with minimal external components.
-*   Cross-platform: can be built for Raspberry Pi Pico and Windows.
-  
-## Hardware Configuration
-
-The Pico-286 emulator is designed to run on Raspberry Pi Pico (RP2040) based hardware.
-*   Supports various hardware components, including:
-    *   PS/2 keyboard and mouse
-    *   SD card for storage
-    *   VGA and HDMI for video output
-    *   Audio output
-    *   NES gamepad
-
-
-*   **Minimal Configuration:**
-    *   Raspberry Pi Pico (RP2040)
-    *   External PSRAM chip (minimum 8MB recommended for broader compatibility) connected via SPI.
-
-*   **Recommended Configuration for Maximum Performance:**
-    *   Raspberry Pi Pico 2 (RP2350)
-    *   QSPI PSRAM for faster memory access.
-
-*   **Development Platform:**
-    *   This project primarily uses the [MURMULATOR dev board](https://murmulator.ru) as its hardware base. This board provides an RP2040, PSRAM, and various peripherals suitable for the emulator's development and testing.
 
 ## Supported Hardware Emulations
 
+### CPU Emulation
+*   Intel 8086/8088/80186/286 processor family
+
 ### Sound Card Emulations
-
-The emulator supports the following sound card emulations:
-
-*   Tandy 3-voice
-*   Creative Music System (Gameblaster)
-*   Sound Blaster
-*   Adlib
+*   **Adlib / Sound Blaster (OPL2 FM Synthesis):** High-quality emulation of the Yamaha OPL2 chipset for classic FM music and sound effects.
+*   **Sound Blaster (Digital Audio):** Support for Sound Blaster's digital sound capabilities, including DMA-based playback.
+*   **MPU-401 (MIDI Interface with General MIDI Synthesizer):** Provides a MIDI interface and includes an integrated General MIDI (GM) software synthesizer, allowing playback of GM scores without external MIDI hardware. This is a key feature for many later DOS games.
+*   **Tandy 3-voice / PCjr (SN76489 PSG):** Emulation of the Texas Instruments SN76489 Programmable Sound Generator.
+*   **Creative Music System / Game Blaster (CMS/GameBlaster):** Emulation of the dual Philips SAA1099 based sound card.
 
 ### Graphical Adapter Emulations
-
-The emulator supports the following graphical adapter emulations:
-
 *   CGA (Color Graphics Adapter)
 *   TGA (Tandy Graphics Adapter)
 *   VGA (Video Graphics Array)
 
-## Getting Started
+## Hardware Configuration
+
+The Pico-286 emulator is designed to run on Raspberry Pi Pico (RP2040) based hardware.
+
+### Supported Components
+*   PS/2 keyboard and mouse
+*   SD card for storage
+*   VGA and HDMI for video output
+*   Audio output
+*   NES gamepad
+
+### Minimal Configuration
+*   Raspberry Pi Pico (RP2040)
+*   External PSRAM chip (minimum 8MB recommended for broader compatibility) connected via SPI.
+
+### Recommended Configuration for Maximum Performance
+*   Raspberry Pi Pico 2 (RP2350)
+*   QSPI PSRAM for faster memory access.
+
+### Development Platform
+*   This project primarily uses the [MURMULATOR dev board](https://murmulator.ru) as its hardware base. This board provides an RP2040, PSRAM, and various peripherals suitable for the emulator's development and testing.
+
+## Building and Getting Started
 
 Information on how to build and run the Pico-286 emulator will be provided in a separate document or a Wiki page (link to be added).
 
