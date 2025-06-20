@@ -49,16 +49,6 @@ All graphics card emulations support standard text display modes for character-b
     - Pushes CGA hardware beyond its original specifications
     - Compatible with software that uses advanced CGA programming techniques
 
-**🌟 Text Mode Features:**
-*   🎨 Full color palette support with authentic color reproduction
-*   ✨ Blinking text attribute support with hardware-accurate timing
-*   📝 Hardware cursor with blinking capability
-*   🔄 Seamless switching between text and graphics modes
-*   🖨️ Enhanced clarity for text processing and business applications
-*   🎭 **Demo Scene Compatibility:** Full support for advanced techniques used in classic demoscene productions like 8088 MPH
-*   ⚡ **Hardware-Accurate Emulation:** Precise timing and register behavior to support even the most demanding CGA tricks
-
-
 #### 🎨 CGA (Color Graphics Adapter)
 The CGA emulation provides authentic IBM Color Graphics Adapter functionality, supporting the classic early PC graphics modes:
 
