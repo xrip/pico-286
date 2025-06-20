@@ -206,15 +206,15 @@ extern void exec86(uint32_t execloops);
 extern void reset86();
 
 // i8253
-extern struct i8253_s {
-    uint16_t chandata[3];
-    uint8_t accessmode[3];
-    uint8_t bytetoggle[3];
-    uint32_t effectivedata[3];
-    float chanfreq[3];
-    uint8_t active[3];
-    uint16_t counter[3];
-} i8253;
+    extern struct i8253_s {
+        uint16_t channel_reload_value[3];     // chandata -> channel reload values (what gets loaded into counters)
+        uint8_t channel_access_mode[3];       // accessmode -> how each channel is accessed (lobyte/hibyte/toggle)
+        uint8_t channel_byte_toggle[3];       // bytetoggle -> tracks which byte to read/write in toggle mode
+        uint32_t channel_effective_count[3];  // effectivedata -> actual count value used by channel
+        float channel_frequency[3];           // chanfreq -> calculated frequency for each channel
+        uint8_t channel_active[3];            // active -> whether channel is actively counting
+        uint16_t channel_current_count[3];    // counter -> current counter value for each channel
+    } i8253_controller;
 
 void out8253(uint16_t portnum, uint8_t value);
 
@@ -308,7 +308,7 @@ static INLINE int16_t speaker_sample() {
     if (!speakerenabled) return 0;
     static uint32_t speakerfullstep, speakerhalfstep, speakercurstep = 0;
     int16_t speakervalue;
-    speakerfullstep = SOUND_FREQUENCY / i8253.chanfreq[2];
+    speakerfullstep = SOUND_FREQUENCY / i8253_controller.channel_frequency[2];
     if (speakerfullstep < 2)
         speakerfullstep = 2;
     speakerhalfstep = speakerfullstep >> 1;
