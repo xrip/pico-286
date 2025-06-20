@@ -28,25 +28,57 @@ The Pico-286 project is an endeavor to emulate a classic PC system, reminiscent 
 
 ### 🖼️ Graphics Card Emulations
 
+#### 📝 Text Modes (Common to All Graphics Cards)
+All graphics card emulations support standard text display modes for character-based applications:
+
+**📝 Standard Text Modes:**
+*   **80×25 Text Mode:** Standard 80 columns by 25 rows character display
+    - 16 foreground colors with 8 background colors
+    - Full color attribute support including blinking text
+    - Compatible with all graphics cards (CGA, HGC, TGA, VGA)
+*   **40×25 Text Mode:** Lower resolution 40 columns by 25 rows display
+    - Full color support with enhanced readability on smaller displays
+    - Supported by CGA, TGA, and VGA
+*   **80×50 Text Mode:** Enhanced high-density text mode (VGA)
+    - Double the vertical resolution for more text on screen
+    - Enhanced character sets and font support
+
+**🚀 Advanced CGA Text Modes (8088 MPH Demo Techniques):**
+*   **🎨 160×100×16 Text Mode:** Ultra-low resolution high-color text mode
+    - Revolutionary technique showcased in the famous "8088 MPH" demo by Hornet
+    - 16 simultaneous colors from CGA palette in text mode
+    - Achieved through advanced CGA register manipulation and timing tricks
+    - Demonstrates the hidden capabilities of original CGA hardware
+*   **🌈 160×200×16 Text Mode:** Enhanced color text mode
+    - Extended version of the 8088 MPH technique with double vertical resolution
+    - Full 16-color support in what appears to be a text mode
+    - Pushes CGA hardware beyond its original specifications
+    - Compatible with software that uses advanced CGA programming techniques
+
+**🌟 Text Mode Features:**
+*   🎨 Full color palette support with authentic color reproduction
+*   ✨ Blinking text attribute support with hardware-accurate timing
+*   📝 Hardware cursor with blinking capability
+*   🔄 Seamless switching between text and graphics modes
+*   🖨️ Enhanced clarity for text processing and business applications
+*   🎭 **Demo Scene Compatibility:** Full support for advanced techniques used in classic demoscene productions like 8088 MPH
+*   ⚡ **Hardware-Accurate Emulation:** Precise timing and register behavior to support even the most demanding CGA tricks
+
+
 #### 🎨 CGA (Color Graphics Adapter)
 The CGA emulation provides authentic IBM Color Graphics Adapter functionality, supporting the classic early PC graphics modes:
 
-**📝 Text Modes:**
-*   80×25 character text mode with 16 foreground and 8 background colors
-*   40×25 character text mode with full color support
-
 **🎮 Graphics Modes:**
 *   **🌈 320×200×4 Colors:** Standard CGA graphics mode with selectable color palettes
-    - 🎨 Palette 0: Black, Green, Red, Brown/Yellow
-    - 🎨 Palette 1: Black, Cyan, Magenta, White
-    - ✨ High/Low intensity variants for different color brightness
 *   **⚫⚪ 640×200×2 Colors:** High-resolution monochrome mode (typically black and white)
-
-**🌟 Special Features:**
 *   **📺 Composite Color Mode (160×200×16):** Emulates the artifact colors produced by CGA when connected to composite monitors, creating additional color combinations through NTSC color bleeding effects
-*   🎨 Authentic CGA color palette reproduction
-*   📺 Support for both RGB and composite monitor output characteristics
 
+#### 📊 HGC (Hercules Graphics Card)
+The Hercules Graphics Card emulation recreates the popular monochrome high-resolution graphics standard:
+
+**🖥️ Graphics Mode:**
+*   **⚫⚪ 720×348×2 Colors:** High-resolution monochrome graphics mode
+    
 #### 🖥️ TGA (Tandy Graphics Adapter)
 The Tandy Graphics Adapter emulation recreates the enhanced graphics capabilities of Tandy 1000 series computers:
 
@@ -54,12 +86,6 @@ The Tandy Graphics Adapter emulation recreates the enhanced graphics capabilitie
 *   **🎨 160×200×16 Colors:** Low-resolution mode with full 16-color palette
 *   **🌈 320×200×16 Colors:** Medium-resolution mode with 16 simultaneous colors from a larger palette
 *   **✨ 640×200×16 Colors:** High-resolution mode with 16-color support
-
-**🌟 Features:**
-*   🎨 Enhanced color palette with more vibrant colors compared to CGA
-*   🌈 Better color reproduction and smoother gradients
-*   🔄 Backward compatibility with CGA modes
-*   🎮 Support for Tandy-specific software and games
 
 #### 🖼️ VGA (Video Graphics Array)
 The VGA emulation provides comprehensive Video Graphics Array support with multiple advanced modes:
@@ -69,25 +95,6 @@ The VGA emulation provides comprehensive Video Graphics Array support with multi
 *   **🖥️ 640×480×16 Colors:** Standard VGA high-resolution mode
 *   **📺 720×480×16 Colors:** Extended VGA mode
 *   **📝 Text modes:** 80×25 and 80×50 with enhanced character sets
-
-**🚀 Advanced Features:**
-*   **⚡ 320×200×256×4 (Mode X variant):** Optimized planar mode for faster rendering
-*   🔧 Full VGA register compatibility for software that directly programs VGA hardware
-*   🌈 256-color palette support with 18-bit color depth (262,144 possible colors)
-*   📝 VGA-compatible text modes with enhanced fonts and character attributes
-*   🖱️ Hardware cursor support with blinking capability
-
-**🎨 Color Support:**
-*   🌈 18-bit color depth allowing selection from 262,144 colors
-*   🎨 256 simultaneous colors in graphics modes
-*   ✨ Accurate VGA palette reproduction
-*   🎬 Support for palette animation and color cycling effects
-
-**⚙️ Technical Implementation:**
-*   ⏱️ Authentic VGA timing and refresh rates
-*   🔧 Compatible with VGA BIOS calls and direct register programming
-*   🔄 Support for both text and graphics mode switching
-*   🚀 Hardware-accelerated rendering optimized for RP2040/RP2350 architecture
 
 ## 🔧 Hardware Configuration
 
