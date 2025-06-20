@@ -46,6 +46,7 @@ if (PICO_PLATFORM STREQUAL "host")
     add_compile_options(-fms-extensions -O2)
     add_executable(${PROJECT_NAME} ${SRC} src/win32-main.cpp src/WinMiniFB.c src/printf/printf.c)
     target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
+    target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)
 else()
     # =========================
     # PICO BUILD CONFIGURATION
@@ -252,11 +253,15 @@ else()
             
             # Pin configurations
             VGA_BASE_PIN=6 HDMI_BASE_PIN=6
+
             TFT_CS_PIN=6 TFT_RST_PIN=8 TFT_LED_PIN=9 TFT_DC_PIN=10 TFT_DATA_PIN=12 TFT_CLK_PIN=13
+
             SDCARD_PIN_SPI0_CS=5 SDCARD_PIN_SPI0_SCK=2 SDCARD_PIN_SPI0_MOSI=3 SDCARD_PIN_SPI0_MISO=4
-            PSRAM_SPINLOCK=1 PSRAM_ASYNC=1
-            PSRAM_PIN_CS=18 PSRAM_PIN_SCK=19 PSRAM_PIN_MOSI=20 PSRAM_PIN_MISO=21
+
+            PSRAM_SPINLOCK=1 PSRAM_ASYNC=1 PSRAM_PIN_CS=18 PSRAM_PIN_SCK=19 PSRAM_PIN_MOSI=20 PSRAM_PIN_MISO=21
+
             USE_NESPAD NES_GPIO_CLK=14 NES_GPIO_DATA=16 NES_GPIO_LAT=15
+
             CLOCK_PIN=17 PCM_PIN=22
             PWM_BEEPER=28 PWM_LEFT_CHANNEL=26 PWM_RIGHT_CHANNEL=27
     )
