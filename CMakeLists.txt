@@ -61,10 +61,10 @@ else()
     # Display Options (mutually exclusive)
     option(ENABLE_TFT "Enable TFT display output" OFF)
     option(ENABLE_VGA "Enable VGA display output" OFF)
-    option(ENABLE_HDMI "Enable HDMI display output" ON)
+    option(ENABLE_HDMI "Enable HDMI display output" OFF)
 
     # Audio Options (mutually exclusive)
-    option(ENABLE_I2S_SOUND "Enable I2S audio output" ON)
+    option(ENABLE_I2S_SOUND "Enable I2S audio output" OFF)
     option(ENABLE_PWM_SOUND "Enable PWM audio output" OFF)
     option(ENABLE_HARDWARE_SOUND "Enable hardware audio output" OFF)
 
