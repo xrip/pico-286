@@ -77,12 +77,6 @@ else()
     # CPU Configuration
     set(CPU_FREQ_MHZ "378" CACHE STRING "CPU frequency in MHz")
 
-    # Override CPU frequency for HDMI (required for timing)
-    if(ENABLE_HDMI)
-        set(CPU_FREQ_MHZ "378")
-        message(STATUS "HDMI enabled - CPU frequency locked to 378 MHz")
-    endif()
-
     # =========================
     # VALIDATION
     # =========================
@@ -90,12 +84,16 @@ else()
     # Validate display options
     set(DISPLAY_COUNT 0)
     if(ENABLE_TFT)
+        message(STATUS "TFT Enabled")
         math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
     endif()
     if(ENABLE_VGA)
+        message(STATUS "VGA Enabled")
         math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
     endif()
     if(ENABLE_HDMI)
+        set(CPU_FREQ_MHZ "378")
+        message(STATUS "HDMI enabled - CPU frequency locked to 378 MHz")
         math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
     endif()
     
