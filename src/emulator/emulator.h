@@ -110,27 +110,27 @@ extern uint32_t segregs32[6];
 
 // i8259
 extern struct i8259_s {
-    uint8_t imr; //mask register
-    uint8_t irr; //request register
-    uint8_t isr; //service register
-    uint8_t icwstep; //used during initialization to keep track of which ICW we're at
-    uint8_t icw[5];
-    uint8_t intoffset; //interrupt vector offset
-    uint8_t priority; //which IRQ has highest priority
-    uint8_t autoeoi; //automatic EOI mode
-    uint8_t readmode; //remember what to return on read register from OCW3
-    uint8_t enabled;
-} i8259;
+    uint8_t interrupt_mask_register; //mask register
+    uint8_t interrupt_request_register; //request register
+    uint8_t in_service_register; //service register
+    uint8_t initialization_command_word_step; //used during initialization to keep track of which ICW we're at
+    uint8_t initialization_command_words[5];
+    uint8_t interrupt_vector_offset; //interrupt vector offset
+    uint8_t priority_level; //which IRQ has highest priority
+    uint8_t automatic_end_of_interrupt; //automatic EOI mode
+    uint8_t register_read_mode; //remember what to return on read register from OCW3
+    uint8_t controller_enabled;
+} i8259_controller;
 
-#define doirq(irqnum) (i8259.irr |= (1 << (irqnum)) & (~i8259.imr))
+#define doirq(irqnum) (i8259_controller.interrupt_request_register |= (1 << (irqnum)) & (~i8259_controller.interrupt_mask_register))
 
 static inline uint8_t nextintr() {
-    uint8_t tmpirr = i8259.irr & (~i8259.imr); //XOR request register with inverted mask register
+    uint8_t tmpirr = i8259_controller.interrupt_request_register & (~i8259_controller.interrupt_mask_register); //XOR request register with inverted mask register
     for (uint8_t i = 0; i < 8; i++)
         if ((tmpirr >> i) & 1) {
-            i8259.irr &= ~(1 << i);
-            i8259.isr |= (1 << i);
-            return (i8259.icw[2] + i);
+            i8259_controller.interrupt_request_register &= ~(1 << i);
+            i8259_controller.in_service_register |= (1 << i);
+            return (i8259_controller.initialization_command_words[2] + i);
         }
     return 0;
 }
