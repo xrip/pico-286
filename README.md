@@ -30,18 +30,12 @@ The Pico-286 project is an endeavor to emulate a classic PC system, reminiscent 
 
 #### 📝 Text Modes (Common to All Graphics Cards)
 All graphics card emulations support standard text display modes for character-based applications:
+- 16 foreground colors with 8 background colors
+- Full color attribute support including blinking text
 
 **📝 Standard Text Modes:**
 *   **80×25 Text Mode:** Standard 80 columns by 25 rows character display
-    - 16 foreground colors with 8 background colors
-    - Full color attribute support including blinking text
-    - Compatible with all graphics cards (CGA, HGC, TGA, VGA)
 *   **40×25 Text Mode:** Lower resolution 40 columns by 25 rows display
-    - Full color support with enhanced readability on smaller displays
-    - Supported by CGA, TGA, and VGA
-*   **80×50 Text Mode:** Enhanced high-density text mode (VGA)
-    - Double the vertical resolution for more text on screen
-    - Enhanced character sets and font support
 
 **🚀 Advanced CGA Text Modes (8088 MPH Demo Techniques):**
 *   **🎨 160×100×16 Text Mode:** Ultra-low resolution high-color text mode
