@@ -70,7 +70,7 @@ static int umb_blocks_allocated = 0;
 
 umb_t *get_free_umb_block(uint16_t size) {
     for (int i = umb_blocks_allocated; i < UMB_BLOCKS_COUNT; i++)
-        if (umb_blocks[i].allocated == false && umb_blocks[i].size <= size) {
+        if (umb_blocks[i].allocated == false && umb_blocks[i].size >= size) {
             return &umb_blocks[i];
         }
     return NULL;
@@ -150,7 +150,7 @@ uint8_t __not_in_flash() xms_handler() {
         }
         case GLOBAL_DISABLE_A20:
         case LOCAL_DISABLE_A20: { // Local Disable A20
-            CPU_AX = 1; // Failed
+            CPU_AX = 1; // Success
             CPU_BL = 0;
             a20_enabled = 0;
             break;
@@ -181,6 +181,7 @@ uint8_t __not_in_flash() xms_handler() {
             }
             CPU_AX = 0;
             CPU_BL = 0xA2;
+            break;
         }
         case RELEASE_EMB: {
 #if DEBUG_XMS
@@ -238,8 +239,9 @@ uint8_t __not_in_flash() xms_handler() {
         }
         case REQUEST_UMB: { // Request Upper Memory Block (Function 10h):
             if (CPU_DX == 0xFFFF) {
+                // Query largest available block
                 if (umb_blocks_allocated < UMB_BLOCKS_COUNT) {
-                    umb_t *umb_block = get_free_umb_block(CPU_DX);
+                    const umb_t *umb_block = get_free_umb_block(0x0800); // 0x0800 cause we dont have blocks bigger
                     if (umb_block != NULL) {
                         CPU_DX = umb_block->size;
                         CPU_BX = 0x00B0; // Success
@@ -273,7 +275,7 @@ uint8_t __not_in_flash() xms_handler() {
                     umb_blocks_allocated--;
                     CPU_AX = 0x0001; // Success
                     CPU_BL = 0;
-                    break;
+                    return 0xCB; // Early return to avoid fall-through
                 }
 
             CPU_AX = 0x0000; // Failure
@@ -287,7 +289,7 @@ uint8_t __not_in_flash() xms_handler() {
                 printf("[XMS] %02X\n", CPU_AH);
 #endif
             // Unhandled function
-            CPU_AX = 0x0001; // Function not supported
+            CPU_AX = 0x0000; // Function not supported
             CPU_BL = 0x80; // Function not implemented
 
             break;
