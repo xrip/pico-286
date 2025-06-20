@@ -23,10 +23,69 @@ The Pico-286 project is an endeavor to emulate a classic PC system, reminiscent 
 *   **Tandy 3-voice / PCjr (SN76489 PSG):** Emulation of the Texas Instruments SN76489 Programmable Sound Generator.
 *   **Creative Music System / Game Blaster (CMS/GameBlaster):** Emulation of the dual Philips SAA1099 based sound card.
 
-### Graphical Adapter Emulations
-*   CGA (Color Graphics Adapter)
-*   TGA (Tandy Graphics Adapter)
-*   VGA (Video Graphics Array)
+### Graphics Card Emulations
+
+#### CGA (Color Graphics Adapter)
+The CGA emulation provides authentic IBM Color Graphics Adapter functionality, supporting the classic early PC graphics modes:
+
+**Text Modes:**
+*   80×25 character text mode with 16 foreground and 8 background colors
+*   40×25 character text mode with full color support
+
+**Graphics Modes:**
+*   **320×200×4 Colors:** Standard CGA graphics mode with selectable color palettes
+    - Palette 0: Black, Green, Red, Brown/Yellow
+    - Palette 1: Black, Cyan, Magenta, White
+    - High/Low intensity variants for different color brightness
+*   **640×200×2 Colors:** High-resolution monochrome mode (typically black and white)
+
+**Special Features:**
+*   **Composite Color Mode (160×200×16):** Emulates the artifact colors produced by CGA when connected to composite monitors, creating additional color combinations through NTSC color bleeding effects
+*   Authentic CGA color palette reproduction
+*   Support for both RGB and composite monitor output characteristics
+
+#### TGA (Tandy Graphics Adapter)
+The Tandy Graphics Adapter emulation recreates the enhanced graphics capabilities of Tandy 1000 series computers:
+
+**Enhanced Graphics Modes:**
+*   **160×200×16 Colors:** Low-resolution mode with full 16-color palette
+*   **320×200×16 Colors:** Medium-resolution mode with 16 simultaneous colors from a larger palette
+*   **640×200×16 Colors:** High-resolution mode with 16-color support
+
+**Features:**
+*   Enhanced color palette with more vibrant colors compared to CGA
+*   Better color reproduction and smoother gradients
+*   Backward compatibility with CGA modes
+*   Support for Tandy-specific software and games
+
+#### VGA (Video Graphics Array)
+The VGA emulation provides comprehensive Video Graphics Array support with multiple advanced modes:
+
+**Standard VGA Modes:**
+*   **320×200×256 Colors:** Mode 13h - the famous "Mode X" used by many DOS games
+*   **640×480×16 Colors:** Standard VGA high-resolution mode
+*   **720×480×16 Colors:** Extended VGA mode
+*   **Text modes:** 80×25 and 80×50 with enhanced character sets
+
+**Advanced Features:**
+*   **320×200×256×4 (Mode X variant):** Optimized planar mode for faster rendering
+*   Full VGA register compatibility for software that directly programs VGA hardware
+*   256-color palette support with 18-bit color depth (262,144 possible colors)
+*   VGA-compatible text modes with enhanced fonts and character attributes
+*   Hardware cursor support with blinking capability
+
+**Color Support:**
+*   18-bit color depth allowing selection from 262,144 colors
+*   256 simultaneous colors in graphics modes
+*   Accurate VGA palette reproduction
+*   Support for palette animation and color cycling effects
+
+**Technical Implementation:**
+*   Authentic VGA timing and refresh rates
+*   Compatible with VGA BIOS calls and direct register programming
+*   Support for both text and graphics mode switching
+*   Hardware-accelerated rendering optimized for RP2040/RP2350 architecture
+
 
 ## Hardware Configuration
 
