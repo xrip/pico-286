@@ -18,6 +18,8 @@ The Pico-286 project is an endeavor to emulate a classic PC system, reminiscent 
 
 ### 🎵 Sound Card Emulations
 *   **📢 PC Speaker (System Beeper):** Authentic emulation of the original PC's internal speaker system
+*   **🎚️ Covox Speech Thing:** Compatible emulation of the simple parallel port DAC
+*   **🎭 Disney Sound Source (DSS):** Emulation of the popular parallel port digital audio device
 *   **🎹 Adlib / Sound Blaster (OPL2 FM Synthesis):** High-quality emulation of the Yamaha OPL2 chipset for classic FM music and sound effects.
 *   **🔊 Sound Blaster (Digital Audio):** Support for Sound Blaster's digital sound capabilities, including DMA-based playback.
 *   **🎼 MPU-401 (MIDI Interface with General MIDI Synthesizer):** Provides a MIDI interface and includes an integrated General MIDI (GM) software synthesizer, allowing playback of GM scores without external MIDI hardware. This is a key feature for many later DOS games.
