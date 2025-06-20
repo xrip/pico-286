@@ -368,13 +368,13 @@ int main(void) {
     vreg_set_voltage(VREG_VOLTAGE_1_60);
     sleep_ms(10);
     *qmi_m0_timing = 0x60007204;
-    set_sys_clock_hz(CPU_FREQ_MHZ * 1000000, 0);
+    set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, 0);
     *qmi_m0_timing = 0x60007303;
 #else
     memcpy_wrapper_replace(NULL);
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
     sleep_ms(33);
-    set_sys_clock_khz(CPU_FREQ_MHZ * 1000, true);
+    set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, true);
 #endif
 
     // Initialize PSRAM

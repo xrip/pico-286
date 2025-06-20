@@ -17,18 +17,20 @@ cmake_minimum_required(VERSION 3.22)
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(286 C CXX ASM)
-enable_language(CXX)
-SET(BUILD_NAME "${PROJECT_NAME}")
-
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 20)
 
+# =========================
+# OUTPUT DIRECTORIES
+# =========================
 set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin/${PICO_PLATFORM}/${CMAKE_BUILD_TYPE}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
 
-# INCLUDE FILES THAT SHOULD BE COMPILED:
+# =========================
+# SOURCE FILES
+# =========================
 file(GLOB_RECURSE SRC "src/emulator/*.cpp" "src/emulator/*.c" "src/emu8950/*.c" "src/emu8950/*.cpp")
 
 message(STATUS "Add source files:")
@@ -37,185 +39,247 @@ foreach(SRC_FILE IN LISTS SRC)
 endforeach()
 message(STATUS "")
 
+# =========================
+# HOST BUILD (Windows/Linux)
+# =========================
 if (PICO_PLATFORM STREQUAL "host")
     add_compile_options(-fms-extensions -O2)
     add_executable(${PROJECT_NAME} ${SRC} src/win32-main.cpp src/WinMiniFB.c src/printf/printf.c)
-
     target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
-else ()
+else()
+    # =========================
+    # PICO BUILD CONFIGURATION
+    # =========================
     set(PICO_BOARD pico2 CACHE STRING "Board type")
     pico_sdk_init()
 
+    # =========================
+    # BUILD OPTIONS
+    # =========================
+    
+    # Display Options (mutually exclusive)
+    option(ENABLE_TFT "Enable TFT display output" OFF)
+    option(ENABLE_VGA "Enable VGA display output" OFF)
+    option(ENABLE_HDMI "Enable HDMI display output" ON)
+
+    # Audio Options (mutually exclusive)
+    option(ENABLE_I2S_SOUND "Enable I2S audio output" ON)
+    option(ENABLE_PWM_SOUND "Enable PWM audio output" OFF)
+    option(ENABLE_HARDWARE_SOUND "Enable hardware audio output" OFF)
+
+    # PSRAM Configuration (onboard only available for RP2350)
+    if(NOT PICO_PLATFORM STREQUAL "rp2040")
+        option(ONBOARD_PSRAM "Enable onboard PSRAM support" ON)
+        set(ONBOARD_PSRAM_GPIO "19" CACHE STRING "GPIO pin for onboard PSRAM")
+    endif()
+
+    # CPU Configuration
+    set(CPU_FREQ_MHZ "378" CACHE STRING "CPU frequency in MHz")
+
+    # Override CPU frequency for HDMI (required for timing)
+    if(ENABLE_HDMI)
+        set(CPU_FREQ_MHZ "378")
+        message(STATUS "HDMI enabled - CPU frequency locked to 378 MHz")
+    endif()
+
+    # =========================
+    # VALIDATION
+    # =========================
+    
+    # Validate display options
+    set(DISPLAY_COUNT 0)
+    if(ENABLE_TFT)
+        math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
+    endif()
+    if(ENABLE_VGA)
+        math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
+    endif()
+    if(ENABLE_HDMI)
+        math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
+    endif()
+    
+    if(DISPLAY_COUNT EQUAL 0)
+        message(FATAL_ERROR "At least one display option must be enabled")
+    elseif(DISPLAY_COUNT GREATER 1)
+        message(FATAL_ERROR "Only one display option can be enabled at a time")
+    endif()
+
+    # Validate audio options
+    set(AUDIO_COUNT 0)
+    if(ENABLE_I2S_SOUND)
+        math(EXPR AUDIO_COUNT "${AUDIO_COUNT} + 1")
+    endif()
+    if(ENABLE_PWM_SOUND)
+        math(EXPR AUDIO_COUNT "${AUDIO_COUNT} + 1")
+    endif()
+    if(ENABLE_HARDWARE_SOUND)
+        math(EXPR AUDIO_COUNT "${AUDIO_COUNT} + 1")
+    endif()
+    
+    if(AUDIO_COUNT EQUAL 0)
+        message(FATAL_ERROR "At least one audio option must be enabled")
+    elseif(AUDIO_COUNT GREATER 1)
+        message(FATAL_ERROR "Only one audio option can be enabled at a time")
+    endif()
+
+    # =========================
+    # BUILD NAME GENERATION
+    # =========================
+    set(BUILD_NAME "${PROJECT_NAME}")
+    
+    # Add platform
+    if(PICO_PLATFORM STREQUAL "rp2040")
+        set(BUILD_NAME "${BUILD_NAME}-RP2040")
+    else()
+        set(BUILD_NAME "${BUILD_NAME}-RP2350")
+    endif()
+    
+    # Add frequency
+    set(BUILD_NAME "${BUILD_NAME}-${CPU_FREQ_MHZ}MHz")
+    
+    # Add display type
+    if(ENABLE_TFT)
+        set(BUILD_NAME "${BUILD_NAME}-TFT")
+    elseif(ENABLE_VGA)
+        set(BUILD_NAME "${BUILD_NAME}-VGA")
+    elseif(ENABLE_HDMI)
+        set(BUILD_NAME "${BUILD_NAME}-HDMI")
+    endif()
+    
+    # Add audio type
+    if(ENABLE_I2S_SOUND)
+        set(BUILD_NAME "${BUILD_NAME}-I2S")
+    elseif(ENABLE_PWM_SOUND)
+        set(BUILD_NAME "${BUILD_NAME}-PWM")
+    elseif(ENABLE_HARDWARE_SOUND)
+        set(BUILD_NAME "${BUILD_NAME}-HW")
+    endif()
+    
+    # Add PSRAM info
+    if(ONBOARD_PSRAM)
+        set(BUILD_NAME "${BUILD_NAME}-ONBOARD_PSRAM_PIN_${ONBOARD_PSRAM_GPIO}")
+        message(STATUS "Onboard PSRAM enabled on GPIO ${ONBOARD_PSRAM_GPIO}")
+    endif()
+
+    # =========================
+    # EXECUTABLE SETUP
+    # =========================
     add_compile_options(-flto -fwhole-program -ffast-math -ffunction-sections -fdata-sections -fms-extensions -O2)
-
+    
     add_executable(${PROJECT_NAME} ${SRC} src/pico-main.c src/printf/printf.c src/74hc595/74hc595.c)
-    target_include_directories(${PROJECT_NAME} PRIVATE src/74hc595)
-    target_sources(${PROJECT_NAME} PRIVATE src/emu8950/slot_render_pico.S )
-
+    target_include_directories(${PROJECT_NAME} PRIVATE src/74hc595 src src/emu8950 src/printf)
+    target_sources(${PROJECT_NAME} PRIVATE src/emu8950/slot_render_pico.S)
+    
     set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${BUILD_NAME}")
+    target_link_options(${PROJECT_NAME} PRIVATE -Xlinker --print-memory-usage --data-sections --function-sections)
 
+    # =========================
+    # BOOT STAGE 2 CONFIGURATION
+    # =========================
     pico_define_boot_stage2(slower_boot2 ${PICO_DEFAULT_BOOT_STAGE2_FILE})
-
-    if (PICO_PLATFORM STREQUAL "rp2040")
-        SET(BUILD_NAME "${BUILD_NAME}-RP2040")
-
+    
+    if(PICO_PLATFORM STREQUAL "rp2040")
         add_subdirectory(memops_opt)
         target_link_libraries(${PROJECT_NAME} PRIVATE memops_opt)
-
         target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=4)
     else()
-        SET(BUILD_NAME "${BUILD_NAME}-RP2350")
-         target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=3)
-    endif ()
-
+        target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=3)
+    endif()
+    
     pico_set_boot_stage2(${PROJECT_NAME} slower_boot2)
-
     pico_set_program_name(${PROJECT_NAME} "PC 8086/8088/186/286 emulator")
     pico_set_program_version(${PROJECT_NAME} "wip")
 
+    # =========================
+    # SUBDIRECTORIES
+    # =========================
     add_subdirectory(drivers/ps2)
     add_subdirectory(drivers/fatfs)
     add_subdirectory(drivers/sdcard)
-    add_subdirectory(drivers/vga-nextgen)
-
     add_subdirectory(drivers/graphics)
     add_subdirectory(drivers/audio)
     add_subdirectory(drivers/psram)
     add_subdirectory(drivers/nespad)
 
-    #[[
-    add_subdirectory(drivers/st7789)
-    target_link_libraries(${PROJECT_NAME} PRIVATE st7789)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE TFT)
-    SET(BUILD_NAME "${BUILD_NAME}-TFT")
-    #]]
-    #[[
-    target_compile_definitions(${PROJECT_NAME} PRIVATE VGA)
-    target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
-    SET(BUILD_NAME "${BUILD_NAME}-VGA")
-    #]]
-    # [[
+    # Display drivers
+    if(ENABLE_TFT)
+        add_subdirectory(drivers/st7789)
+        target_link_libraries(${PROJECT_NAME} PRIVATE st7789)
+        message(STATUS "TFT display enabled")
+    elseif(ENABLE_VGA)
+        add_subdirectory(drivers/vga-nextgen)
+        target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
+        message(STATUS "VGA display enabled")
+    elseif(ENABLE_HDMI)
         add_subdirectory(drivers/hdmi)
         target_link_libraries(${PROJECT_NAME} PRIVATE hdmi)
-        target_compile_definitions(${PROJECT_NAME} PRIVATE HDMI)
-        SET(BUILD_NAME "${BUILD_NAME}-HDMI")
-    #]]
+        message(STATUS "HDMI display enabled")
+    endif()
 
+    # =========================
+    # LIBRARIES
+    # =========================
     target_link_libraries(${PROJECT_NAME} PRIVATE
-            ps2
-            sdcard
-            audio
-            graphics
-            psram
-            nespad
-
-            pico_runtime
-            pico_stdlib
-            pico_multicore
-            hardware_dma
-            hardware_pio
-            hardware_i2c
-            hardware_exception
-            hardware_interp
-            hardware_timer
-            hardware_clocks
-            hardware_pwm
-            hardware_flash
+            ps2 sdcard audio graphics psram nespad
+            pico_runtime pico_stdlib pico_multicore
+            hardware_dma hardware_pio hardware_i2c hardware_exception
+            hardware_interp hardware_timer hardware_clocks hardware_pwm hardware_flash
     )
 
+    # =========================
+    # COMPILE DEFINITIONS
+    # =========================
     target_compile_definitions(${PROJECT_NAME} PRIVATE
+            # Core definitions
             PICO_PANIC_FUNCTION=dummy_panic
-#            PICO_HEAP_SIZE=0
-#            USE_ZONE_FOR_MALLOC=1
             EMU8950_ASM=1
-
-            CPU_FREQ_MHZ=444
-
-            #CPU_ALLOW_ILLEGAL_OP_EXCEPTION
-           # CPU_386_EXTENDED_OPS
-
+            CPU_FREQ_MHZ=${CPU_FREQ_MHZ}
             PICO_FLASH_SIZE_BYTES=16777216
-            ONBOARD_PSRAM_GPIO=19
-            #PSRAM
-           # TOTAL_VIRTUAL_MEMORY_KBS=2048
-
-            # VGA 8 pins starts from pin:
-            VGA_BASE_PIN=6
-
-            # HDMI 8 pins starts from pin:
-            HDMI_BASE_PIN=6
-
-            # TFT
-            TFT_CS_PIN=6
-            TFT_RST_PIN=8
-            TFT_LED_PIN=9
-            TFT_DC_PIN=10
-            TFT_DATA_PIN=12
-            TFT_CLK_PIN=13
-
-            # SDCARD
-            SDCARD_PIN_SPI0_CS=5
-            SDCARD_PIN_SPI0_SCK=2
-            SDCARD_PIN_SPI0_MOSI=3
-            SDCARD_PIN_SPI0_MISO=4
-
-            #PSRAM_MUTEX=1
-            PSRAM_SPINLOCK=1
-            PSRAM_ASYNC=1
-
-            PSRAM_PIN_CS=18
-            PSRAM_PIN_SCK=19
-            PSRAM_PIN_MOSI=20
-            PSRAM_PIN_MISO=21
-
-            # NES Gamepad
-            USE_NESPAD
-            NES_GPIO_CLK=14
-            NES_GPIO_DATA=16
-            NES_GPIO_LAT=15
-
-            #HARDWARE_SOUND
-            CLOCK_PIN=17
-            PCM_PIN=22
-
-            I2S_SOUND
-
-            #PWM_SOUND
-            PWM_BEEPER=28
-            PWM_LEFT_CHANNEL=26
-            PWM_RIGHT_CHANNEL=27
+            
+            # Display type
+            $<$<BOOL:${ENABLE_TFT}>:TFT>
+            $<$<BOOL:${ENABLE_VGA}>:VGA>
+            $<$<BOOL:${ENABLE_HDMI}>:HDMI>
+            
+            # Audio type
+            $<$<BOOL:${ENABLE_I2S_SOUND}>:I2S_SOUND>
+            $<$<BOOL:${ENABLE_PWM_SOUND}>:PWM_SOUND>
+            $<$<BOOL:${ENABLE_HARDWARE_SOUND}>:HARDWARE_SOUND>
+            
+            # PSRAM
+            $<$<BOOL:${ONBOARD_PSRAM}>:ONBOARD_PSRAM_GPIO=${ONBOARD_PSRAM_GPIO}>
+            $<$<BOOL:${ONBOARD_PSRAM}>:PSRAM>
+            
+            # Pin configurations
+            VGA_BASE_PIN=6 HDMI_BASE_PIN=6
+            TFT_CS_PIN=6 TFT_RST_PIN=8 TFT_LED_PIN=9 TFT_DC_PIN=10 TFT_DATA_PIN=12 TFT_CLK_PIN=13
+            SDCARD_PIN_SPI0_CS=5 SDCARD_PIN_SPI0_SCK=2 SDCARD_PIN_SPI0_MOSI=3 SDCARD_PIN_SPI0_MISO=4
+            PSRAM_SPINLOCK=1 PSRAM_ASYNC=1
+            PSRAM_PIN_CS=18 PSRAM_PIN_SCK=19 PSRAM_PIN_MOSI=20 PSRAM_PIN_MISO=21
+            USE_NESPAD NES_GPIO_CLK=14 NES_GPIO_DATA=16 NES_GPIO_LAT=15
+            CLOCK_PIN=17 PCM_PIN=22
+            PWM_BEEPER=28 PWM_LEFT_CHANNEL=26 PWM_RIGHT_CHANNEL=27
     )
 
     pico_add_extra_outputs(${PROJECT_NAME})
-endif ()
+endif()
 
+# =========================
+# COMMON DEFINITIONS (HOST + PICO)
+# =========================
 target_compile_definitions(${PROJECT_NAME} PRIVATE
         USE_EMU8950_OPL
         EMU8950_SLOT_RENDER=1
         EMU8950_NO_RATECONV=1
-        # slightly slower but only uses 1K of sin tables vs 9K
         EMU8950_NO_WAVE_TABLE_MAP=1
-
-        EMU8950_NO_TLL=1 # don't use lookup table for total level
-        EMU8950_NO_FLOAT=1 # double check there is no float
-        EMU8950_NO_TIMER=1 # disable timer which isn't used
-        EMU8950_NO_TEST_FLAG=1 # disable test flags (which aren't used)
-        EMU8950_SIMPLER_NOISE=1 # only generate noise bit when needed
-        EMU8950_SHORT_NOISE_UPDATE_CHECK=1 # only update short noise if it is used
-        # actually this doesn't make things faster
-        #EMU8950_LINEAR_NEG_NOT_NOT=1 # negative values rounded towrds -infinity not 0 without this; does it matter?
-
-        EMU8950_LINEAR_SKIP=1 # skip silent slots
-        EMU8950_LINEAR_END_OF_NOTE_OPTIMIZATION # early out envelope when DECAY/SUSTAIN/RELEASE envelope reaches mute
-        EMU8950_NO_PERCUSSION_MODE=1 # rhythm only mode (doom doesn't use percussion; whhhaaaah!?)
-        EMU8950_LINEAR=1 # reorganize to do linear runs of channels
-
-        # things we really don't care about but need for diff-ing with non linear version
-        # BEWARE - need to turn this off for comparison with on device version which doesn't do nitpicks (though could i guess)
+        EMU8950_NO_TLL=1
+        EMU8950_NO_FLOAT=1
+        EMU8950_NO_TIMER=1
+        EMU8950_NO_TEST_FLAG=1
+        EMU8950_SIMPLER_NOISE=1
+        EMU8950_SHORT_NOISE_UPDATE_CHECK=1
+        EMU8950_LINEAR_SKIP=1
+        EMU8950_LINEAR_END_OF_NOTE_OPTIMIZATION
+        EMU8950_NO_PERCUSSION_MODE=1
+        EMU8950_LINEAR=1
 )
-
-target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950)
-target_include_directories(${PROJECT_NAME} PRIVATE src/printf)
-
-set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${BUILD_NAME}")
-target_link_options(${PROJECT_NAME} PRIVATE -Xlinker --print-memory-usage --data-sections --function-sections)
