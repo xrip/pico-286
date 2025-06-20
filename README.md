@@ -39,10 +39,12 @@ The Pico-286 emulator is designed to run on Raspberry Pi Pico (RP2040) based har
 
 The emulator supports the following sound card emulations:
 
-*   Tandy 3-voice
-*   Creative Music System (Gameblaster)
-*   Sound Blaster
-*   Adlib
+*   **Adlib / Sound Blaster (OPL2 FM Synthesis):** High-quality emulation of the Yamaha OPL2 chipset for classic FM music and sound effects.
+*   **Sound Blaster (Digital Audio):** Support for Sound Blaster's digital sound capabilities, including DMA-based playback.
+*   **MPU-401 (MIDI Interface with General MIDI Synthesizer):** Provides a MIDI interface and includes an integrated General MIDI (GM) software synthesizer, allowing playback of GM scores without external MIDI hardware. This is a key feature for many later DOS games.
+*   **Tandy 3-voice / PCjr (SN76489 PSG):** Emulation of the Texas Instruments SN76489 Programmable Sound Generator.
+*   **Creative Music System / Game Blaster (CMS/GameBlaster):** Emulation of the dual Philips SAA1099 based sound card.
+
 
 ### Graphical Adapter Emulations
 
