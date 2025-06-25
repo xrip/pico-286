@@ -44,7 +44,7 @@ static uint st7789_chan;
 uint16_t palette[256];
 
 uint8_t *text_buffer = NULL;
-static uint8_t *graphics_buffer = NULL;
+static uint8_t *graphics_framebuffer = NULL;
 
 static uint graphics_buffer_width = 0;
 static uint graphics_buffer_height = 0;
@@ -192,7 +192,7 @@ void inline graphics_set_mode(const enum graphics_mode_t mode) {
 }
 
 void graphics_set_buffer(uint8_t *buffer, const uint16_t width, const uint16_t height) {
-    graphics_buffer = buffer;
+    graphics_framebuffer = buffer;
     graphics_buffer_width = width;
     graphics_buffer_height = height;
 }
@@ -218,30 +218,10 @@ static INLINE void st7789_dma_pixels(const uint16_t *pixels, const uint num_pixe
 
 INLINE void __time_critical_func() refresh_lcd() {
     uint16_t line_buffer[320];
-    const uint8_t *input_buffer_8bit = graphics_buffer;
+    const uint8_t *input_buffer_8bit = graphics_framebuffer;
 
     // start_pixels();
     switch (graphics_mode) {
-        case TGA_320x200x16: {
-            //4bit buf
-            //+ (y & 3) * 8192 + __fast_mul(y >> 2, 160);
-            for (int y = 0; y < graphics_buffer_height; y++) {
-                input_buffer_8bit = tga_offset + graphics_buffer + (y & 3) * 8192 + __fast_mul(y >> 2, 160);
-                for (int x = 320 / 2; x--;) {
-                    st7789_lcd_put_pixel(pio, sm, palette[*input_buffer_8bit >> 4 & 15]);
-                    st7789_lcd_put_pixel(pio, sm, palette[*input_buffer_8bit & 15]);
-                    input_buffer_8bit++;
-                }
-            }
-            break;
-        }
-        case VGA_320x200x256: {
-            uint32_t i = 320 * 200;
-            while (i--)
-                st7789_lcd_put_pixel(pio, sm, palette[*input_buffer_8bit++]);
-            break;
-        }
-        default:
         case TEXTMODE_80x25_COLOR:
             for (int y = 0; y < SCREEN_HEIGHT; y++) {
                 // TODO add auto adjustable padding?
@@ -261,6 +241,68 @@ INLINE void __time_critical_func() refresh_lcd() {
                 }
             }
             break;
+        case CGA_320x200x4:
+        case CGA_320x200x4_BW: {
+            for (int y = 0; y < 200; y++) {
+                input_buffer_8bit = graphics_framebuffer + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                //2bit buf
+                for (int x = 320 / 4; x--;) {
+                    const uint8_t cga_byte = *input_buffer_8bit++;
+
+                    uint8_t color = cga_byte >> 6 & 3;
+                    st7789_lcd_put_pixel(pio, sm, palette[color ? color : cga_foreground_color]);
+                    color = cga_byte >> 4 & 3;
+                    st7789_lcd_put_pixel(pio, sm, palette[color ? color : cga_foreground_color]);
+                    color = cga_byte >> 2 & 3;
+                    st7789_lcd_put_pixel(pio, sm, palette[color ? color : cga_foreground_color]);
+                    color = cga_byte >> 0 & 3;
+                    st7789_lcd_put_pixel(pio, sm, palette[color ? color : cga_foreground_color]);
+                }
+            }
+            break;
+        }
+        case COMPOSITE_160x200x16_force:
+        case COMPOSITE_160x200x16:
+        case TGA_160x200x16:
+            for (int y = 0; y < 200; y++) {
+                input_buffer_8bit = tga_offset + graphics_framebuffer + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                for (int x = 320 / 4; x--;) {
+                    const uint8_t cga_byte = *input_buffer_8bit++; // Fetch 8 pixels from TGA memory
+                    uint8_t color1 = cga_byte >> 4;
+                    uint8_t color2 = cga_byte & 15;
+
+                    if (videomode == 0x8) {
+                        if (!color1) color1 = cga_foreground_color;
+                        if (!color2) color2 = cga_foreground_color;
+                    }
+
+                    st7789_lcd_put_pixel(pio, sm, palette[color1]);
+                    st7789_lcd_put_pixel(pio, sm, palette[color1]);
+                    st7789_lcd_put_pixel(pio, sm, palette[color2]);
+                    st7789_lcd_put_pixel(pio, sm, palette[color2]);
+                }
+            }
+            break;
+        case TGA_320x200x16: {
+            //4bit buf
+            //+ (y & 3) * 8192 + __fast_mul(y >> 2, 160);
+            for (int y = 0; y < graphics_buffer_height; y++) {
+                input_buffer_8bit = tga_offset + graphics_framebuffer + (y & 3) * 8192 + __fast_mul(y >> 2, 160);
+                for (int x = 320 / 2; x--;) {
+                    st7789_lcd_put_pixel(pio, sm, palette[*input_buffer_8bit >> 4 & 15]);
+                    st7789_lcd_put_pixel(pio, sm, palette[*input_buffer_8bit & 15]);
+                    input_buffer_8bit++;
+                }
+            }
+            break;
+        }
+        default:
+        case VGA_320x200x256: {
+            uint32_t i = 320 * 200;
+            while (i--)
+                st7789_lcd_put_pixel(pio, sm, palette[*input_buffer_8bit++]);
+            break;
+        }
     }
     // stop_pixels();
     // st7789_lcd_wait_idle(pio, sm);
