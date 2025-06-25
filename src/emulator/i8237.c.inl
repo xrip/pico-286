@@ -155,7 +155,7 @@ static INLINE uint8_t i8237_readport(const uint16_t portnum) {
         case 4:
         case 5:
         case 6:
-        case 7:
+        case 7: {
             const uint8_t channel = (portnum >> 1) & 3;
 
             if (portnum & 1) {
@@ -175,6 +175,7 @@ static INLINE uint8_t i8237_readport(const uint16_t portnum) {
             }
             byte_pointer_flipflop ^= 1;
             break;
+        }
         case 0x08: //status register
             register_value = 0x0F;
     }

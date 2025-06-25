@@ -230,7 +230,7 @@ else()
     # =========================
     target_compile_definitions(${PROJECT_NAME} PRIVATE
             # Core definitions
-            PICO_PANIC_FUNCTION=dummy_panic
+            PICO_PANIC_FUNCTION=
             EMU8950_ASM=1
             CPU_FREQ_MHZ=${CPU_FREQ_MHZ}
             PICO_FLASH_SIZE_BYTES=16777216
