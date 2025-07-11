@@ -85,6 +85,9 @@ else ()
 
     # CPU Configuration
     set(CPU_FREQ_MHZ "378" CACHE STRING "CPU frequency in MHz")
+    
+    set(ENABLE_PWM_SOUND ON)
+    set(ENABLE_VGA ON)
 
 
 
@@ -286,6 +289,7 @@ else ()
             # PSRAM related definitions (only if NOT using virtual memory)
             $<$<NOT:$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>>:PSRAM>
             $<$<NOT:$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>>:$<$<AND:$<NOT:$<STREQUAL:${PICO_PLATFORM},rp2040>>,$<BOOL:${ONBOARD_PSRAM}>>:ONBOARD_PSRAM_GPIO=${ONBOARD_PSRAM_GPIO}>>
+
             # Pin configurations
             VGA_BASE_PIN=6 HDMI_BASE_PIN=6
 
