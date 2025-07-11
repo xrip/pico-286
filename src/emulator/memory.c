@@ -4,7 +4,7 @@
 #include "emulator.h"
 
 
-#include "emulator/ems.c.inl"
+#include "ems.c.inl"
 
 #if PICO_ON_DEVICE
 #include "pico.h"

@@ -1227,8 +1227,13 @@ void reset86() {
     //memset(XMS, 0, sizeof(XMS));
 #else
     #ifdef ONBOARD_PSRAM_GPIO
-    memset(PSRAM_DATA + UMB_START, 0, (UMB_END - UMB_START) + 4);
-    memset(PSRAM_DATA + HMA_START, 0, (HMA_END - HMA_START) + 4);
+        #ifndef TOTAL_VIRTUAL_MEMORY_KBS
+            memset(PSRAM_DATA + UMB_START, 0, (UMB_END - UMB_START) + 4);
+            memset(PSRAM_DATA + HMA_START, 0, (HMA_END - HMA_START) + 4);
+        #else
+            for (uint32_t a = UMB_START;  a < ((UMB_END - UMB_START) + 4); a += 4) write32psram(a, 0);
+            for (uint32_t a = HMA_START;  a < ((HMA_END - HMA_START) + 4); a += 4) write32psram(a, 0);
+        #endif
     #else
     for (uint32_t a = UMB_START;  a < ((UMB_END - UMB_START) + 4); a += 4) {
         write32psram(a, 0);
@@ -1250,7 +1255,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
     //tickssource();
     for (uint32_t loopcount = 0; loopcount < execloops; loopcount++) {
 
-        if (unlikely(ifl && (i8259.irr & (~i8259.imr)))) {
+        if (unlikely(ifl && (i8259_controller.interrupt_request_register & (~i8259_controller.interrupt_mask_register)))) {
             intcall86(nextintr()); // get next interrupt from the i8259, if any d
         }
         reptype = 0;
