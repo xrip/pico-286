@@ -77,6 +77,28 @@ else()
     # CPU Configuration
     set(CPU_FREQ_MHZ "378" CACHE STRING "CPU frequency in MHz")
 
+    # Virtual Memory Configuration
+    set(TOTAL_VIRTUAL_MEMORY_KBS "0" CACHE STRING "Total virtual memory in KBS. Set to 0 to use PSRAM instead (if PSRAM is otherwise enabled). Set to >0 to use virtual memory and disable all PSRAM.")
+
+    # Determine if Virtual Memory is used instead of PSRAM
+    if(TOTAL_VIRTUAL_MEMORY_KBS GREATER 0)
+        set(USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM TRUE)
+    else()
+        set(USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM FALSE)
+    endif()
+
+    if(USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
+        message(STATUS "TOTAL_VIRTUAL_MEMORY_KBS = ${TOTAL_VIRTUAL_MEMORY_KBS}K. Virtual Memory enabled, PSRAM will be disabled.")
+        if(NOT PICO_PLATFORM STREQUAL "rp2040")
+            # If ONBOARD_PSRAM was an option, ensure it's off when virtual memory is active.
+            # The option itself is defined earlier, here we just force its value if virtual mem is on.
+            set(ONBOARD_PSRAM OFF CACHE BOOL "Enable onboard PSRAM support" FORCE)
+        endif()
+    else()
+        message(STATUS "TOTAL_VIRTUAL_MEMORY_KBS = 0. Virtual Memory disabled. PSRAM will be used if configured.")
+        # ONBOARD_PSRAM (if available for RP2350) will use its user-defined or default value.
+    endif()
+
     # =========================
     # VALIDATION
     # =========================
@@ -154,10 +176,25 @@ else()
         set(BUILD_NAME "${BUILD_NAME}-HW")
     endif()
     
-    # Add PSRAM info
-    if(ONBOARD_PSRAM)
-        set(BUILD_NAME "${BUILD_NAME}-ONBOARD_PSRAM_PIN_${ONBOARD_PSRAM_GPIO}")
-        message(STATUS "Onboard PSRAM enabled on GPIO ${ONBOARD_PSRAM_GPIO}")
+    # Add PSRAM or Virtual Memory info
+    if(USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
+        set(BUILD_NAME "${BUILD_NAME}-VMEM${TOTAL_VIRTUAL_MEMORY_KBS}k")
+        # Message for this case already handled when USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM was set
+    else()
+        # This means TOTAL_VIRTUAL_MEMORY_KBS is 0, so PSRAM (if configured) is used.
+        # ONBOARD_PSRAM will be OFF if platform is RP2040 or if user set it OFF.
+        # It's only ON if platform is RP2350 and user set it ON (or default ON).
+        if(ONBOARD_PSRAM AND NOT PICO_PLATFORM STREQUAL "rp2040")
+            set(BUILD_NAME "${BUILD_NAME}-ONBOARD_PSRAM_PIN_${ONBOARD_PSRAM_GPIO}")
+            message(STATUS "Onboard PSRAM enabled on GPIO ${ONBOARD_PSRAM_GPIO}.")
+        else()
+            # Potentially generic PSRAM is active if drivers/psram was included.
+            # We can check if psram target exists as a proxy or rely on ONBOARD_PSRAM being the main named feature.
+            # For now, keep it simple: if not ONBOARD_PSRAM, no specific PSRAM string is added here by default,
+            # unless drivers/psram itself adds something or we want a generic "-PSRAM" tag.
+            # The original file only added ONBOARD_PSRAM specifics.
+            message(STATUS "PSRAM configured (not Onboard, or Onboard PSRAM disabled by user/platform).")
+        endif()
     endif()
 
     # =========================
@@ -197,7 +234,9 @@ else()
     add_subdirectory(drivers/sdcard)
     add_subdirectory(drivers/graphics)
     add_subdirectory(drivers/audio)
-    add_subdirectory(drivers/psram)
+    if(NOT USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
+        add_subdirectory(drivers/psram)
+    endif()
     add_subdirectory(drivers/nespad)
 
     # Display drivers
@@ -219,11 +258,14 @@ else()
     # LIBRARIES
     # =========================
     target_link_libraries(${PROJECT_NAME} PRIVATE
-            ps2 sdcard audio graphics psram nespad
+            ps2 sdcard audio graphics nespad
             pico_runtime pico_stdlib pico_multicore
             hardware_dma hardware_pio hardware_i2c hardware_exception
             hardware_interp hardware_timer hardware_clocks hardware_pwm hardware_flash
     )
+    if(NOT USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
+        target_link_libraries(${PROJECT_NAME} PRIVATE psram)
+    endif()
 
     # =========================
     # COMPILE DEFINITIONS
@@ -245,10 +287,11 @@ else()
             $<$<BOOL:${ENABLE_PWM_SOUND}>:PWM_SOUND>
             $<$<BOOL:${ENABLE_HARDWARE_SOUND}>:HARDWARE_SOUND>
             
-            # PSRAM
-            $<$<BOOL:${ONBOARD_PSRAM}>:ONBOARD_PSRAM_GPIO=${ONBOARD_PSRAM_GPIO}>
-            $<$<BOOL:${ONBOARD_PSRAM}>:PSRAM>
-            #             TOTAL_VIRTUAL_MEMORY_KBS=2048
+            # PSRAM / Virtual Memory Definitions
+            $<$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>:TOTAL_VIRTUAL_MEMORY_KBS=${TOTAL_VIRTUAL_MEMORY_KBS}>
+            # PSRAM related definitions (only if NOT using virtual memory)
+            $<$<NOT:$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>>:PSRAM>
+            $<$<NOT:$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>>:$<$<AND:$<NOT:$<STREQUAL:${PICO_PLATFORM},rp2040>>,$<BOOL:${ONBOARD_PSRAM}>>:ONBOARD_PSRAM_GPIO=${ONBOARD_PSRAM_GPIO}>>
             # Pin configurations
             VGA_BASE_PIN=6 HDMI_BASE_PIN=6
 
