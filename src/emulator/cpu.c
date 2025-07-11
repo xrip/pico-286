@@ -1250,7 +1250,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
     //tickssource();
     for (uint32_t loopcount = 0; loopcount < execloops; loopcount++) {
 
-        if (unlikely(ifl && (i8259.irr & (~i8259.imr)))) {
+        if (unlikely(ifl && (i8259_controller.interrupt_request_register & (~i8259_controller.interrupt_mask_register)))) {
             intcall86(nextintr()); // get next interrupt from the i8259, if any d
         }
         reptype = 0;
