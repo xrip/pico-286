@@ -86,14 +86,8 @@ else ()
     # CPU Configuration
     set(CPU_FREQ_MHZ "378" CACHE STRING "CPU frequency in MHz")
     
-    set(ENABLE_PWM_SOUND ON)
-    set(ENABLE_VGA ON)
-
-
-
-
     if (USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
-        message(STATUS "TOTAL_VIRTUAL_MEMORY_KBS = ${TOTAL_VIRTUAL_MEMORY_KBS}K. Virtual Memory enabled, PSRAM will be disabled.")
+        message(STATUS "TOTAL_VIRTUAL_MEMORY_KBS = ${TOTAL_VIRTUAL_MEMORY_KBS}KB. Virtual Memory enabled, PSRAM will be disabled.")
         if (NOT PICO_PLATFORM STREQUAL "rp2040")
             # If ONBOARD_PSRAM was an option, ensure it's off when virtual memory is active.
             # The option itself is defined earlier, here we just force its value if virtual mem is on.
@@ -180,7 +174,7 @@ else ()
 
     # Add PSRAM or Virtual Memory info
     if (USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
-        set(BUILD_NAME "${BUILD_NAME}-SWAP${TOTAL_VIRTUAL_MEMORY_KBS}k")
+        set(BUILD_NAME "${BUILD_NAME}-SWAP${TOTAL_VIRTUAL_MEMORY_KBS}KB")
         # Message for this case already handled when USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM was set
     else ()
         # This means TOTAL_VIRTUAL_MEMORY_KBS is 0, so PSRAM (if configured) is used.
