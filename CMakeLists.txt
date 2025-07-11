@@ -12,6 +12,7 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
+set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 cmake_minimum_required(VERSION 3.22)
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
@@ -248,7 +249,7 @@ else()
             # PSRAM
             $<$<BOOL:${ONBOARD_PSRAM}>:ONBOARD_PSRAM_GPIO=${ONBOARD_PSRAM_GPIO}>
             $<$<BOOL:${ONBOARD_PSRAM}>:PSRAM>
-            
+            #             TOTAL_VIRTUAL_MEMORY_KBS=2048
             # Pin configurations
             VGA_BASE_PIN=6 HDMI_BASE_PIN=6
 
