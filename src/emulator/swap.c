@@ -24,13 +24,23 @@ uint8_t swap_read(uint32_t address) {
 }
 
 static INLINE uint16_t read16arr(const uint8_t *arr, uint32_t addr32) {
-    return arr[addr32] | (arr[addr32 + 1] << 8);
+    return (uint16_t)arr[addr32] | ((uint16_t)arr[addr32 + 1] << 8);
+}
+
+static INLINE uint32_t read32arr(const uint8_t *arr, uint32_t addr32) {
+    return (uint32_t)arr[addr32] | ((uint32_t)arr[addr32 + 1] << 8) | ((uint32_t)arr[addr32 + 2] << 16) | ((uint32_t)arr[addr32 + 3] << 24);
 }
 
 uint16_t swap_read16(uint32_t addr32) {
     const register uint32_t ram_page = get_swap_page_for(addr32);
     const register uint32_t addr_in_page = addr32 & RAM_IN_PAGE_ADDR_MASK;
     return read16arr(SWAP_PAGES_CACHE, ram_page * SWAP_PAGE_SIZE + addr_in_page);
+}
+
+uint32_t swap_read32(uint32_t addr32) {
+    const register uint32_t ram_page = get_swap_page_for(addr32);
+    const register uint32_t addr_in_page = addr32 & RAM_IN_PAGE_ADDR_MASK;
+    return read32arr(SWAP_PAGES_CACHE, ram_page * SWAP_PAGE_SIZE + addr_in_page);
 }
 
 void swap_write(uint32_t addr32, uint8_t value) {
@@ -50,6 +60,21 @@ void swap_write16(uint32_t addr32, uint16_t value) {
     register uint8_t *addr_in_ram = SWAP_PAGES_CACHE + ram_page * SWAP_PAGE_SIZE + addr_in_page;
     addr_in_ram[0] = (uint8_t) value;
     addr_in_ram[1] = (uint8_t) (value >> 8);
+    register uint16_t ram_page_desc = SWAP_PAGES[ram_page];
+    if (!(ram_page_desc & PAGE_CHANGE_FLAG)) {
+        // if higest (15) bit is set, it means - the page has changes
+        SWAP_PAGES[ram_page] = ram_page_desc | PAGE_CHANGE_FLAG; // mark it as changed - bit 15
+    }
+}
+
+void swap_write32(uint32_t addr32, uint32_t value) {
+    register uint32_t ram_page = get_swap_page_for(addr32);
+    register uint32_t addr_in_page = addr32 & RAM_IN_PAGE_ADDR_MASK;
+    register uint8_t *addr_in_ram = SWAP_PAGES_CACHE + ram_page * SWAP_PAGE_SIZE + addr_in_page;
+    addr_in_ram[0] = (uint8_t) value;
+    addr_in_ram[1] = (uint8_t) (value >> 8);
+    addr_in_ram[2] = (uint8_t) (value >> 16);
+    addr_in_ram[3] = (uint8_t) (value >> 24);
     register uint16_t ram_page_desc = SWAP_PAGES[ram_page];
     if (!(ram_page_desc & PAGE_CHANGE_FLAG)) {
         // if higest (15) bit is set, it means - the page has changes

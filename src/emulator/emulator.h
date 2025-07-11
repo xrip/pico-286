@@ -365,10 +365,16 @@ static INLINE void write8psram(uint32_t address, uint8_t value) {
 static INLINE void write16psram(uint32_t address, uint16_t value) {
     swap_write16(address, value);
 }
+static INLINE void write32psram(uint32_t address, uint32_t value) {
+    swap_write32(address, value);
+}
 static INLINE uint8_t read8psram(uint32_t address) {
     return swap_read(address);
 }
 static INLINE uint16_t read16psram(uint32_t address) {
     return swap_read16(address);
+}
+static INLINE uint32_t read32psram(uint32_t address) {
+    return swap_read32(address);
 }
 #endif
