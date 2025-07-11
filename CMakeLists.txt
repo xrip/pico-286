@@ -130,7 +130,7 @@ else ()
 #            USE_ZONE_FOR_MALLOC=1
             EMU8950_ASM=1
 
-            CPU_FREQ_MHZ=366
+            CPU_FREQ_MHZ=424
 
             #CPU_ALLOW_ILLEGAL_OP_EXCEPTION
            # CPU_386_EXTENDED_OPS

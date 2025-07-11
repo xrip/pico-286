@@ -350,9 +350,7 @@ int main() {
 #ifdef ONBOARD_PSRAM_GPIO
     psram_init(ONBOARD_PSRAM_GPIO);
 #else
-    #ifdef TOTAL_VIRTUAL_MEMORY_KBS
-    init_swap();
-    #else
+    #ifndef TOTAL_VIRTUAL_MEMORY_KBS
     init_psram();
     #endif
 #endif
@@ -393,9 +391,12 @@ int main() {
 
     if (FR_OK != f_mount(&fs, "0", 1)) {
         printf("SD Card not inserted or SD Card error!");
-        // while (1);
+        while (1);
     }
     // adlib_init(SOUND_FREQUENCY);
+#ifdef TOTAL_VIRTUAL_MEMORY_KBS
+    init_swap();
+#endif
 
     sn76489_reset();
     reset86();
