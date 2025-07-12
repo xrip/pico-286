@@ -80,6 +80,22 @@ The VGA emulation provides comprehensive Video Graphics Array support with multi
 *   **📺 720×480×16 Colors:** Extended VGA mode
 *   **📝 Text modes:** 80×25 and 80×50 with enhanced character sets
 
+## 💾 Floppy and Hard Disks
+
+The emulator supports up to two floppy disk drives (A: and B:) and up to two hard disk drives (C: and D:). Disk images are stored on the SD card.
+
+The emulator expects the following file paths and names for the disk images:
+
+*   **Floppy Drive 0 (A:):** `\\XT\\fdd0.img`
+*   **Floppy Drive 1 (B:):** `\\XT\\fdd1.img`
+*   **Hard Drive 0 (C:):** `\\XT\\hdd.img`
+*   **Hard Drive 1 (D:):** `\\XT\\hdd2.img`
+
+**Important Notes:**
+
+*   The disk type (floppy or hard disk) is determined by the drive number it is assigned to in the emulator, not by the filename itself.
+*   The emulator automatically determines the disk geometry (cylinders, heads, sectors) based on the size of the image file. Ensure your disk images have standard sizes for floppy disks (e.g., 360KB, 720KB, 1.2MB, 1.44MB) for proper detection. For hard disks, the geometry is calculated based on a standard CHS (Cylinder/Head/Sector) layout.
+
 ## 🔧 Hardware Configuration
 
 The Pico-286 emulator is designed to run on Raspberry Pi Pico (RP2040) based hardware. 🍓
