@@ -273,7 +273,8 @@ if (sound_chips_clock) {
         case 0x3C9:
         case 0x3CE:
         case 0x3CF:
-            return vga_portout(portnum, value);
+            if (ega_vga_enabled)
+                return vga_portout(portnum, value);
 // https://stanislavs.org/helppc/6845.html
 // https://bitsavers.trailing-edge.com/components/motorola/_dataSheets/6845.pdf
 // https://www.theoddys.com/acorn/the_6845_crtc/the_6845_crtc.html

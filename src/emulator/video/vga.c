@@ -46,7 +46,8 @@ uint32_t vga_palette[256] = {
         0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000  // 248-255
 };
 
- void vga_portout(uint16_t portnum, uint16_t value) {
+bool ega_vga_enabled = true;
+void vga_portout(uint16_t portnum, uint16_t value) {
 //    http://www.techhelpmanual.com/900-video_graphics_array_i_o_ports.html
 //    if (portnum != 0x3c8 && portnum != 0x3c9)
 //        printf("vga_portout %x %x\n", portnum, value);

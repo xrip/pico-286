@@ -73,7 +73,7 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin);
 #endif
 
 bool handleScancode(uint32_t ps2scancode) {
-    //printf("ps2scancode: %04Xh\n", ps2scancode);
+    // printf("ps2scancode: %04Xh\n", ps2scancode);
     switch(ps2scancode) {
         case 0x1D:
             ctrlPressed = true;
@@ -86,6 +86,10 @@ bool handleScancode(uint32_t ps2scancode) {
             break;
         case 0xB8:
             altPressed = false;
+            break;
+        case 0xB7: // KP "*" up
+            ega_vga_enabled = !ega_vga_enabled;
+            printf("EGA/VGA: %s\n", ega_vga_enabled ? "ON" : "OFF");
             break;
         case 0xCA: // KP "-" up
             if (ctrlPressed && altPressed) {
