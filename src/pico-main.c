@@ -43,6 +43,17 @@ FATFS fs;
 struct semaphore vga_start_semaphore;
 int cursor_blink_state = 0;
 
+ // RP2040+swap
+ // 32768: 785 Dh (Model 30);
+ // 1024: 548 Dh (TURBO 8);
+ // 512: 361 Dh (PC/XT);
+ // 256: 74 Dh - unusable
+ /// ~ x = 2^{\frac{y}{52}} - 1
+ // TODO: calibrate on other configurations
+static uint32_t tormoz = 32768;
+static bool ctrlPressed = false;
+static bool altPressed = false;
+
 #if I2S_SOUND
 i2s_config_t i2s_config;
 #elif PWM_SOUND || HARDWARE_SOUND
@@ -62,6 +73,45 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin);
 #endif
 
 bool handleScancode(uint32_t ps2scancode) {
+    //printf("ps2scancode: %04Xh\n", ps2scancode);
+    switch(ps2scancode) {
+        case 0x1D:
+            ctrlPressed = true;
+            break;
+        case 0x9D:
+            ctrlPressed = false;
+            break;
+        case 0x38:
+            altPressed = true;
+            break;
+        case 0xB8:
+            altPressed = false;
+            break;
+        case 0xCA: // KP "-" up
+            if (ctrlPressed && altPressed) {
+                if (tormoz == 32768) {
+                    tormoz = 1024;
+                    printf("TURBO 8\n"); // TODO: calibrate on other configurations
+                }
+                else if (tormoz == 1024) {
+                    tormoz = 512;
+                    printf("PC XT\n");
+                }
+            }
+            break;
+        case 0xCE: // KP "+" up
+            if (ctrlPressed && altPressed) {
+                if (tormoz == 512) {
+                    printf("TURBO 8\n");
+                    tormoz = 1024;
+                }
+                else if (tormoz == 1024) {
+                    printf("Model 30\n");
+                    tormoz = 32768;
+                }
+            }
+            break;
+    }
     port60 = ps2scancode;
     port64 |= 2;
     doirq(1);
@@ -444,7 +494,7 @@ int main(void) {
 
     // Main emulation loop
     while (true) {
-        exec86(32768);
+        exec86(tormoz);
 
         // Handle gamepad input for mouse emulation
         if (!mouse_available) {

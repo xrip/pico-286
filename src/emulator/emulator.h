@@ -25,7 +25,7 @@ extern "C" {
 //#define RAM_SIZE (146 << 10)
 
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
-#define RAM_SIZE (76 << 10)
+#define RAM_SIZE (72 << 10)
 #else
 #define RAM_SIZE (116 << 10)
 #endif
