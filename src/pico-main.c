@@ -73,6 +73,7 @@ static const uint32_t SCANCODE_CTRL_PRESS = 0x1D;
 static const uint32_t SCANCODE_CTRL_RELEASE = 0x9D;
 static const uint32_t SCANCODE_ALT_PRESS = 0x38;
 static const uint32_t SCANCODE_ALT_RELEASE = 0xB8;
+static const uint32_t SCANCODE_KP_MULT_UP = 0xB7;
 static const uint32_t SCANCODE_KP_MINUS_UP = 0xCA;
 static const uint32_t SCANCODE_KP_PLUS_UP = 0xCE;
 
@@ -91,6 +92,10 @@ bool handleScancode(uint32_t ps2scancode) {
             break;
         case SCANCODE_ALT_RELEASE:
             altPressed = false;
+            break;
+        case SCANCODE_KP_MULT_UP: // KP "*" up
+            ega_vga_enabled = !ega_vga_enabled;
+            printf("EGA/VGA: %s\n", ega_vga_enabled ? "ON" : "OFF");
             break;
         case SCANCODE_KP_MINUS_UP: // KP "-" up
             if (ctrlPressed && altPressed) {
