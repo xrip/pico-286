@@ -43,17 +43,6 @@ FATFS fs;
 struct semaphore vga_start_semaphore;
 int cursor_blink_state = 0;
 
- // RP2040+swap
- // 32768: 785 Dh (Model 30);
- // 1024: 548 Dh (TURBO 8);
- // 512: 361 Dh (PC/XT);
- // 256: 74 Dh - unusable
- /// ~ x = 2^{\frac{y}{52}} - 1
- // TODO: calibrate on other configurations
-static uint32_t tormoz = 32768;
-static bool ctrlPressed = false;
-static bool altPressed = false;
-
 #if I2S_SOUND
 i2s_config_t i2s_config;
 #elif PWM_SOUND || HARDWARE_SOUND
@@ -72,50 +61,72 @@ void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused co
 void __no_inline_not_in_flash_func(psram_init)(uint cs_pin);
 #endif
 
+static const uint32_t TORMOZ_MODEL_30 = 32768;
+static const uint32_t TORMOZ_TURBO_8 = 1024;
+static const uint32_t TORMOZ_PC_XT = 512;
+
+static uint32_t tormoz = TORMOZ_MODEL_30;
+static bool ctrlPressed = false;
+static bool altPressed = false;
+
+static const uint32_t SCANCODE_CTRL_PRESS = 0x1D;
+static const uint32_t SCANCODE_CTRL_RELEASE = 0x9D;
+static const uint32_t SCANCODE_ALT_PRESS = 0x38;
+static const uint32_t SCANCODE_ALT_RELEASE = 0xB8;
+static const uint32_t SCANCODE_KP_MULT_UP = 0xB7;
+static const uint32_t SCANCODE_KP_MINUS_UP = 0xCA;
+static const uint32_t SCANCODE_KP_PLUS_UP = 0xCE;
+
 bool handleScancode(uint32_t ps2scancode) {
-    // printf("ps2scancode: %04Xh\n", ps2scancode);
+    //printf("PS/2 SCANCODE: %d\n", ps2scancode);
+
     switch(ps2scancode) {
-        case 0x1D:
+        case SCANCODE_CTRL_PRESS:
             ctrlPressed = true;
             break;
-        case 0x9D:
+        case SCANCODE_CTRL_RELEASE:
             ctrlPressed = false;
             break;
-        case 0x38:
+        case SCANCODE_ALT_PRESS:
             altPressed = true;
             break;
-        case 0xB8:
+        case SCANCODE_ALT_RELEASE:
             altPressed = false;
             break;
-        case 0xB7: // KP "*" up
+        case SCANCODE_KP_MULT_UP: // KP "*" up
             ega_vga_enabled = !ega_vga_enabled;
             printf("EGA/VGA: %s\n", ega_vga_enabled ? "ON" : "OFF");
             break;
-        case 0xCA: // KP "-" up
+        case SCANCODE_KP_MINUS_UP: // KP "-" up
             if (ctrlPressed && altPressed) {
-                if (tormoz == 32768) {
-                    tormoz = 1024;
-                    printf("TURBO 8\n"); // TODO: calibrate on other configurations
-                }
-                else if (tormoz == 1024) {
-                    tormoz = 512;
-                    printf("PC XT\n");
+                switch (tormoz) {
+                    case TORMOZ_MODEL_30:
+                        tormoz = TORMOZ_TURBO_8;
+                        printf("TURBO 8\n"); // TODO: calibrate on other configurations
+                        break;
+                    case TORMOZ_TURBO_8:
+                        tormoz = TORMOZ_PC_XT;
+                        printf("PC XT\n");
+                        break;
                 }
             }
             break;
-        case 0xCE: // KP "+" up
+        case SCANCODE_KP_PLUS_UP: // KP "+" up
             if (ctrlPressed && altPressed) {
-                if (tormoz == 512) {
-                    printf("TURBO 8\n");
-                    tormoz = 1024;
-                }
-                else if (tormoz == 1024) {
-                    printf("Model 30\n");
-                    tormoz = 32768;
+                switch (tormoz) {
+                    case TORMOZ_PC_XT:
+                        tormoz = TORMOZ_TURBO_8;
+                        printf("TURBO 8\n");
+                        break;
+                    case TORMOZ_TURBO_8:
+                        tormoz = TORMOZ_MODEL_30;
+                        printf("Model 30\n");
+                        break;
                 }
             }
             break;
     }
+
     port60 = ps2scancode;
     port64 |= 2;
     doirq(1);
