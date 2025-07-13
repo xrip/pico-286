@@ -264,17 +264,17 @@ if (sound_chips_clock) {
             return OPL_writeReg(emu8950_opl, adlib_register, value);
 #endif
 // EGA/VGA
+        case 0x3C4: // no such ports in MCGA
+        case 0x3CE:
+            if (!ega_vga_enabled) break;
         case 0x3C0:
-        case 0x3C4:
         case 0x3C5:
         case 0x3C6:
         case 0x3C7:
         case 0x3C8:
         case 0x3C9:
-        case 0x3CE:
         case 0x3CF:
-            if (ega_vga_enabled)
-                return vga_portout(portnum, value);
+            return vga_portout(portnum, value);
 // https://stanislavs.org/helppc/6845.html
 // https://bitsavers.trailing-edge.com/components/motorola/_dataSheets/6845.pdf
 // https://www.theoddys.com/acorn/the_6845_crtc/the_6845_crtc.html
