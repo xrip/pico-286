@@ -386,9 +386,9 @@ void __time_critical_func() dma_handler_VGA() {
             input_buffer_8bit = graphics_framebuffer + vga_plane_offset + __fast_mul(y, 80);
             for (int x = 640 / 4; x--;) {
                 *output_buffer_16bit++ = current_palette[input_buffer_8bit[0]];
+                *output_buffer_16bit++ = current_palette[input_buffer_8bit[8000]];
                 *output_buffer_16bit++ = current_palette[input_buffer_8bit[16000]];
-                *output_buffer_16bit++ = current_palette[input_buffer_8bit[32000]];
-                *output_buffer_16bit++ = current_palette[input_buffer_8bit[48000]];
+                *output_buffer_16bit++ = current_palette[input_buffer_8bit[24000]];
                 input_buffer_8bit++;
             }
             break;
@@ -397,9 +397,9 @@ void __time_critical_func() dma_handler_VGA() {
             for (int x = 0; x < 40; x++) {
                 for (int bit = 7; bit >= 0; bit--) {
                     uint8_t color = (input_buffer_8bit[0] >> bit) & 1;
-                    color |= ((input_buffer_8bit[16000] >> bit) & 1) << 1;
-                    color |= ((input_buffer_8bit[32000] >> bit) & 1) << 2;
-                    color |= ((input_buffer_8bit[48000] >> bit) & 1) << 3;
+                    color |= ((input_buffer_8bit[8000] >> bit) & 1) << 1;
+                    color |= ((input_buffer_8bit[16000] >> bit) & 1) << 2;
+                    color |= ((input_buffer_8bit[24000] >> bit) & 1) << 3;
                     *output_buffer_16bit++ = current_palette[vga_graphics_control[7] & (1 << color) ? vga_graphics_control[0] : color];
                 }
                 input_buffer_8bit++;
