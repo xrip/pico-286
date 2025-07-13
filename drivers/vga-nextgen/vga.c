@@ -386,9 +386,9 @@ void __time_critical_func() dma_handler_VGA() {
             input_buffer_8bit = graphics_framebuffer + vga_plane_offset + __fast_mul(y, 80);
             for (int x = 640 / 4; x--;) {
                 *output_buffer_16bit++ = current_palette[input_buffer_8bit[0]];
-                *output_buffer_16bit++ = current_palette[input_buffer_8bit[8000]];
                 *output_buffer_16bit++ = current_palette[input_buffer_8bit[16000]];
-                *output_buffer_16bit++ = current_palette[input_buffer_8bit[24000]];
+                *output_buffer_16bit++ = current_palette[input_buffer_8bit[32000]];
+                *output_buffer_16bit++ = current_palette[input_buffer_8bit[48000]];
                 input_buffer_8bit++;
             }
             break;
