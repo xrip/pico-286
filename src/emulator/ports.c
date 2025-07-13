@@ -394,14 +394,15 @@ uint16_t portin(uint16_t portnum) {
         case 0x0d:
         case 0x0e:
         case 0x0f:
+// i8237 DMA
             return i8237_readport(portnum);
         case 0x20:
-        case 0x21: //i8259
+        case 0x21: // i8259 PIC
             return in8259(portnum);
         case 0x40:
         case 0x41:
         case 0x42:
-        case 0x43: //i8253
+        case 0x43: // i8253 PIT
             return in8253(portnum);
 
 // Keyboard
@@ -411,17 +412,18 @@ uint16_t portin(uint16_t portnum) {
             return port61;
         case 0x64:
             return port64;
-// i8237 DMA
+// i8237 DMA Page Registers
         case 0x81:
         case 0x82:
         case 0x83:
         case 0x87:
             return i8237_readpage(portnum);
-            // A20
+// A20 Gate
         case 0x92:
             printf("A20 R\n");
             return 0xFF;
         case 0x201:
+// Joystick
             return joystick_in();
 
         case 0x220:
@@ -440,6 +442,7 @@ uint16_t portin(uint16_t portnum) {
         case 0x22d:
         case 0x22e:
         case 0x22f:
+// Sound Blaster / GameBlaster
 #if !PICO_RP2040
             return blaster_read(portnum);
 #else
@@ -471,17 +474,19 @@ uint16_t portin(uint16_t portnum) {
         case 0x256:
         case 0x257:
             return rtc_read(portnum);
-        case 0x27A: // LPT2 status (covox is always ready)
+        case 0x27A: // Covox Speech Thing
             return 0;
         case 0x330:
         case 0x331:
+// MPU-401
             return mpu401_read(portnum);
         case 0x378:
         case 0x379:
+// Disney Sound Source
             return dss_in(portnum);
         case 0x37A:
             return 0;
-// Adlib
+// AdLib
         case 0x388:
         case 0x389:
             if (!adlibregmem[4])
@@ -496,13 +501,17 @@ uint16_t portin(uint16_t portnum) {
         case 0x3C7:
         case 0x3C8:
         case 0x3C9:
+// VGA
             return vga_portin(portnum);
 
         case 0x3D4:
+// CRTC
             return crt_controller_idx;
         case 0x3D5:
+// CRTC
             return crt_controller[crt_controller_idx];
         case 0x3DA:
+// CGA
             return cga_portin(portnum);
         case 0x3F8:
         case 0x3F9:
@@ -512,6 +521,7 @@ uint16_t portin(uint16_t portnum) {
         case 0x3FD:
         case 0x3FE:
         case 0x3FF:
+// Serial Port (Mouse)
             return mouse_portin(portnum);
         default:
             return 0xFF;
