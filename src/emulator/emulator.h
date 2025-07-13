@@ -18,7 +18,7 @@ extern "C" {
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
 #define RAM_SIZE (200 << 10)
 #else
-#define RAM_SIZE (350 << 10)
+#define RAM_SIZE (158 << 10)
 #endif
 
 #else
@@ -70,7 +70,14 @@ extern "C" {
 extern uint8_t log_debug;
 
 extern uint8_t VIDEORAM[VIDEORAM_SIZE + 4];
+extern uint8_t VIDEORAM1[VIDEORAM_SIZE + 4];
+extern uint8_t VIDEORAM2[VIDEORAM_SIZE + 4];
+extern uint8_t VIDEORAM3[VIDEORAM_SIZE + 4];
+extern uint8_t VIDEORAM_write_mask;
+extern uint8_t vga_graphics_control[0xF];
+extern uint8_t* VIDEORAM_PLANES[4];
 extern uint8_t RAM[RAM_SIZE + 4];
+extern uint8_t horizontal_pixel_panning;
 
 extern uint32_t dwordregs[8];
 #define byteregs ((uint8_t*)dwordregs)
@@ -328,7 +335,7 @@ extern void get_sound_sample(int16_t other_sample, int16_t *samples);
 #endif
 
 #ifndef TOTAL_VIRTUAL_MEMORY_KBS
-#if PICO_ON_DEVICE && !ONBOARD_PSRAM_GPIO
+#if PICO_ON_DEVICE && !defined(ONBOARD_PSRAM_GPIO)
 #include "psram_spi.h"
 
 #else

@@ -417,6 +417,9 @@ void intcall86(uint8_t intnum) {
 
                     if ((CPU_AL & 0x80) == 0x00) {
                         memset(VIDEORAM, 0x0, VIDEORAM_SIZE);
+                        memset(VIDEORAM1, 0x0, VIDEORAM_SIZE);
+                        memset(VIDEORAM2, 0x0, VIDEORAM_SIZE);
+                        memset(VIDEORAM3, 0x0, VIDEORAM_SIZE);
                     }
                     vga_plane_offset = 0;
                     vga_planar_mode = 0;
@@ -1224,6 +1227,9 @@ void reset86() {
 
     memset(RAM, 0, sizeof(RAM));
     memset(VIDEORAM, 0x00, sizeof(VIDEORAM));
+    memset(VIDEORAM1, 0x00, sizeof(VIDEORAM1));
+    memset(VIDEORAM2, 0x00, sizeof(VIDEORAM2));
+    memset(VIDEORAM3, 0x00, sizeof(VIDEORAM3));
 #if !PICO_ON_DEVICE
     memset(UMB, 0, sizeof(UMB));
     memset(HMA, 0, sizeof(HMA));

@@ -7,7 +7,8 @@ static uint8_t color_index = 0, read_color_index = 0, vga_register, sequencer_re
 uint32_t vga_plane_offset = 0;
 uint8_t vga_planar_mode = 0;
 uint8_t vga_sequencer[5];
-uint8_t vga_graphics_control[9];
+uint8_t vga_graphics_control[0xF] = { 0 };
+uint8_t horizontal_pixel_panning = 0;
 
 // https://wiki.osdev.org/VGA_Hardware
 
@@ -73,6 +74,9 @@ void vga_portout(uint16_t portnum, uint16_t value) {
                     //printf("[VGA] value 0x%02x\r\n", value);
                     cga_blinking = (value >> 5) & 1 ? 0x7F : 0xFF;
                 }
+                else if (vga_register == 0x13) {
+                    horizontal_pixel_panning = value & 0x07; // только младшие 3 бита
+                }
             } else {
                 vga_register = value & 0b1111;
             }
@@ -88,27 +92,8 @@ void vga_portout(uint16_t portnum, uint16_t value) {
             break;
         case 0x3C5: {
             if (sequencer_register == 2) {
-                switch (value & 0b1111) {
-                    case 1:
-                        vga_plane_offset = 0;
-                        break;
-                    case 2:
-                        vga_plane_offset = vga_plane_size * 1;
-                        break;
-                    case 4:
-                        vga_plane_offset = vga_plane_size * 2;
-                        break;
-                    case 8:
-                        vga_plane_offset = vga_plane_size * 3;
-                        break;
-                    default:
-                        vga_plane_offset = 0;
-                        break;
-                }
-
-                //printf("vga_plane_offset %x\n",value);
-            }
-            if (sequencer_register == 4) {
+                VIDEORAM_write_mask = value & 0b1111;
+            } else if (sequencer_register == 4) {
                 vga_planar_mode = value & 6;
 //                printf("vga planar %i\n", vga_planar_mode);
             }
@@ -154,18 +139,20 @@ void vga_portout(uint16_t portnum, uint16_t value) {
                 7 Color Don't Care
                 8 Bit Mask
              */
-            graphics_control_register = value & 8;
+            graphics_control_register = value & 0xF;
 //            printf("3CE %x\n", value);
+            break;
         }
         case 0x3CF: { // Graphics 1 and 2 Address Register
 //            printf("3CF %x\n", value);
             vga_graphics_control[graphics_control_register] = value & 0xff;
+            break;
         }
     }
 
 }
 
- uint16_t vga_portin(uint16_t portnum) {
+uint16_t vga_portin(uint16_t portnum) {
     //printf("vga_portin %x\n", portnum);
 
     switch (portnum) {

@@ -256,7 +256,7 @@ void __time_critical_func() dma_handler_VGA() {
     }
 
     // Зона прорисовки изображения. Начальные точки буферов
-    uint8_t *input_buffer_8bit = graphics_framebuffer + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+    register uint8_t *input_buffer_8bit;
     // Индекс палитры в зависимости от настроек чередования строк и кадров
     uint16_t *current_palette = palette[(y & is_flash_line) + (frame_number & is_flash_frame) & 1];
 
@@ -264,6 +264,7 @@ void __time_critical_func() dma_handler_VGA() {
     switch (graphics_mode) {
         case CGA_320x200x4:
         case CGA_320x200x4_BW: {
+            input_buffer_8bit = graphics_framebuffer + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
             //2bit buf
             for (int x = 320 / 4; x--;) {
                 uint8_t cga_byte = *input_buffer_8bit++;
@@ -280,6 +281,7 @@ void __time_critical_func() dma_handler_VGA() {
             break;
         }
         case CGA_640x200x2:
+            input_buffer_8bit = graphics_framebuffer + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
             output_buffer_8bit = (uint8_t *) output_buffer_16bit;
             //1bit buf
             for (int x = 640 / 8; x--;) {
@@ -377,9 +379,22 @@ void __time_critical_func() dma_handler_VGA() {
             }
             break;
         case VGA_320x200x256:
-            input_buffer_8bit = graphics_framebuffer + __fast_mul(y, 320);
-            for (int x = 640 / 2; x--;) {
-                *output_buffer_16bit++ = current_palette[*input_buffer_8bit++];
+            if (vga_planar_mode == 0b110) { // Chain4 + Odd/Even mode
+                register uint32_t line_offset = horizontal_pixel_panning + vram_offset + __fast_mul((y & 3), 80) + __fast_mul((y >> 2), 320);
+                // Для каждого плана берём указатель сразу на нужную строку
+                uint8_t* plane_ptrs[4];
+                for (int p = 0; p < 4; ++p) {
+                    plane_ptrs[p] = VIDEORAM_PLANES[p] + line_offset;
+                }
+                // Перебираем по горизонтали, собираем пиксели сразу
+                for (int x = 0; x < 320; ++x) {
+                    *output_buffer_16bit++ = current_palette[plane_ptrs[x & 3][x >> 2]];
+                }
+            } else {
+                input_buffer_8bit = graphics_framebuffer + horizontal_pixel_panning + vram_offset + __fast_mul(y, 320); // TODO: ensure horizontal_pixel_panning
+                for (int x = 640 / 2; x--;) {
+                    *output_buffer_16bit++ = current_palette[*input_buffer_8bit++];
+                }
             }
             break;
         case VGA_320x200x256x4:
