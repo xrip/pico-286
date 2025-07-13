@@ -32,29 +32,19 @@ This document describes the video modes supported by the emulator, along with th
 * **COMPOSITE_160x200x16**: 160x200 with 16 colors, emulating the color composite output of a CGA card.
 * **COMPOSITE_160x200x16_force**: 160x200 with 16 colors, forcing the composite color mode even if the BIOS does not request it.
 
-**Restrictions:**
+**Implementation Details & Restrictions**
 
-* The color palette is fixed for most modes. The TGA and VGA modes allow for a programmable palette.
-* The video memory layout is fixed for each mode.
-* The refresh rate is fixed at 60Hz.
-* The `dma_handler_VGA` function in `drivers/vga-nextgen/vga.c` is responsible for generating the video signal. It reads the video data from the emulated video RAM and sends it to the PIO to be displayed on the screen. The handler is called for each scanline, and it determines which video mode is currently active and generates the appropriate signals.
-* The `dma_handler_VGA` function has a hardcoded limit of 480 visible lines. Any video modes with a higher vertical resolution will be cropped.
-* The `dma_handler_VGA` function has a hardcoded limit of 640 visible pixels per line. Any video modes with a higher horizontal resolution will be cropped.
-* The `HERC_640x480x2_90` mode is a special case that uses a 90-column text mode layout. The video memory is laid out in a way that is different from the other Hercules modes.
-* The composite color modes are an approximation of the real hardware. The colors may not be exactly the same as on a real CGA card.
-* The VGA "Mode X" style mode is not a standard VGA mode. It is a custom mode that uses a planar memory layout to achieve 256 colors at a resolution of 320x200.
-* The `dma_handler_VGA` function has a special case for a debug console that is displayed at the bottom of the screen. This console is not part of the emulated video output.
-* The `dma_handler_VGA` function uses a double-buffering scheme to avoid tearing. The two buffers are swapped at the beginning of each frame.
-* The `dma_handler_VGA` function uses the PIO to generate the video signals. The PIO is a programmable I/O peripheral that can be used to generate complex waveforms.
-* The `dma_handler_VGA` function uses DMA to transfer the video data from the emulated video RAM to the PIO. This frees up the CPU to do other things.
-* The `dma_handler_VGA` function is time-critical. It must be able to generate the video signal in real time. Any delays in the handler will cause the video output to be corrupted.
-* The `dma_handler_VGA` function is only compatible with the Raspberry Pi Pico. It will not work on other microcontrollers.
-* The `dma_handler_VGA` function is not thread-safe. It should only be called from the main thread.
-* The `dma_handler_VGA` function assumes that the system clock is running at a specific frequency. If the clock frequency is changed, the video output will be corrupted.
-* The `dma_handler_VGA` function assumes that the PIO is configured in a specific way. If the PIO configuration is changed, the video output will be corrupted.
-* The `dma_handler_VGA` function assumes that the DMA is configured in a specific way. If the DMA configuration is changed, the video output will be corrupted.
-* The `dma_handler_VGA` function assumes that the video memory is laid out in a specific way. If the video memory layout is changed, the video output will be corrupted.
-* The `dma_handler_VGA` function assumes that the palette is configured in a specific way. If the palette is changed, the video output will be corrupted.
-* The `dma_handler_VGA` function assumes that the font is configured in a specific way. If the font is changed, the video output will be corrupted.
-* The `dma_handler_VGA` function assumes that the cursor is configured in a specific way. If the cursor is changed, the video output will be corrupted.
-* The `dma_handler_VGA` function assumes that the blinking is configured in a specific way. If the blinking is changed, the video output will be corrupted.
+The video signal generation is handled by `dma_handler_VGA` and has the following characteristics and limitations:
+
+*   **Hardware Dependency:** The implementation is specific to the Raspberry Pi Pico and its PIO/DMA capabilities. It is not thread-safe and assumes a specific system clock frequency.
+*   **Resolution Limits:**
+    *   Maximum visible resolution is 640x480. Video modes with a higher vertical resolution will be cropped.
+    *   Maximum horizontal resolution is 640 pixels. Video modes with a higher horizontal resolution will be cropped.
+*   **Refresh Rate:** Fixed at 60Hz.
+*   **Memory Layout:** Each video mode has a fixed, non-configurable video memory layout.
+*   **Palette:** The color palette is fixed for most modes. Only TGA and VGA modes allow for a programmable palette.
+*   **Special Modes:**
+    *   `HERC_640x480x2_90`: Uses a non-standard 90-column text mode memory layout.
+    *   Composite modes: An approximation of real CGA hardware; colors may not be an exact match.
+    *   VGA "Mode X": This is a custom mode, not a standard VGA mode, that uses a planar memory layout.
+*   **Debug Console:** A debug console may be displayed at the bottom of the screen, which is not part of the emulated video output.
