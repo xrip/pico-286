@@ -20,7 +20,11 @@ void __time_critical_func() write86(uint32_t address, uint8_t value) {
     } else if (address < VIDEORAM_START) {
         write8psram(address, value);
     } else if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-        VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE] = value;
+        uint32_t video_address = (address - VIDEORAM_START) % VIDEORAM_SIZE;
+        if (vga_sequencer[2] & 1) VIDEORAM[video_address] = value;
+        if (vga_sequencer[2] & 2) VIDEORAM[video_address + vga_plane_size] = value;
+        if (vga_sequencer[2] & 4) VIDEORAM[video_address + vga_plane_size * 2] = value;
+        if (vga_sequencer[2] & 8) VIDEORAM[video_address + vga_plane_size * 3] = value;
     } else if (address >= EMS_START && address < EMS_END) {
         ems_write(address - EMS_START, value);
     } else if (address >= UMB_START && address < UMB_END) {
@@ -41,7 +45,11 @@ void __time_critical_func() writew86(uint32_t address, uint16_t value) {
         } else if (address < VIDEORAM_START) {
             write16psram(address, value);
         } else if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-            *(uint16_t *) &VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE] = value;
+            uint32_t video_address = (address - VIDEORAM_START) % VIDEORAM_SIZE;
+            if (vga_sequencer[2] & 1) *(uint16_t *) &VIDEORAM[video_address] = value;
+            if (vga_sequencer[2] & 2) *(uint16_t *) &VIDEORAM[video_address + vga_plane_size] = value;
+            if (vga_sequencer[2] & 4) *(uint16_t *) &VIDEORAM[video_address + vga_plane_size * 2] = value;
+            if (vga_sequencer[2] & 8) *(uint16_t *) &VIDEORAM[video_address + vga_plane_size * 3] = value;
         } else if (address >= EMS_START && address < EMS_END) {
             ems_writew(address - EMS_START, value);
         } else if (address >= UMB_START && address < UMB_END) {
@@ -65,7 +73,11 @@ void __time_critical_func() writedw86(uint32_t address, uint32_t value) {
         } else if (address < VIDEORAM_START) {
             write32psram(address, value);
         } else if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-            *(uint32_t *) &VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE] = value;
+            uint32_t video_address = (address - VIDEORAM_START) % VIDEORAM_SIZE;
+            if (vga_sequencer[2] & 1) *(uint32_t *) &VIDEORAM[video_address] = value;
+            if (vga_sequencer[2] & 2) *(uint32_t *) &VIDEORAM[video_address + vga_plane_size] = value;
+            if (vga_sequencer[2] & 4) *(uint32_t *) &VIDEORAM[video_address + vga_plane_size * 2] = value;
+            if (vga_sequencer[2] & 8) *(uint32_t *) &VIDEORAM[video_address + vga_plane_size * 3] = value;
         } else if (address >= EMS_START && address < EMS_END) {
             ems_writedw(address - EMS_START, value);
         } else if (address >= UMB_START && address < UMB_END) {
@@ -85,7 +97,9 @@ uint8_t __time_critical_func() read86(uint32_t address) {
         return read8psram(address);
     }
     if (unlikely(address >= VIDEORAM_START && address < VIDEORAM_END)) {
-        return VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE];
+        // FIXME: This does not emulate the latches
+        uint32_t video_address = (address - VIDEORAM_START) % VIDEORAM_SIZE;
+        return VIDEORAM[video_address + vga_plane_size * (vga_graphics_control[4] & 3)];
     }
     if (address >= EMS_START && address < EMS_END) {
         return ems_read(address - EMS_START);
@@ -117,7 +131,9 @@ uint16_t __time_critical_func() readw86(uint32_t address) {
         return read16psram(address);
     }
     if (unlikely(address >= VIDEORAM_START && address < VIDEORAM_END)) {
-        return *(uint16_t *) &VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE];
+        // FIXME: This does not emulate the latches
+        uint32_t video_address = (address - VIDEORAM_START) % VIDEORAM_SIZE;
+        return *(uint16_t *) &VIDEORAM[video_address + vga_plane_size * (vga_graphics_control[4] & 3)];
     }
     if (address >= EMS_START && address < EMS_END) {
         return ems_readw(address - EMS_START);
@@ -147,7 +163,9 @@ uint32_t __time_critical_func() readdw86(uint32_t address) {
         return read32psram(address);
     }
     if (unlikely(address >= VIDEORAM_START && address < VIDEORAM_END)) {
-        return *(uint32_t *) &VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE];
+        // FIXME: This does not emulate the latches
+        uint32_t video_address = (address - VIDEORAM_START) % VIDEORAM_SIZE;
+        return *(uint32_t *) &VIDEORAM[video_address + vga_plane_size * (vga_graphics_control[4] & 3)];
     }
     if (address >= EMS_START && address < EMS_END) {
         return ems_readdw(address - EMS_START);

@@ -4,9 +4,7 @@
 #endif
 
 static uint8_t color_index = 0, read_color_index = 0, vga_register, sequencer_register = 0, graphics_control_register = 0;
-uint32_t vga_plane_offset = 0;
 const uint32_t vga_plane_size = 8000;
-uint8_t vga_planar_mode = 0;
 uint8_t vga_sequencer[5];
 uint8_t vga_graphics_control[9];
 
@@ -88,32 +86,6 @@ void vga_portout(uint16_t portnum, uint16_t value) {
             sequencer_register = value & 0xff;
             break;
         case 0x3C5: {
-            if (sequencer_register == 2) {
-                switch (value & 0b1111) {
-                    case 1:
-                        vga_plane_offset = 0;
-                        break;
-                    case 2:
-                        vga_plane_offset = vga_plane_size * 1;
-                        break;
-                    case 4:
-                        vga_plane_offset = vga_plane_size * 2;
-                        break;
-                    case 8:
-                        vga_plane_offset = vga_plane_size * 3;
-                        break;
-                    default:
-                        vga_plane_offset = 0;
-                        break;
-                }
-
-                //printf("vga_plane_offset %x\n",value);
-            }
-            if (sequencer_register == 4) {
-                vga_planar_mode = value & 6;
-//                printf("vga planar %i\n", vga_planar_mode);
-            }
-            //printf("sequencer %x %x\n", sequencer_register, value);
             vga_sequencer[sequencer_register] = value & 0xff;
             break;
         }
