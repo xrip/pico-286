@@ -334,9 +334,9 @@ if (sound_chips_clock) {
                 case 0x0C: // Start address (MSB)
                     vram_offset = value;
                     break;
-                case 0x0D: // Start address (LSB)
-                    vram_offset = (uint32_t) vram_offset << 8 | (uint32_t) value;
-                    //printf("vram offset %04X\n", vram_offset);
+                case 0x0D: // Start address (LSB) in 16-bit WORDS!
+                    vram_offset = (uint32_t) vram_offset << 9 | (uint32_t) value << 1;
+                    printf("vram offset %04X\n", vram_offset);
                     break;
             }
 

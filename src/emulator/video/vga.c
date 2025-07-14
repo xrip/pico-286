@@ -76,6 +76,7 @@ void vga_portout(uint16_t portnum, uint16_t value) {
                 }
                 else if (vga_register == 0x13) {
                     horizontal_pixel_panning = value & 0x07; // только младшие 3 бита
+                    printf("horizontal_pixel_panning %4X\n", horizontal_pixel_panning);
                 }
             } else {
                 vga_register = value & 0b1111;
@@ -93,9 +94,10 @@ void vga_portout(uint16_t portnum, uint16_t value) {
         case 0x3C5: {
             if (sequencer_register == 2) {
                 VIDEORAM_write_mask = value & 0b1111;
+                printf("vga write_mask %x\n", VIDEORAM_write_mask);
             } else if (sequencer_register == 4) {
                 vga_planar_mode = value & 6;
-//                printf("vga planar %i\n", vga_planar_mode);
+                printf("vga planar %i\n", vga_planar_mode);
             }
             //printf("sequencer %x %x\n", sequencer_register, value);
             vga_sequencer[sequencer_register] = value & 0xff;
@@ -144,7 +146,7 @@ void vga_portout(uint16_t portnum, uint16_t value) {
             break;
         }
         case 0x3CF: { // Graphics 1 and 2 Address Register
-//            printf("3CF %x\n", value);
+            // printf("3CF %x\n", value);
             vga_graphics_control[graphics_control_register] = value & 0xff;
             break;
         }

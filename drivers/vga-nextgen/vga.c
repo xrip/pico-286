@@ -386,12 +386,14 @@ void __time_critical_func() dma_handler_VGA() {
                 for (int p = 0; p < 4; ++p) {
                     plane_ptrs[p] = VIDEORAM_PLANES[p] + line_offset;
                 }
-                // Перебираем по горизонтали, собираем пиксели сразу
+                // Перебираем по горизонтали, собираем пиксели
                 for (int x = 0; x < 320; ++x) {
                     *output_buffer_16bit++ = current_palette[plane_ptrs[x & 3][x >> 2]];
                 }
             } else {
                 input_buffer_8bit = graphics_framebuffer + horizontal_pixel_panning + vram_offset + __fast_mul(y, 320); // TODO: ensure horizontal_pixel_panning
+                if (input_buffer_8bit >= graphics_framebuffer + VIDEORAM_SIZE)
+                    input_buffer_8bit = &VIDEORAM1[0] + (uint32_t)graphics_framebuffer - (uint32_t)input_buffer_8bit;
                 for (int x = 640 / 2; x--;) {
                     *output_buffer_16bit++ = current_palette[*input_buffer_8bit++];
                 }
