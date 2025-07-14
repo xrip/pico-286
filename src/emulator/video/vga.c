@@ -4,11 +4,11 @@
 #endif
 
 static uint8_t color_index = 0, read_color_index = 0, vga_register, sequencer_register = 0, graphics_control_register = 0;
-uint32_t vga_plane_offset = 0;
-uint8_t vga_planar_mode = 0;
+volatile uint32_t vga_plane_offset = 0;
+volatile uint8_t vga_planar_mode = 0;
 uint8_t vga_sequencer[5];
 uint8_t vga_graphics_control[0xF] = { 0 };
-uint8_t horizontal_pixel_panning = 0;
+volatile uint8_t horizontal_pixel_panning = 0;
 
 // https://wiki.osdev.org/VGA_Hardware
 

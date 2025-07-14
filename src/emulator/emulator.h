@@ -77,7 +77,7 @@ extern uint8_t VIDEORAM_write_mask;
 extern uint8_t vga_graphics_control[0xF];
 extern uint8_t* VIDEORAM_PLANES[4];
 extern uint8_t RAM[RAM_SIZE + 4];
-extern uint8_t horizontal_pixel_panning;
+extern volatile uint8_t horizontal_pixel_panning;
 
 extern uint32_t dwordregs[8];
 #define byteregs ((uint8_t*)dwordregs)
@@ -175,8 +175,8 @@ uint16_t cga_portin(uint16_t portnum);
 
 // EGA/VGA
 #define vga_plane_size (16000)
-extern uint32_t vga_plane_offset;
-extern uint8_t vga_planar_mode;
+extern volatile uint32_t vga_plane_offset;
+extern volatile uint8_t vga_planar_mode;
 
 extern bool ega_vga_enabled;
 void vga_portout(uint16_t portnum, uint16_t value);
@@ -205,7 +205,7 @@ extern uint16_t portin16(uint16_t portnum);
 // Ports
 extern uint8_t port60, port61, port64;
 extern volatile uint8_t port3DA;
-extern uint32_t vram_offset;
+extern volatile uint32_t vram_offset;
 extern uint32_t tga_offset;
 
 // CPU

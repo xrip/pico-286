@@ -20,7 +20,7 @@ OPL *emu8950_opl;
 uint8_t crt_controller_idx, crt_controller[32];
 uint8_t port60, port61, port64;
 uint8_t cursor_start = 12, cursor_end = 13;
-uint32_t vram_offset = 0x0;
+volatile  uint32_t vram_offset = 0x0;
 
 int sound_chips_clock = 0;
 
