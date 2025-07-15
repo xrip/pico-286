@@ -380,7 +380,8 @@ void __time_critical_func() dma_handler_VGA() {
             break;
         case VGA_320x200x256:
             if (vga_planar_mode == 0b110) { // Chain4 + Odd/Even mode
-                register uint32_t line_offset = horizontal_pixel_panning + vram_offset + __fast_mul((y & 3), 80) + __fast_mul((y >> 2), 320);
+                register uint32_t line_offset =
+                    (horizontal_pixel_panning + vram_offset + __fast_mul((y & 3), 80) + __fast_mul((y >> 2), 320)) & 0xFFFF;
                 // Для каждого плана берём указатель сразу на нужную строку
                 uint8_t* plane_ptrs[4];
                 for (int p = 0; p < 4; ++p) {
@@ -391,9 +392,8 @@ void __time_critical_func() dma_handler_VGA() {
                     *output_buffer_16bit++ = current_palette[plane_ptrs[x & 3][x >> 2]];
                 }
             } else {
-                input_buffer_8bit = graphics_framebuffer + horizontal_pixel_panning + vram_offset + __fast_mul(y, 320); // TODO: ensure horizontal_pixel_panning
-                if (input_buffer_8bit >= graphics_framebuffer + VIDEORAM_SIZE)
-                    input_buffer_8bit = &VIDEORAM1[0] + (uint32_t)graphics_framebuffer - (uint32_t)input_buffer_8bit;
+                register uint32_t offset = horizontal_pixel_panning + vram_offset + __fast_mul(y, 320); // TODO: ensure horizontal_pixel_panning
+                input_buffer_8bit = (offset > 0xFFFF) ? (VIDEORAM1 + (offset & 0xFFFF)) : (graphics_framebuffer + offset);
                 for (int x = 640 / 2; x--;) {
                     *output_buffer_16bit++ = current_palette[*input_buffer_8bit++];
                 }
