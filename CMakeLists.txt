@@ -12,6 +12,7 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif ()
 # ====================================================================================
+    set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 cmake_minimum_required(VERSION 3.22)
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
@@ -54,6 +55,11 @@ else ()
     set(PICO_BOARD pico2 CACHE STRING "Board type")
     pico_sdk_init()
 
+   # set(TOTAL_VIRTUAL_MEMORY_KBS 2048)
+    set(ENABLE_PWM_SOUND ON)
+    set(ENABLE_VGA ON)
+    set(ONBOARD_PSRAM_GPIO "47" CACHE STRING "GPIO pin for onboard PSRAM")
+
     # =========================
     # BUILD OPTIONS
     # =========================
@@ -80,11 +86,10 @@ else ()
     # PSRAM Configuration (onboard only available for RP2350)
     if (NOT PICO_PLATFORM STREQUAL "rp2040")
         option(ONBOARD_PSRAM "Enable onboard PSRAM support" ON)
-        set(ONBOARD_PSRAM_GPIO "19" CACHE STRING "GPIO pin for onboard PSRAM")
     endif ()
 
     # CPU Configuration
-    set(CPU_FREQ_MHZ "378" CACHE STRING "CPU frequency in MHz")
+    set(CPU_FREQ_MHZ "424" CACHE STRING "CPU frequency in MHz")
     
     if (USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
         message(STATUS "TOTAL_VIRTUAL_MEMORY_KBS = ${TOTAL_VIRTUAL_MEMORY_KBS}KB. Virtual Memory enabled, PSRAM will be disabled.")
