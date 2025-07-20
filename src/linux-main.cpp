@@ -437,63 +437,22 @@ void *ticks_thread(void *arg) {
 }
 
 int main() {
-    printf("Starting main...\n");
-    fflush(stdout);
-    
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
-    
-    printf("Signals set...\n");
-    fflush(stdout);
 
-    printf("Opening window...\n");
-    fflush(stdout);
     if (!mfb_open("Pico-286 Emulator", 640, 480, 1)) {
         printf("Failed to open window\n");
         return -1;
     }
-    printf("Window opened successfully\n");
-    fflush(stdout);
 
-    printf("Initializing emulator...\n");
-    fflush(stdout);
-    
-    printf("Clearing screen buffer...\n");
-    fflush(stdout);
     memset(SCREEN, 0, sizeof(SCREEN));
-    printf("Screen cleared\n");
-    fflush(stdout);
-    
-    printf("Creating OPL...\n");
-    fflush(stdout);
     emu8950_opl = OPL_new(3579552, SOUND_FREQUENCY);
-    printf("OPL created\n");
-    fflush(stdout);
-    
-    printf("Resetting blaster...\n");
-    fflush(stdout);
     blaster_reset();
-    printf("Blaster reset\n");
-    fflush(stdout);
-    
-    printf("Resetting sn76489...\n");
-    fflush(stdout);
     sn76489_reset();
-    printf("SN76489 reset\n");
-    fflush(stdout);
-    
-    printf("Resetting CPU...\n");
-    fflush(stdout);
     reset86();
-    printf("CPU reset\n");
-    fflush(stdout);
-    
     pthread_t sound_tid, ticks_tid;
     pthread_create(&sound_tid, NULL, sound_thread, NULL);
     pthread_create(&ticks_tid, NULL, ticks_thread, NULL);
-
-    printf("Starting emulator loop...\n");
-    fflush(stdout);
     
     while (running) {
         exec86(32768);
@@ -508,7 +467,6 @@ int main() {
     pthread_join(sound_tid, NULL);
     pthread_join(ticks_tid, NULL);
     
-    printf("Shutting down...\n");
     mfb_close();
     return 0;
 }
