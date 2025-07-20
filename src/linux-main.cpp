@@ -83,31 +83,82 @@ static inline void renderer() {
 
         switch (videomode) {
             case 0x00:
-            case 0x01:
+            case 0x01: {
+                uint16_t y_div_16 = y / 16; // Precompute y / 16
+                uint8_t glyph_line = (y / 2) % 8; // Precompute y % 8 for font lookup
+                // Calculate screen position
+                uint8_t *text_buffer_line = vidramptr + y_div_16 * 80;
+
+                for (int column = 0; column < 40; column++) {
+                    uint8_t glyph_pixels = font_8x8[*text_buffer_line++ * 8 + glyph_line]; // Glyph row from font
+                    uint8_t color = *text_buffer_line++; // Color attribute
+
+                    // Cursor blinking check
+                    uint8_t cursor_active = cursor_blink_state &&
+                                            y_div_16 == CURSOR_Y && column == CURSOR_X &&
+                                            glyph_line >= cursor_start && glyph_line <= cursor_end;
+
+                    for (uint8_t bit = 0; bit < 8; bit++) {
+                        uint8_t pixel_color;
+                        if (cursor_active) {
+                            pixel_color = color & 0x0F; // Cursor foreground color
+                        } else if (cga_blinking && color >> 7 & 1 ) {
+                            pixel_color = cursor_blink_state ? color >> 4 & 0x7 : color & 0x7; // Blinking background color
+                        } else {
+                            pixel_color = glyph_pixels >> bit & 1 ? color & 0x0f : color >> 4;
+                            // Foreground or background color
+                        }
+
+                        // Write the pixel twice (horizontal scaling)
+                        *pixels++ = *pixels++ = cga_palette[pixel_color];
+                    }
+                }
+
+
+                break;
+            }
             case 0x02:
-            case 0x03:
-            case 0x07: {
-                uint16_t *vram = (uint16_t *) (vidramptr + ((y >> 4) * cols + 0) * 2);
-                for (int x = 0; x < 640; x += 8) {
-                    uint16_t ch_attr = vram[(x >> 3)];
-                    uint8_t ch = ch_attr & 0xff;
-                    uint8_t attr = ch_attr >> 8;
-                    const uint8_t *fontline = &font_8x16[(ch * 16) + (y & 15)];
-                    uint8_t fontbits = *fontline;
-                    uint32_t fg = vga_palette[(attr & 15) + (videomode == 7 ? 0 : 16)];
-                    uint32_t bg = vga_palette[((attr >> 4) & 7) + (videomode == 7 ? 0 : 16)];
+            case 0x03: {
+                uint16_t y_div_16 = y / 16; // Precompute y / 16
+                uint8_t glyph_line = y % 16; // Precompute y % 8 for font lookup
 
-                    if ((attr & 0x80) && cursor_blink_state)
-                        fontbits = 0xff;
+                // Calculate screen position
+                uint8_t *text_row = vidramptr + y_div_16 * 160;
+                for (uint8_t column = 0; column < 80; column++) {
+                    // Access vidram and font data once per character
+                    uint8_t *charcode = text_row + column * 2; // Character code
+                    uint8_t glyph_row = font_8x16[*charcode * 16 + glyph_line]; // Glyph row from font
+                    uint8_t color = *++charcode; // Color attribute
 
-                    for (int b = 0; b < 8; b++) {
-                        pixels[x + b] = (fontbits & (0x80 >> b)) ? fg : bg;
+                    // Cursor blinking check
+                    uint8_t cursor_active =
+                            cursor_blink_state && y_div_16 == CURSOR_Y && column == CURSOR_X &&
+                            (cursor_start > cursor_end
+                                 ? !(glyph_line >= cursor_end << 1 &&
+                                     glyph_line <= cursor_start << 1)
+                                 : glyph_line >= cursor_start << 1 && glyph_line <= cursor_end << 1);
+
+                    // Unrolled bit loop: Write 8 pixels with scaling (2x horizontally)
+                    for (int bit = 0; bit < 8; bit++) {
+                        uint8_t pixel_color;
+                        if (cursor_active) {
+                            pixel_color = color & 0x0F; // Cursor foreground color
+                        } else if (cga_blinking && color >> 7 & 1) {
+                            if (cursor_blink_state) {
+                                pixel_color = color >> 4 & 0x7; // Blinking background color
+                            } else {
+                                pixel_color = glyph_row >> bit & 1 ? color & 0x0f : (color >> 4 & 0x7);
+                            }
+                        } else {
+                            // Foreground or background color
+                            pixel_color = glyph_row >> bit & 1 ? color & 0x0f : color >> 4;
+                        }
+
+                        *pixels++ = cga_palette[pixel_color];
                     }
                 }
                 break;
             }
-
-            case 0x04:
             case 0x05:
             case 0x06: {
                 if (y < 200) {
