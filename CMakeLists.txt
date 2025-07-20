@@ -44,8 +44,16 @@ message(STATUS "")
 # =========================
 if (PICO_PLATFORM STREQUAL "host")
     add_compile_options(-fms-extensions -O2)
-    add_executable(${PROJECT_NAME} ${SRC} src/win32-main.cpp src/WinMiniFB.c src/printf/printf.c)
-    target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
+    
+    if (WIN32)
+        add_executable(${PROJECT_NAME} ${SRC} src/win32-main.cpp src/WinMiniFB.c src/printf/printf.c)
+        target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
+    else()
+        # Linux build
+        add_executable(${PROJECT_NAME} ${SRC} src/linux-main.cpp src/LinuxMiniFB.c src/printf/printf.c)
+        target_link_libraries(${PROJECT_NAME} PRIVATE X11 pthread)
+    endif()
+    
     target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)
 else ()
     # =========================
