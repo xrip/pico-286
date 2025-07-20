@@ -565,10 +565,10 @@ void intcall86(uint8_t intnum) {
             insertdisk(128, "\\XT\\hdd.img");
             insertdisk(129, "\\XT\\hdd2.img");
 #else
-            insertdisk(0, "..\\fdd0.img");
-            insertdisk(1, "..\\fdd1.img");
-            insertdisk(128, "..\\hdd.img");
-            insertdisk(129, "..\\hdd2.img");
+            insertdisk(0, "../fdd0.img");
+            insertdisk(1, "../fdd1.img");
+            insertdisk(128, "../hdd.img");
+            insertdisk(129, "../hdd2.img");
 #endif
             if (1) {
 /* PCjr reserves the top of its internal 128KB of RAM for video RAM.  * Sidecars can extend it past 128KB but it

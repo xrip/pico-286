@@ -5,7 +5,7 @@ The Pico-286 project is an endeavor to emulate a classic PC system, reminiscent 
 ## ⭐ Key Features
 
 *   **🧠 8086/8088/80186/286 CPU Emulation:** At its core, the project emulates an Intel cpu up to 286 family.
-*   **🌐 Cross-platform:** Can be built for Raspberry Pi Pico and Windows.
+*   **🌐 Cross-platform:** Can be built for Raspberry Pi Pico, Windows, and Linux.
 *   **🔌 Retro Peripheral Emulation:** Includes support for common peripherals from the era.
 *   **🎨 Text and Graphics Modes:** Supports various display modes common in early PCs.
 *   **🔊 Sound Emulation:** Recreates sound capabilities of classic sound cards.
@@ -128,10 +128,17 @@ The Pico-286 emulator is designed to run on Raspberry Pi Pico (RP2040) based har
 *   **ARM GCC Toolchain:** For cross-compilation to ARM Cortex-M0+/M33
 *   **Git:** For cloning the repository and submodules
 
-#### For Windows/Linux host builds:
+#### For Windows host builds:
 *   **CMake:** Version 3.22 or higher  
-*   **GCC/Clang/MSVC:** C++20 compatible compiler
+*   **MSVC/GCC:** C++20 compatible compiler
 *   **Git:** For cloning the repository
+
+#### For Linux host builds:
+*   **CMake:** Version 3.22 or higher
+*   **GCC/Clang:** C++20 compatible compiler (GCC 11+ or Clang 13+)
+*   **Git:** For cloning the repository
+*   **X11 development libraries:** Required for graphics output
+*   **Threading support:** pthread library (usually included with GCC)
 
 ### 🛠️ Build Configuration
 
@@ -191,7 +198,27 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 make -j$(nproc)
 ```
 
-#### Windows/Linux Host Build:
+#### Linux Host Build:
+```bash
+# Install dependencies (Ubuntu/Debian)
+sudo apt update
+sudo apt install build-essential cmake git libx11-dev
+
+# Clone and build
+git clone <repository-url>
+cd pc
+mkdir build && cd build
+
+# Configure for Linux host platform
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DPICO_PLATFORM=host \
+      ..
+
+# Build
+make -j$(nproc)
+```
+
+#### Windows Host Build:
 ```bash
 # Configure for host platform (development/testing)
 cmake -DCMAKE_BUILD_TYPE=Release \
@@ -246,6 +273,7 @@ After successful compilation, you'll find:
 
 ### 💾 Setting up Disk Images
 
+#### For Raspberry Pi Pico builds:
 Create the required directory structure on your SD card:
 ```
 SD Card Root/
@@ -256,6 +284,22 @@ SD Card Root/
     └── hdd2.img    # Hard Drive D: (optional)
 ```
 
+#### For Linux/Windows host builds:
+Place disk images in the project root directory:
+```bash
+# From your project directory (pc/)
+# Place disk images directly in the root:
+cp your-boot-disk.img fdd0.img     # Floppy Drive A:
+cp your-floppy2.img fdd1.img       # Floppy Drive B: (optional)  
+cp your-harddisk.img hdd.img       # Hard Drive C:
+cp your-harddisk2.img hdd2.img     # Hard Drive D: (optional)
+
+# Run from build directory
+cd build
+../bin/host/Release/286   # Linux
+# or ../bin/host/Release/286.exe   # Windows
+```
+
 **Supported disk image sizes:**
 *   **Floppy disks:** 360KB, 720KB, 1.2MB, 1.44MB
 *   **Hard disks:** Any size (geometry calculated automatically)
@@ -264,6 +308,20 @@ SD Card Root/
 
 **Build fails with "display/audio option required":**
 - Ensure exactly one `ENABLE_*` option is set for both display and audio
+
+**Linux build fails with "X11 not found":**
+- Install X11 development headers: `sudo apt install libx11-dev`
+- On other distributions: `sudo dnf install libX11-devel` (Fedora) or `sudo pacman -S libx11` (Arch)
+
+**Host build shows "DISK: ERROR: cannot open disk file":**
+- Ensure disk images are in the project root directory (not build directory)
+- Check file permissions: `chmod 644 *.img`
+- Verify disk images exist: `ls -la *.img`
+
+**Linux emulator window appears but shows black screen:**
+- Ensure you have a bootable disk image in `fdd0.img`
+- Check disk image format is valid DOS/PC format
+- Try running from terminal to see debug messages
 
 **Out of memory errors on RP2040:**
 - Try enabling virtual memory: `-DTOTAL_VIRTUAL_MEMORY_KBS=512`
