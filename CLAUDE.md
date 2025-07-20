@@ -38,7 +38,7 @@ All builds require exactly one display and one audio option:
 # RP2350 with VGA and PWM audio
 cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2350 -DENABLE_VGA=ON -DENABLE_PWM_SOUND=ON
 
-# Windows host build  
+# Windows/Linux host build (Linux requires X11 development libraries)
 cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=host
 
 # RP2040 with TFT and I2S
@@ -58,6 +58,7 @@ cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2040 -DENABLE_TFT=ON -DENABLE
 **Platform Abstraction**:
 - `src/pico-main.c` - Raspberry Pi Pico entry point and hardware initialization
 - `src/win32-main.cpp` - Windows host build entry point with MiniFB graphics
+- `src/linux-main.cpp` - Linux host build entry point with X11-based MiniFB graphics
 
 **Memory Layout**:
 - `RAM[RAM_SIZE]` - Main system RAM (size varies by platform: 116-350KB)
@@ -91,6 +92,25 @@ cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2040 -DENABLE_TFT=ON -DENABLE
 - MPU-401 MIDI with General MIDI synthesizer
 - Covox Speech Thing, Disney Sound Source
 - Tandy 3-voice (SN76489), Creative Music System
+
+### Host Platform Graphics (MiniFB)
+
+**MiniFB Implementation** (`src/MiniFB.h`, `src/WinMiniFB.c`, `src/LinuxMiniFB.c`):
+- Unified framebuffer interface for Windows and Linux host builds
+- Cross-platform API with same function signatures: `mfb_open()`, `mfb_update()`, `mfb_close()`
+- 32-bit RGBA buffer rendering with optional scaling
+- Palette support for indexed color modes
+- Keyboard and mouse input handling with PC scancode translation
+- FPS limiting and frame timing control
+
+**Platform-Specific Implementations**:
+- **Windows**: Uses Win32 API with `CreateWindow()`, `StretchDIBits()` for rendering
+- **Linux**: Uses X11 with `XCreateWindow()`, `XPutImage()` for rendering
+
+**Threading Model for Host Builds**:
+- Main thread: CPU emulation (`exec86()`) and window management
+- Ticks thread: Timer interrupts (~18.2Hz), frame rendering (~60Hz), audio sampling
+- Sound thread: Audio buffer management and synchronization
 
 ### Driver System
 
@@ -127,8 +147,9 @@ No automated test framework is present. Testing relies on running actual DOS sof
 
 ### Debugging
 - Serial debug output available via printf (redirected on Pico)
-- Win32 build supports standard debugging tools
+- Win32/Linux builds support standard debugging tools
 - Debug video RAM overlay for system messages
+- Linux build outputs to terminal/console for debugging
 
 ### Memory Optimization
 - Optimized for limited RAM environments  
@@ -142,4 +163,12 @@ No automated test framework is present. Testing relies on running actual DOS sof
 - HDMI builds lock CPU frequency to 378MHz
 - RP2350 builds have access to more RAM and faster operation
 - Font and video data is embedded in headers, not external files
-- Emulator expects disk images in specific paths: `\XT\fdd0.img`, `\XT\hdd.img`
+
+### Disk Image Paths:
+- **Pico builds**: `\XT\fdd0.img`, `\XT\hdd.img` (on SD card)
+- **Host builds**: `../fdd0.img`, `../hdd.img` (relative to executable, i.e., project root directory)
+
+### Linux Build Requirements:
+- X11 development libraries: `sudo apt install libx11-dev` (Ubuntu/Debian)
+- pthread support (included with GCC)
+- CMake 3.22+ and GCC 11+ for C++20 support
