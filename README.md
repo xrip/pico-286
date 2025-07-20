@@ -120,7 +120,165 @@ The Pico-286 emulator is designed to run on Raspberry Pi Pico (RP2040) based har
 
 ## 🔨 Building and Getting Started
 
-Information on how to build and run the Pico-286 emulator will be provided in a separate document or a Wiki page (link to be added). 📚
+### 📋 Prerequisites
+
+#### For Raspberry Pi Pico builds:
+*   **Pico SDK:** Install and configure the [Raspberry Pi Pico SDK](https://github.com/raspberrypi/pico-sdk)
+*   **CMake:** Version 3.22 or higher
+*   **ARM GCC Toolchain:** For cross-compilation to ARM Cortex-M0+/M33
+*   **Git:** For cloning the repository and submodules
+
+#### For Windows/Linux host builds:
+*   **CMake:** Version 3.22 or higher  
+*   **GCC/Clang/MSVC:** C++20 compatible compiler
+*   **Git:** For cloning the repository
+
+### 🛠️ Build Configuration
+
+The project uses CMake with platform-specific configurations. All builds require exactly **one display option** and **one audio option**.
+
+#### 🖥️ Display Options (Choose exactly one):
+*   `ENABLE_TFT=ON` - TFT display output via ST7789
+*   `ENABLE_VGA=ON` - VGA output  
+*   `ENABLE_HDMI=ON` - HDMI output (locks CPU frequency to 378MHz)
+
+#### 🔊 Audio Options (Choose exactly one):
+*   `ENABLE_I2S_SOUND=ON` - I2S digital audio output
+*   `ENABLE_PWM_SOUND=ON` - PWM audio output
+*   `ENABLE_HARDWARE_SOUND=ON` - Hardware DAC audio output
+
+#### 🧠 Memory Configuration:
+*   **PSRAM (Default for RP2350):**
+    - `ONBOARD_PSRAM=ON` - Use onboard PSRAM (RP2350 only)
+    - `ONBOARD_PSRAM_GPIO=19` - GPIO pin for onboard PSRAM
+*   **Virtual Memory:** 
+    - `TOTAL_VIRTUAL_MEMORY_KBS=512` - Enable virtual memory instead of PSRAM
+*   **CPU Frequency:**
+    - `CPU_FREQ_MHZ=378` - Set CPU frequency (default varies by platform)
+
+### 🚀 Build Commands
+
+#### Raspberry Pi Pico 2 (RP2350) - Recommended:
+```bash
+# Clone the repository
+git clone <repository-url>
+cd pc
+
+# Create build directory
+mkdir build && cd build
+
+# Configure for RP2350 with VGA and PWM audio
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DPICO_PLATFORM=rp2350 \
+      -DENABLE_VGA=ON \
+      -DENABLE_PWM_SOUND=ON \
+      ..
+
+# Build
+make -j$(nproc)
+```
+
+#### Raspberry Pi Pico (RP2040):
+```bash
+# Configure for RP2040 with TFT and I2S audio
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DPICO_PLATFORM=rp2040 \
+      -DENABLE_TFT=ON \
+      -DENABLE_I2S_SOUND=ON \
+      ..
+
+# Build  
+make -j$(nproc)
+```
+
+#### Windows/Linux Host Build:
+```bash
+# Configure for host platform (development/testing)
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DPICO_PLATFORM=host \
+      ..
+
+# Build
+make -j$(nproc)
+# On Windows with Visual Studio: cmake --build . --config Release
+```
+
+### 🔧 Advanced Build Options
+
+#### Memory-constrained RP2040 with Virtual Memory:
+```bash
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DPICO_PLATFORM=rp2040 \
+      -DTOTAL_VIRTUAL_MEMORY_KBS=512 \
+      -DENABLE_VGA=ON \
+      -DENABLE_PWM_SOUND=ON \
+      ..
+```
+
+#### High-performance RP2350 with HDMI:
+```bash
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DPICO_PLATFORM=rp2350 \
+      -DENABLE_HDMI=ON \
+      -DENABLE_I2S_SOUND=ON \
+      -DONBOARD_PSRAM=ON \
+      -DONBOARD_PSRAM_GPIO=19 \
+      ..
+```
+
+### 📦 Build Outputs
+
+After successful compilation, you'll find:
+
+#### For Pico builds:
+*   `286-<platform>-<frequency>-<display>-<audio>.uf2` - Firmware file for flashing
+*   `286-<platform>-<frequency>-<display>-<audio>.elf` - ELF binary for debugging
+*   `286-<platform>-<frequency>-<display>-<audio>.bin` - Raw binary
+
+#### For host builds:
+*   `286` (Linux) or `286.exe` (Windows) - Executable for testing
+
+### 🎯 Flashing to Pico
+
+1. **Hold the BOOTSEL button** while connecting your Pico to USB
+2. **Copy the `.uf2` file** to the mounted RPI-RP2 drive  
+3. **The Pico will automatically reboot** and start running the emulator
+
+### 💾 Setting up Disk Images
+
+Create the required directory structure on your SD card:
+```
+SD Card Root/
+└── XT/
+    ├── fdd0.img    # Floppy Drive A:
+    ├── fdd1.img    # Floppy Drive B: (optional)
+    ├── hdd.img     # Hard Drive C:
+    └── hdd2.img    # Hard Drive D: (optional)
+```
+
+**Supported disk image sizes:**
+*   **Floppy disks:** 360KB, 720KB, 1.2MB, 1.44MB
+*   **Hard disks:** Any size (geometry calculated automatically)
+
+### 🐛 Troubleshooting
+
+**Build fails with "display/audio option required":**
+- Ensure exactly one `ENABLE_*` option is set for both display and audio
+
+**Out of memory errors on RP2040:**
+- Try enabling virtual memory: `-DTOTAL_VIRTUAL_MEMORY_KBS=512`
+- Use smaller disk images
+- Disable unused emulation features
+
+**HDMI not working:**
+- Ensure CPU frequency is set to 378MHz (automatic with `ENABLE_HDMI=ON`)
+- Check HDMI cable and display compatibility
+
+### 📚 Additional Resources
+
+*   **Hardware setup:** See `boards/` directory for reference designs
+*   **Pin configurations:** Defined in `CMakeLists.txt` compile definitions
+*   **Development board:** [MURMULATOR](https://murmulator.ru) recommended for development
 
 ## 🤝 Contributing
 
