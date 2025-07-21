@@ -19,7 +19,9 @@ uint8_t log_debug = 0;
 
 extern OPL *emu8950_opl;
 
-// No audio buffering - samples are sent directly to audio system
+#define AUDIO_BUFFER_LENGTH ((SOUND_FREQUENCY / 10))
+static int16_t audio_buffer[AUDIO_BUFFER_LENGTH * 2] = {};
+static int sample_index = 0;
 
 extern "C" void adlib_getsample(int16_t *sndptr, intptr_t numsamples);
 
@@ -616,9 +618,32 @@ void signal_handler(int sig) {
     running = 0;
 }
 
-// Audio synchronization no longer needed - direct sample output
+pthread_mutex_t update_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t update_cond = PTHREAD_COND_INITIALIZER;
+volatile int update_ready = 0;
 
-// Sound thread no longer needed - audio is sent directly from ticks thread
+void *sound_thread(void *arg) {
+    while (running) {
+        pthread_mutex_lock(&update_mutex);
+        while (!update_ready && running) {
+            pthread_cond_wait(&update_cond, &update_mutex);
+        }
+        if (!running) {
+            pthread_mutex_unlock(&update_mutex);
+            break;
+        }
+        update_ready = 0;
+        pthread_mutex_unlock(&update_mutex);
+
+        // Send audio buffer to Linux audio system
+        if (linux_audio_write(audio_buffer, AUDIO_BUFFER_LENGTH) != 0) {
+            // Audio write failed, but continue running
+            // printf("Audio write failed!\n");
+            // usleep(1000); // 1ms delay
+        }
+    }
+    return NULL;
+}
 
 void *ticks_thread(void *arg) {
     struct timespec start, current;
@@ -659,18 +684,18 @@ void *ticks_thread(void *arg) {
             last_sb_tick = elapsedTime;
         }
 
-        // Audio samples - push directly to audio system
+        // Audio samples
         if (elapsedTime - last_sound_tick >= hostfreq / SOUND_FREQUENCY) {
-            int16_t stereo_sample[2];
-            get_sound_sample(last_dss_sample + last_sb_sample, stereo_sample);
+            get_sound_sample(last_dss_sample + last_sb_sample, &audio_buffer[sample_index]);
+            sample_index += 2;
             
-            // Push sample immediately to PulseAudio
-            extern void* g_pulse_simple;
-            extern int (*g_pa_simple_write)(void*, const void*, size_t, int*);
-            if (g_pulse_simple && g_pa_simple_write) {
-                int error;
-                // Write single stereo sample (4 bytes: 2 int16_t)
-                g_pa_simple_write(g_pulse_simple, stereo_sample, 4, &error);
+
+            if (sample_index >= AUDIO_BUFFER_LENGTH * 2) {
+                pthread_mutex_lock(&update_mutex);
+                update_ready = 1;
+                pthread_cond_signal(&update_cond);
+                pthread_mutex_unlock(&update_mutex);
+                sample_index = 0;
             }
 
             last_sound_tick = elapsedTime;
@@ -711,7 +736,7 @@ int main() {
     reset86();
 
     // Initialize audio system
-    if (linux_audio_init(SOUND_FREQUENCY, 2, 1) == 0) {  // Minimal buffer size since we're streaming
+    if (linux_audio_init(SOUND_FREQUENCY, 2, AUDIO_BUFFER_LENGTH) == 0) {
         if (linux_audio_start() == 0) {
             printf("Audio: %s backend started\n", linux_audio_get_backend_name());
         } else {
@@ -721,7 +746,8 @@ int main() {
         printf("Audio: Failed to initialize, continuing without audio\n");
     }
 
-    pthread_t ticks_tid;
+    pthread_t sound_tid, ticks_tid;
+    pthread_create(&sound_tid, NULL, sound_thread, NULL);
     pthread_create(&ticks_tid, NULL, ticks_thread, NULL);
 
     while (running) {
@@ -732,7 +758,9 @@ int main() {
         }
     }
 
+    pthread_cancel(sound_tid);
     pthread_cancel(ticks_tid);
+    pthread_join(sound_tid, NULL);
     pthread_join(ticks_tid, NULL);
 
     // Clean up audio
