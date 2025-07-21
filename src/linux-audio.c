@@ -223,7 +223,7 @@ static int pulse_init(linux_audio_context_t* ctx) {
         return -1;
     }
     
-    // PulseAudio sample spec (need to include pulse headers or define manually)
+    // PulseAudio sample spec
     struct {
         int format;     // PA_SAMPLE_S16LE = 3
         uint32_t rate;
@@ -243,7 +243,7 @@ static int pulse_init(linux_audio_context_t* ctx) {
         "Audio Output",         // stream description
         &sample_spec,           // sample spec
         NULL,                   // channel map
-        NULL,                   // buffer attributes
+        NULL,                   // buffer attributes (use defaults)
         &error                  // error code
     );
     
