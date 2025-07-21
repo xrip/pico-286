@@ -638,8 +638,8 @@ void *sound_thread(void *arg) {
         // Send audio buffer to Linux audio system
         if (linux_audio_write(audio_buffer, AUDIO_BUFFER_LENGTH) != 0) {
             // Audio write failed, but continue running
-            printf("Audio write failed!\n");
-            usleep(1000); // 1ms delay
+            // printf("Audio write failed!\n");
+            // usleep(1000); // 1ms delay
         }
     }
     return NULL;

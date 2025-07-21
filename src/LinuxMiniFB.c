@@ -138,6 +138,17 @@ int mfb_open(const char *title, int width, int height, int scale) {
                             CWEventMask | CWBackPixel, &attrs);
     
     XStoreName(s_display, s_window, title);
+    
+    // Make window non-resizable
+    XSizeHints *size_hints = XAllocSizeHints();
+    if (size_hints) {
+        size_hints->flags = PMinSize | PMaxSize;
+        size_hints->min_width = size_hints->max_width = width * scale;
+        size_hints->min_height = size_hints->max_height = height * scale;
+        XSetWMNormalHints(s_display, s_window, size_hints);
+        XFree(size_hints);
+    }
+    
     XMapWindow(s_display, s_window);
     
     s_gc = XCreateGC(s_display, s_window, 0, NULL);
