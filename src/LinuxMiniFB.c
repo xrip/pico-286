@@ -91,9 +91,9 @@ static void convert_buffer_to_image() {
                     pixel = s_palette[index];
                 }
                 int idx = (y * s_width + x) * 4;
-                dst[idx + 0] = (pixel >> 16) & 0xFF; // Blue
+                dst[idx + 0] = pixel & 0xFF;         // Red
                 dst[idx + 1] = (pixel >> 8) & 0xFF;  // Green
-                dst[idx + 2] = pixel & 0xFF;         // Red
+                dst[idx + 2] = (pixel >> 16) & 0xFF; // Blue
                 dst[idx + 3] = 0;                    // Padding
             }
         }
@@ -203,9 +203,9 @@ int mfb_update(void *buffer, int fps_limit) {
                     key_status[keycode] = is_down;
                 }
                 
-                if (keycode == 27 && is_down) {
-                    s_close = 1;
-                }
+                // if (keycode == 27 && is_down) {
+                    // s_close = 1;
+                // }
                 break;
             }
             
