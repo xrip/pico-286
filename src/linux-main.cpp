@@ -9,6 +9,7 @@
 #include "emulator/includes/font8x16.h"
 #include "emulator/includes/font8x8.h"
 #include "emu8950.h"
+#include "linux-audio.h"
 
 static uint32_t ALIGN(4, SCREEN[640 * 480]);
 uint8_t ALIGN(4, DEBUG_VRAM[80 * 10]) = { 0 };
@@ -580,8 +581,11 @@ void *sound_thread(void *arg) {
         update_ready = 0;
         pthread_mutex_unlock(&update_mutex);
         
-        // Process audio buffer here if needed
-        usleep(1000);
+        // Send audio buffer to Linux audio system
+        if (linux_audio_write(audio_buffer, AUDIO_BUFFER_LENGTH * 2) != 0) {
+            // Audio write failed, but continue running
+            usleep(100); // 10ms delay
+        }
     }
     return NULL;
 }
@@ -630,7 +634,7 @@ void *ticks_thread(void *arg) {
             get_sound_sample(last_dss_sample + last_sb_sample, &audio_buffer[sample_index]);
             sample_index += 2;
             
-            if (sample_index >= AUDIO_BUFFER_LENGTH) {
+            if (sample_index >= AUDIO_BUFFER_LENGTH * 2) {
                 pthread_mutex_lock(&update_mutex);
                 update_ready = 1;
                 pthread_cond_signal(&update_cond);
@@ -653,7 +657,7 @@ void *ticks_thread(void *arg) {
             elapsed_frame_tics = elapsedTime;
         }
         
-        usleep(1000); // 1ms sleep
+        usleep(1); // 1ms sleep
     }
     return NULL;
 }
@@ -672,6 +676,18 @@ int main() {
     blaster_reset();
     sn76489_reset();
     reset86();
+    
+    // Initialize audio system
+    if (linux_audio_init(SOUND_FREQUENCY, 2, AUDIO_BUFFER_LENGTH) == 0) {
+        if (linux_audio_start() == 0) {
+            printf("Audio: %s backend started\n", linux_audio_get_backend_name());
+        } else {
+            printf("Audio: Failed to start, continuing without audio\n");
+        }
+    } else {
+        printf("Audio: Failed to initialize, continuing without audio\n");
+    }
+    
     pthread_t sound_tid, ticks_tid;
     pthread_create(&sound_tid, NULL, sound_thread, NULL);
     pthread_create(&ticks_tid, NULL, ticks_thread, NULL);
@@ -688,6 +704,9 @@ int main() {
     pthread_cancel(ticks_tid);
     pthread_join(sound_tid, NULL);
     pthread_join(ticks_tid, NULL);
+    
+    // Clean up audio
+    linux_audio_close();
     
     mfb_close();
     return 0;

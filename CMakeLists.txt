@@ -50,7 +50,7 @@ if (PICO_PLATFORM STREQUAL "host")
         target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
     else()
         # Linux build
-        add_executable(${PROJECT_NAME} ${SRC} src/linux-main.cpp src/LinuxMiniFB.c src/printf/printf.c)
+        add_executable(${PROJECT_NAME} ${SRC} src/linux-main.cpp src/LinuxMiniFB.c src/linux-audio.c src/printf/printf.c)
         target_link_libraries(${PROJECT_NAME} PRIVATE X11 pthread)
     endif()
     
