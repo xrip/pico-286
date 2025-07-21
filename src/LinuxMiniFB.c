@@ -277,11 +277,9 @@ int mfb_update(void *buffer, int fps_limit) {
 
 void mfb_close() {
     if (s_ximage) {
-        if (s_image_data && s_depth >= 24) {
-            free(s_image_data);
-        }
         XDestroyImage(s_ximage);
         s_ximage = NULL;
+        s_image_data = NULL;
     }
     
     if (s_display) {
