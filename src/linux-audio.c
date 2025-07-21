@@ -19,10 +19,15 @@
 static void* pulse_lib = NULL;
 static void* (*pa_simple_new)(const char*, const char*, int, const char*, const char*, void*, void*, void*, int*) = NULL;
 static int (*pa_simple_write)(void*, const void*, size_t, int*) = NULL;
+static int (*pa_simple_drain)(void*, int*) = NULL;
 static void (*pa_simple_free)(void*) = NULL;
 static char* (*pa_strerror)(int) = NULL;
 
 static linux_audio_context_t g_audio_ctx = {0};
+
+// Expose PulseAudio globals for direct access (bypass internal buffering)
+void* g_pulse_simple = NULL;
+int (*g_pa_simple_write)(void*, const void*, size_t, int*) = NULL;
 
 // Forward declarations
 static int oss_init(linux_audio_context_t* ctx);
@@ -205,10 +210,11 @@ static int load_pulse_library() {
     
     pa_simple_new = dlsym(pulse_lib, "pa_simple_new");
     pa_simple_write = dlsym(pulse_lib, "pa_simple_write");
+    pa_simple_drain = dlsym(pulse_lib, "pa_simple_drain");
     pa_simple_free = dlsym(pulse_lib, "pa_simple_free");
     pa_strerror = dlsym(pulse_lib, "pa_strerror");
     
-    if (!pa_simple_new || !pa_simple_write || !pa_simple_free || !pa_strerror) {
+    if (!pa_simple_new || !pa_simple_write || !pa_simple_drain || !pa_simple_free || !pa_strerror) {
         printf("Audio: Failed to load PulseAudio functions\n");
         dlclose(pulse_lib);
         pulse_lib = NULL;
@@ -223,6 +229,9 @@ static int pulse_init(linux_audio_context_t* ctx) {
         return -1;
     }
     
+    // Set environment variables for low latency before creating stream
+    setenv("PULSE_LATENCY_MSEC", "10", 0);  // Request 10ms latency
+    
     // PulseAudio sample spec
     struct {
         int format;     // PA_SAMPLE_S16LE = 3
@@ -234,6 +243,22 @@ static int pulse_init(linux_audio_context_t* ctx) {
         .channels = ctx->config.channels
     };
     
+    // Ultra-low-latency buffer attributes
+    uint32_t bytes_per_buffer = ctx->config.buffer_size * ctx->config.channels * sizeof(int16_t);
+    struct {
+        uint32_t maxlength;    // Maximum length of the buffer
+        uint32_t tlength;      // Target length of the buffer  
+        uint32_t prebuf;       // Pre-buffering
+        uint32_t minreq;       // Minimum request
+        uint32_t fragsize;     // Fragment size (for recording)
+    } buffer_attr = {
+        .maxlength = bytes_per_buffer,        // Minimal max buffer
+        .tlength = bytes_per_buffer / 2,      // Target half buffer
+        .prebuf = 0,                          // No pre-buffering for immediate playback
+        .minreq = bytes_per_buffer / 16,      // Minimal minimum request
+        .fragsize = (uint32_t)-1              // Use default for recording
+    };
+    
     int error;
     ctx->pulse_simple = pa_simple_new(
         NULL,                   // server
@@ -243,7 +268,7 @@ static int pulse_init(linux_audio_context_t* ctx) {
         "Audio Output",         // stream description
         &sample_spec,           // sample spec
         NULL,                   // channel map
-        NULL,                   // buffer attributes (use defaults)
+        &buffer_attr,           // buffer attributes for low latency
         &error                  // error code
     );
     
@@ -253,6 +278,10 @@ static int pulse_init(linux_audio_context_t* ctx) {
         pulse_lib = NULL;
         return -1;
     }
+    
+    // Expose for direct access
+    g_pulse_simple = ctx->pulse_simple;
+    g_pa_simple_write = pa_simple_write;
     
     printf("Audio: PulseAudio stream created (%d Hz, %d channels)\n",
            ctx->config.sample_rate, ctx->config.channels);
@@ -397,6 +426,8 @@ void linux_audio_close() {
     } else if (g_audio_ctx.backend == LINUX_AUDIO_PULSE && g_audio_ctx.pulse_simple) {
         pa_simple_free(g_audio_ctx.pulse_simple);
         g_audio_ctx.pulse_simple = NULL;
+        g_pulse_simple = NULL;  // Clear global reference
+        g_pa_simple_write = NULL;
         if (pulse_lib) {
             dlclose(pulse_lib);
             pulse_lib = NULL;
