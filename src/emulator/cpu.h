@@ -2,6 +2,8 @@
 #include <string.h>
 #include <inttypes.h>
 
+extern int a20_enabled;
+
 #define regax 0
 #define regcx 1
 #define regdx 2

@@ -56,10 +56,8 @@ static umb_t umb_blocks[] = {
 // Used by EMS driver
 //        { 0xC000, 0x0800, false },
 //        { 0xC800, 0x0800, false },
-        {0xD000, 0x0800, false},
-        {0xD800, 0x0800, false},
-        {0xE000, 0x0800, false},
-        {0xE800, 0x0800, false},
+        {0xD000, 0x1000, false},
+        {0xE000, 0x1000, false},
         {0xF000, 0x0800, false},
         {0xF800, 0x0400, false},
 };
@@ -67,13 +65,28 @@ static umb_t umb_blocks[] = {
 
 static int umb_blocks_allocated = 0;
 
-
-umb_t *get_free_umb_block(uint16_t size) {
-    for (int i = umb_blocks_allocated; i < UMB_BLOCKS_COUNT; i++)
-        if (umb_blocks[i].allocated == false && umb_blocks[i].size >= size) {
-            return &umb_blocks[i];
+const umb_t* get_largest_free_umb_block() {
+    const umb_t* best = NULL;
+    for (int i = 0; i < UMB_BLOCKS_COUNT; i++) {
+        if (!umb_blocks[i].allocated) {
+            if (best == NULL || umb_blocks[i].size > best->size) {
+                best = &umb_blocks[i];
+            }
         }
-    return NULL;
+    }
+    return best;
+}
+
+umb_t* get_free_umb_block(uint16_t size) {
+    umb_t* best = NULL;
+    for (int i = umb_blocks_allocated; i < UMB_BLOCKS_COUNT; i++) {
+        if (!umb_blocks[i].allocated && umb_blocks[i].size >= size) {
+            if (best == NULL || umb_blocks[i].size < best->size) {
+                best = &umb_blocks[i];
+            }
+        }
+    }
+    return best;
 }
 
 uint32_t xms_available = XMS_MEMORY_SIZE;
@@ -241,7 +254,7 @@ uint8_t __not_in_flash() xms_handler() {
             if (CPU_DX == 0xFFFF) {
                 // Query largest available block
                 if (umb_blocks_allocated < UMB_BLOCKS_COUNT) {
-                    const umb_t *umb_block = get_free_umb_block(0x0800); // 0x0800 cause we dont have blocks bigger
+                    const umb_t *umb_block = get_largest_free_umb_block();
                     if (umb_block != NULL) {
                         CPU_DX = umb_block->size;
                         CPU_BX = 0x00B0; // Success
