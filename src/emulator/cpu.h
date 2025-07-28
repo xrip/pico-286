@@ -2,6 +2,9 @@
 #include <string.h>
 #include <inttypes.h>
 
+extern int a20_enabled;
+void init_umb();
+
 #define regax 0
 #define regcx 1
 #define regdx 2
