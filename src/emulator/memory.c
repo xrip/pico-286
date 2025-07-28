@@ -218,9 +218,8 @@ void write86(uint32_t address, uint8_t value) {
         } else {
             RAM[address - HMA_START] = value;
         }
-        } else if (!a20_enabled && address >= HMA_END) {
-            write86(address - HMA_START, value);
-        }
+    } else if (!a20_enabled && address >= HMA_END) {
+        write86(address - HMA_START, value);
     }
 }
 
