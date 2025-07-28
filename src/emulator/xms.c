@@ -127,28 +127,30 @@ const umb_t* get_largest_free_umb_block(uint16_t* psz) {
 umb_t* get_free_umb_block(uint16_t size) {
     umb_t* best = NULL;
     int best_size = 0;
-    for (int i = 0; i < UMB_BLOCKS_COUNT; i++) {
-        if (umb_blocks[i].allocated_paragraphs != 0) continue;
+    int i = 0;
+    while (i < UMB_BLOCKS_COUNT) {
+        if (umb_blocks[i].allocated_paragraphs != 0) {
+            i++;
+            continue;
+        }
         uint16_t total_size = 0;
         int j = i;
-        while (j < UMB_BLOCKS_COUNT && 0 == umb_blocks[j].allocated_paragraphs) {
-            // Проверка на непрерывность по сегментам
+        while (j < UMB_BLOCKS_COUNT && umb_blocks[j].allocated_paragraphs == 0) {
             if (j > i) {
                 uint16_t expected_segment = umb_blocks[j - 1].segment + umb_blocks[j - 1].size;
-                if (umb_blocks[j].segment != expected_segment) {
+                if (umb_blocks[j].segment != expected_segment)
                     break;
-                }
             }
             total_size += umb_blocks[j].size;
-            if (total_size >= size) {
-                if (best == NULL || total_size < best_size) {
-                    best = &umb_blocks[i];
-                    best_size = total_size;
-                }
-                break;
-            }
             j++;
         }
+        if (total_size >= size) {
+            if (best == NULL || total_size < best_size) {
+                best = &umb_blocks[i];
+                best_size = total_size;
+            }
+        }
+        i = j; // skip tested block
     }
     return best;
 }
