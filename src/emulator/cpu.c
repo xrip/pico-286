@@ -1247,7 +1247,7 @@ void reset86() {
     }
     #endif
 #endif
-
+    init_umb();
     ip = 0x0000;
     i8237_reset();
 }

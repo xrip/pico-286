@@ -3,6 +3,7 @@
 #include <inttypes.h>
 
 extern int a20_enabled;
+void init_umb();
 
 #define regax 0
 #define regcx 1
