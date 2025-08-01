@@ -51,7 +51,7 @@ if (PICO_PLATFORM STREQUAL "host")
     add_compile_options(-fms-extensions -O2)
     
     if (WIN32)
-        add_executable(${PROJECT_NAME} ${SRC} src/win32-main.cpp src/WinMiniFB.c src/printf/printf.c)
+        add_executable(${PROJECT_NAME} ${SRC} src/win32-main.cpp src/WinMiniFB.c src/printf/printf.c src/win32-audio.cpp)
         target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
     else()
         # Linux build

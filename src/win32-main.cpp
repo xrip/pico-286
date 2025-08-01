@@ -5,6 +5,7 @@
 #include "emulator/includes/font8x16.h"
 #include "emulator/includes/font8x8.h"
 #include "emu8950.h"
+#include "win32-audio.h"
 
 static uint32_t ALIGN(4, SCREEN[640 * 480]);
 uint8_t ALIGN(4, DEBUG_VRAM[80 * 10]) = { 0 };
@@ -17,8 +18,8 @@ DWORD bytesWritten;
 DCB dcb;
 extern OPL *emu8950_opl;
 
-#define AUDIO_BUFFER_LENGTH ((SOUND_FREQUENCY / 10))
-static int16_t audio_buffer[AUDIO_BUFFER_LENGTH * 2] = {};
+#define AUDIO_SAMPLES 512
+static int16_t audio_buffer[AUDIO_SAMPLES * 2] = {};
 static int sample_index = 0;
 
 extern "C" void adlib_getsample(int16_t *sndptr, intptr_t numsamples);
@@ -430,61 +431,6 @@ static INLINE void renderer() {
 }
 
 extern "C" uint64_t sb_samplerate;
-HANDLE updateEvent;
-
-DWORD WINAPI SoundThread(LPVOID lpParam) {
-    WAVEHDR waveHeaders[4];
-
-    WAVEFORMATEX format = {0};
-    format.wFormatTag = WAVE_FORMAT_PCM;
-    format.nChannels = 2;
-    format.nSamplesPerSec = SOUND_FREQUENCY;
-    format.wBitsPerSample = 16;
-    format.nBlockAlign = format.nChannels * format.wBitsPerSample / 8;
-    format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
-
-    HANDLE waveEvent = CreateEvent(NULL, 1, 0, NULL);
-
-    HWAVEOUT hWaveOut;
-    waveOutOpen(&hWaveOut, WAVE_MAPPER, &format, (DWORD_PTR) waveEvent, 0, CALLBACK_EVENT);
-
-    for (size_t i = 0; i < 4; i++) {
-        int16_t audio_buffers[4][AUDIO_BUFFER_LENGTH * 2];
-        waveHeaders[i] = {
-            .lpData = (char *) audio_buffers[i],
-            .dwBufferLength = AUDIO_BUFFER_LENGTH * 2,
-        };
-        waveOutPrepareHeader(hWaveOut, &waveHeaders[i], sizeof(WAVEHDR));
-        waveHeaders[i].dwFlags |= WHDR_DONE;
-    }
-    WAVEHDR *currentHeader = waveHeaders;
-
-
-    while (true) {
-        if (WaitForSingleObject(waveEvent, INFINITE)) {
-//            fprintf(stderr, "Failed to wait for event.\n");
-            return 1;
-        }
-
-        if (!ResetEvent(waveEvent)) {
-//            fprintf(stderr, "Failed to reset event.\n");
-            return 1;
-        }
-
-        // Wait until audio finishes playing
-        while (currentHeader->dwFlags & WHDR_DONE) {
-            WaitForSingleObject(updateEvent, INFINITE);
-            ResetEvent(updateEvent);
-            //            PSG_calc_stereo(&psg, audiobuffer, AUDIO_BUFFER_LENGTH);
-            memcpy(currentHeader->lpData, audio_buffer, AUDIO_BUFFER_LENGTH * 2);
-            waveOutWrite(hWaveOut, currentHeader, sizeof(WAVEHDR));
-            //waveOutPrepareHeader(hWaveOut, currentHeader, sizeof(WAVEHDR));
-            currentHeader++;
-            if (currentHeader == waveHeaders + 4) { currentHeader = waveHeaders; }
-        }
-    }
-    return 0;
-}
 
 extern uint16_t timeconst;
 DWORD WINAPI TicksThread(LPVOID lpParam) {
@@ -508,8 +454,9 @@ DWORD WINAPI TicksThread(LPVOID lpParam) {
     int16_t last_sb_sample = 0;
     int16_t last_cms_samples[2];
 
+    static int16_t audio_buffer[AUDIO_SAMPLES * 2];
+    int current_sample = 0;
 
-    updateEvent = CreateEvent(NULL, 1, 1, NULL);
     while (true) {
         QueryPerformanceCounter(&current); // Get the current time
 
@@ -534,12 +481,12 @@ DWORD WINAPI TicksThread(LPVOID lpParam) {
         }
 
         if (elapsedTime - last_sound_tick >= hostfreq / SOUND_FREQUENCY) {
-            get_sound_sample(last_dss_sample + last_sb_sample, &audio_buffer[sample_index]);
-            sample_index+=2;
+            get_sound_sample(last_dss_sample + last_sb_sample, &audio_buffer[current_sample * 2]);
+            current_sample++;
 
-            if (sample_index >= AUDIO_BUFFER_LENGTH) {
-                SetEvent(updateEvent);
-                sample_index = 0;
+            if (current_sample >= AUDIO_SAMPLES) {
+                audio_write(audio_buffer, current_sample);
+                current_sample = 0;
             }
 
             last_sound_tick = elapsedTime;
@@ -1099,98 +1046,27 @@ int main(int argc, char **argv) {
     if (!mfb_open("PC", 640, 480, scale))
         return 1;
 
-    // Initialize the message queue
-    InitQueue(&queue);
-
-    // Create the message handling thread
-    hThread = CreateThread(NULL, 0, MessageHandler, &queue, 0, NULL);
-    if (hThread == NULL) {
-        printf("Error creating thread\n");
-        return 1;
-    }
-
-    if (hComm == NULL) {
-        // Open the serial port
-        hComm = CreateFile("\\\\.\\COM7",
-                           GENERIC_WRITE | GENERIC_READ,
-                           0,
-                           NULL,
-                           OPEN_EXISTING,
-                           0,
-                           NULL);
-
-
-        if (hComm == INVALID_HANDLE_VALUE) {
-            printf("!!!! Error in opening serial port\n");
-        }
-        // Initialize the DCB structure
-        SecureZeroMemory(&dcb, sizeof(DCB));
-        dcb.DCBlength = sizeof(DCB);
-
-        Sleep(10);
-        // Get the current state
-        BOOL fSuccess = GetCommState(hComm, &dcb);
-        if (!fSuccess) {
-            // Handle the error
-            printf("!!!! Error in getting current serial port state\n");
-            CloseHandle(hComm);
-            //return 1;
-        }
-
-        // Set the new state
-        dcb.BaudRate = CBR_115200; // set the baud rate
-        dcb.ByteSize = 8; // data size, xmit, and rcv
-        dcb.Parity = NOPARITY; // no parity bit
-        dcb.StopBits = ONESTOPBIT; // one stop bit
-        dcb.fDtrControl = DTR_CONTROL_ENABLE;
-
-
-        fSuccess = SetCommState(hComm, &dcb);
-        if (!fSuccess) {
-            // Handle the error
-            printf("!!!! Error in setting serial port state\n");
-            CloseHandle(hComm);
-            //return 1;
-        }
-        COMMTIMEOUTS timeouts;
-        // Set the timeouts
-        timeouts.ReadIntervalTimeout = 5;
-        timeouts.ReadTotalTimeoutConstant = 5;
-        timeouts.ReadTotalTimeoutMultiplier = 1;
-        timeouts.WriteTotalTimeoutConstant = 5;
-        timeouts.WriteTotalTimeoutMultiplier = 1;
-        Sleep(10);
-        fSuccess = SetCommTimeouts(hComm, &timeouts);
-        if (!fSuccess) {
-            // Handle the error
-            printf("!!!! Error in setting timeouts\n");
-            CloseHandle(hComm);
-            //return 1;
-        }
-        Sleep(10);
-    }
-
-    //    adlib_init(SOUND_FREQUENCY);
     memset(SCREEN, 0, sizeof (SCREEN));
     emu8950_opl = OPL_new(3579552, SOUND_FREQUENCY);
     blaster_reset();
     sn76489_reset();
     reset86();
 
-    CreateThread(NULL, 0, SoundThread, NULL, 0, NULL);
+    if (audio_init(SOUND_FREQUENCY, 2, AUDIO_SAMPLES) != 0) {
+        fprintf(stderr, "Failed to initialize audio\n");
+        return 1;
+    }
+
     CreateThread(NULL, 0, TicksThread, NULL, 0, NULL);
 
     while (true) {
         exec86(32768);
-        if (mfb_update(SCREEN, 0) == -1)
-            exit(1);
-
+        if (mfb_update(SCREEN, 0) == -1) {
+            break;
+        }
     }
-    // Wait for the thread to finish
-    //    WaitForSingleObject(hThread, INFINITE);
 
-    // Clean up
-    CloseHandle(hThread);
-    DestroyQueue(&queue);
-    //    CloseHandle(
+    audio_close();
+
+    return 0;
 }
