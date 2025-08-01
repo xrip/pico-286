@@ -12,14 +12,12 @@ uint8_t ALIGN(4, DEBUG_VRAM[80 * 10]) = { 0 };
 int cursor_blink_state = 0;
 uint8_t log_debug = 0;
 
+#include "win32-audio.h"
+
 HANDLE hComm;
 DWORD bytesWritten;
 DCB dcb;
 extern OPL *emu8950_opl;
-
-#define AUDIO_BUFFER_LENGTH ((SOUND_FREQUENCY / 10))
-static int16_t audio_buffer[AUDIO_BUFFER_LENGTH * 2] = {};
-static int sample_index = 0;
 
 extern "C" void adlib_getsample(int16_t *sndptr, intptr_t numsamples);
 
@@ -430,61 +428,6 @@ static INLINE void renderer() {
 }
 
 extern "C" uint64_t sb_samplerate;
-HANDLE updateEvent;
-
-DWORD WINAPI SoundThread(LPVOID lpParam) {
-    WAVEHDR waveHeaders[4];
-
-    WAVEFORMATEX format = {0};
-    format.wFormatTag = WAVE_FORMAT_PCM;
-    format.nChannels = 2;
-    format.nSamplesPerSec = SOUND_FREQUENCY;
-    format.wBitsPerSample = 16;
-    format.nBlockAlign = format.nChannels * format.wBitsPerSample / 8;
-    format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
-
-    HANDLE waveEvent = CreateEvent(NULL, 1, 0, NULL);
-
-    HWAVEOUT hWaveOut;
-    waveOutOpen(&hWaveOut, WAVE_MAPPER, &format, (DWORD_PTR) waveEvent, 0, CALLBACK_EVENT);
-
-    for (size_t i = 0; i < 4; i++) {
-        int16_t audio_buffers[4][AUDIO_BUFFER_LENGTH * 2];
-        waveHeaders[i] = {
-            .lpData = (char *) audio_buffers[i],
-            .dwBufferLength = AUDIO_BUFFER_LENGTH * 2,
-        };
-        waveOutPrepareHeader(hWaveOut, &waveHeaders[i], sizeof(WAVEHDR));
-        waveHeaders[i].dwFlags |= WHDR_DONE;
-    }
-    WAVEHDR *currentHeader = waveHeaders;
-
-
-    while (true) {
-        if (WaitForSingleObject(waveEvent, INFINITE)) {
-//            fprintf(stderr, "Failed to wait for event.\n");
-            return 1;
-        }
-
-        if (!ResetEvent(waveEvent)) {
-//            fprintf(stderr, "Failed to reset event.\n");
-            return 1;
-        }
-
-        // Wait until audio finishes playing
-        while (currentHeader->dwFlags & WHDR_DONE) {
-            WaitForSingleObject(updateEvent, INFINITE);
-            ResetEvent(updateEvent);
-            //            PSG_calc_stereo(&psg, audiobuffer, AUDIO_BUFFER_LENGTH);
-            memcpy(currentHeader->lpData, audio_buffer, AUDIO_BUFFER_LENGTH * 2);
-            waveOutWrite(hWaveOut, currentHeader, sizeof(WAVEHDR));
-            //waveOutPrepareHeader(hWaveOut, currentHeader, sizeof(WAVEHDR));
-            currentHeader++;
-            if (currentHeader == waveHeaders + 4) { currentHeader = waveHeaders; }
-        }
-    }
-    return 0;
-}
 
 extern uint16_t timeconst;
 DWORD WINAPI TicksThread(LPVOID lpParam) {
@@ -508,8 +451,10 @@ DWORD WINAPI TicksThread(LPVOID lpParam) {
     int16_t last_sb_sample = 0;
     int16_t last_cms_samples[2];
 
+#define AUDIO_CHUNK_SAMPLES 512
+    int16_t local_audio_buffer[AUDIO_CHUNK_SAMPLES * 2];
+    int sample_count = 0;
 
-    updateEvent = CreateEvent(NULL, 1, 1, NULL);
     while (true) {
         QueryPerformanceCounter(&current); // Get the current time
 
@@ -534,12 +479,12 @@ DWORD WINAPI TicksThread(LPVOID lpParam) {
         }
 
         if (elapsedTime - last_sound_tick >= hostfreq / SOUND_FREQUENCY) {
-            get_sound_sample(last_dss_sample + last_sb_sample, &audio_buffer[sample_index]);
-            sample_index+=2;
+            get_sound_sample(last_dss_sample + last_sb_sample, &local_audio_buffer[sample_count * 2]);
+            sample_count++;
 
-            if (sample_index >= AUDIO_BUFFER_LENGTH) {
-                SetEvent(updateEvent);
-                sample_index = 0;
+            if (sample_count >= AUDIO_CHUNK_SAMPLES) {
+                audio_write(local_audio_buffer, sample_count);
+                sample_count = 0;
             }
 
             last_sound_tick = elapsedTime;
@@ -1175,9 +1120,12 @@ int main(int argc, char **argv) {
     emu8950_opl = OPL_new(3579552, SOUND_FREQUENCY);
     blaster_reset();
     sn76489_reset();
+
+    audio_init(SOUND_FREQUENCY, 2, AUDIO_CHUNK_SAMPLES);
+    audio_start();
+
     reset86();
 
-    CreateThread(NULL, 0, SoundThread, NULL, 0, NULL);
     CreateThread(NULL, 0, TicksThread, NULL, 0, NULL);
 
     while (true) {
