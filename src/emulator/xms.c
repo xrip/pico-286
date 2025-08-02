@@ -280,9 +280,10 @@ uint8_t __not_in_flash() xms_handler() {
         case MOVE_EMB: { // Move Extended Memory Block (Function 0Bh)
             move_data_t move_data;
             uint32_t struct_offset = ((uint32_t) CPU_DS << 4) + CPU_SI;
-            uint8_t* move_data_ptr = (uint8_t*)&move_data;
-            for (int i = 0; i < sizeof(move_data_t); i++) {
-                move_data_ptr[i] = read86(struct_offset + i);
+            uint16_t *move_data_ptr = (uint16_t *) &move_data;
+
+            for (int i = sizeof(move_data_t) / 2; i--;) {
+                *move_data_ptr++ = readw86(struct_offset++); struct_offset++;
             }
 
             // TODO: Add mem<>mem and xms<>xms
