@@ -244,7 +244,7 @@ uint8_t __not_in_flash() xms_handler() {
             printf("[XMS] Query free\r\n");
 #endif
             CPU_AX = XMS_MEMORY_SIZE >> 10;
-            CPU_DX = XMS_HANDLES;
+            CPU_DX = XMS_HANDLES - xms_handles;
             CPU_BL = 0;
             break;
         }
@@ -280,10 +280,9 @@ uint8_t __not_in_flash() xms_handler() {
         case MOVE_EMB: { // Move Extended Memory Block (Function 0Bh)
             move_data_t move_data;
             uint32_t struct_offset = ((uint32_t) CPU_DS << 4) + CPU_SI;
-            uint16_t *move_data_ptr = (uint16_t *) &move_data;
-
-            for (int i = sizeof(move_data_t) / 2; i--;) {
-                *move_data_ptr++ = readw86(struct_offset++); struct_offset++;
+            uint8_t* move_data_ptr = (uint8_t*)&move_data;
+            for (int i = 0; i < sizeof(move_data_t); i++) {
+                move_data_ptr[i] = read86(struct_offset + i);
             }
 
             // TODO: Add mem<>mem and xms<>xms
@@ -323,9 +322,10 @@ uint8_t __not_in_flash() xms_handler() {
                     uint16_t sz = 0;
                     const umb_t *umb_block = get_largest_free_umb_block(&sz);
                     if (umb_block != NULL) {
+                        CPU_AX = 1;
+                        CPU_BX = umb_block->segment;
                         CPU_DX = sz;
-                        CPU_BX = 0x00B0; // Success
-                        CPU_AX = 0x0000; // Success
+                        CPU_BL = 0;
                         break;
                     }
                 }
@@ -351,8 +351,10 @@ uint8_t __not_in_flash() xms_handler() {
                 }
             }
 
+            uint16_t sz = 0;
+            get_largest_free_umb_block(&sz);
             CPU_AX = 0x0000;
-            CPU_DX = 0x0000;
+            CPU_DX = sz;
             CPU_BL = umb_blocks_allocated >= UMB_BLOCKS_COUNT ? 0xB1 : 0xB0;
             break;
         }
