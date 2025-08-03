@@ -1,6 +1,79 @@
 #include <time.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
 #include "emulator.h"
+
+#if !PICO_ON_DEVICE
+
+#define MAX_REDIR_FILES 32
+static FILE* redirected_files[MAX_REDIR_FILES] = { NULL };
+#define REDIR_RW_BUFFER_SIZE 512
+static char redir_rw_buffer[REDIR_RW_BUFFER_SIZE];
+
+// DOS file handles are usually small integers. We can use the index as the handle.
+// Let's return index + 0x20 as a handle to avoid conflicts with standard handles.
+#define REDIR_HANDLE_OFFSET 0x20
+
+static int get_free_redir_handle() {
+    for (int i = 0; i < MAX_REDIR_FILES; i++) {
+        if (redirected_files[i] == NULL) {
+            return i + REDIR_HANDLE_OFFSET;
+        }
+    }
+    return -1; // No free handles
+}
+
+static FILE* get_redir_file(int handle) {
+    int index = handle - REDIR_HANDLE_OFFSET;
+    if (index >= 0 && index < MAX_REDIR_FILES) {
+        return redirected_files[index];
+    }
+    return NULL;
+}
+
+static void set_redir_file(int handle, FILE* f) {
+    int index = handle - REDIR_HANDLE_OFFSET;
+    if (index >= 0 && index < MAX_REDIR_FILES) {
+        redirected_files[index] = f;
+    }
+}
+
+static void free_redir_handle(int handle) {
+    int index = handle - REDIR_HANDLE_OFFSET;
+    if (index >= 0 && index < MAX_REDIR_FILES) {
+        redirected_files[index] = NULL;
+    }
+}
+
+static void read_emu_string(uint16_t seg, uint16_t off, char* dest, int max_len) {
+    uint32_t addr = (seg << 4) + off;
+    for (int i = 0; i < max_len - 1; i++) {
+        dest[i] = read86(addr + i);
+        if (dest[i] == '\0') {
+            return;
+        }
+    }
+    dest[max_len - 1] = '\0';
+}
+
+static void memcpy_to_emu(uint16_t seg, uint16_t off, const void* src, int len) {
+    uint32_t addr = (seg << 4) + off;
+    const uint8_t* s = (const uint8_t*)src;
+    for (int i = 0; i < len; i++) {
+        write86(addr + i, s[i]);
+    }
+}
+
+static void memcpy_from_emu(void* dest, uint16_t seg, uint16_t off, int len) {
+    uint32_t addr = (seg << 4) + off;
+    uint8_t* d = (uint8_t*)dest;
+    for (int i = 0; i < len; i++) {
+        d[i] = read86(addr + i);
+    }
+}
+
+#endif
 
 //#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
 //#define CPU_LIMIT_SHIFT_COUNT
@@ -606,22 +679,112 @@ void intcall86(uint8_t intnum) {
                     return;
             }
             break;
-        case 0x2F: /* XMS memory */
+        case 0x2F: /* Multiplex Interrupt */
+            switch (CPU_AH) {
+#if !PICO_ON_DEVICE
+                case 0x11: /* MS-DOS Network Redirector */
+                    switch (CPU_AL) {
+                        case 0x00: /* Installation Check */
+                            CPU_AL = 0xFF; /* Installed */
+                            return;
+                        case 0x16: { /* Open File */
+                            char path[256];
+                            char mode[4] = {0};
+                            read_emu_string(CPU_DS, CPU_DX, path, sizeof(path));
 
-            switch (CPU_AX) {
-                case 0x4300:
-                    CPU_AL = 0x80;
-                    return;
-                case 0x4310: {
-                    CPU_ES = XMS_FN_CS; // to be handled by DOS memory manager using
-                    CPU_BX = XMS_FN_IP; // CALL FAR ES:BX
-                    return;
-                }
-#if 0
-                    default:
-                        if (CPU_AH == 0x4A)
-                            printf("2fh %x %x\n", CPU_AX, CPU_BX);
+                            uint8_t access_mode = CPU_CL & 0x07;
+                            if (access_mode == 0) strcpy(mode, "rb");
+                            else if (access_mode == 1) strcpy(mode, "wb");
+                            else if (access_mode == 2) strcpy(mode, "r+b");
+                            else { cf = 1; CPU_AX = 0x01; return; }
+
+                            int handle = get_free_redir_handle();
+                            if (handle == -1) { cf = 1; CPU_AX = 0x04; return; }
+
+                            FILE* f = fopen(path, mode);
+                            if (f == NULL) { cf = 1; CPU_AX = 0x02; return; }
+
+                            set_redir_file(handle, f);
+                            cf = 0;
+                            CPU_AX = handle;
+                            return;
+                        }
+                        case 0x18: { /* Close File */
+                            FILE* f = get_redir_file(CPU_BX);
+                            if (f == NULL) { cf = 1; CPU_AX = 0x06; return; }
+                            fclose(f);
+                            free_redir_handle(CPU_BX);
+                            cf = 0;
+                            return;
+                        }
+                        case 0x19: { /* Read From File */
+                            FILE* f = get_redir_file(CPU_BX);
+                            if (f == NULL) { cf = 1; CPU_AX = 0x06; return; }
+
+                            uint16_t bytes_to_read = CPU_CX;
+                            if (bytes_to_read > REDIR_RW_BUFFER_SIZE) bytes_to_read = REDIR_RW_BUFFER_SIZE;
+
+                            size_t bytes_read = fread(redir_rw_buffer, 1, bytes_to_read, f);
+                            if (ferror(f)) { cf = 1; CPU_AX = 0x05; return; }
+
+                            memcpy_to_emu(CPU_DS, CPU_DX, redir_rw_buffer, bytes_read);
+                            cf = 0;
+                            CPU_AX = bytes_read;
+                            return;
+                        }
+                        case 0x1A: { /* Write To File */
+                            FILE* f = get_redir_file(CPU_BX);
+                            if (f == NULL) { cf = 1; CPU_AX = 0x06; return; }
+                            if (CPU_CX == 0) { cf = 0; CPU_AX = 0; return; }
+
+                            uint16_t bytes_to_write = CPU_CX;
+                            if (bytes_to_write > REDIR_RW_BUFFER_SIZE) bytes_to_write = REDIR_RW_BUFFER_SIZE;
+
+                            memcpy_from_emu(redir_rw_buffer, CPU_DS, CPU_DX, bytes_to_write);
+
+                            size_t bytes_written = fwrite(redir_rw_buffer, 1, bytes_to_write, f);
+
+                            if (bytes_written < bytes_to_write) { cf = 1; CPU_AX = 0x05; return; }
+
+                            cf = 0;
+                            CPU_AX = bytes_written;
+                            return;
+                        }
+                        case 0x1C: { /* Lseek */
+                            FILE* f = get_redir_file(CPU_BX);
+                            if (f == NULL) { cf = 1; CPU_AX = 0x06; return; }
+
+                            long offset = (long)((CPU_CX << 16) | CPU_DX);
+                            int whence = 0;
+                            switch (CPU_SI) {
+                                case 0: whence = SEEK_SET; break;
+                                case 1: whence = SEEK_CUR; break;
+                                case 2: whence = SEEK_END; break;
+                                default: cf = 1; CPU_AX = 0x01; return;
+                            }
+
+                            if (fseek(f, offset, whence) != 0) { cf = 1; CPU_AX = 0x01; return; }
+
+                            long new_pos = ftell(f);
+                            cf = 0;
+                            CPU_DX = (uint16_t)(new_pos >> 16);
+                            CPU_AX = (uint16_t)(new_pos & 0xFFFF);
+                            return;
+                        }
+                    }
+                    break;
 #endif
+                case 0x43: /* XMS Driver */
+                    if (CPU_AL == 0x00) { /* Installation Check */
+                        CPU_AL = 0x80;
+                        return;
+                    }
+                    if (CPU_AL == 0x10) { /* Get Driver Address */
+                        CPU_ES = XMS_FN_CS;
+                        CPU_BX = XMS_FN_IP;
+                        return;
+                    }
+                    break;
             }
             break;
             /**/
