@@ -15,6 +15,7 @@
 #else
 
 #include "disks-win32.c.inl"
+#include "hostfs.h"
 
 #endif
 
@@ -387,6 +388,18 @@ static INLINE void decodeflagsword(uint16_t x) {
 }
 
 void intcall86(uint8_t intnum) {
+#if !PICO_ON_DEVICE
+    if (intnum == 0x21) {
+        if (hostfs_int21h()) {
+            return; // The interrupt was handled by the hostfs module.
+        }
+    }
+    if (intnum == 0x2F) {
+        if (hostfs_int2fh()) {
+            return; // The interrupt was handled by the hostfs module.
+        }
+    }
+#endif
     switch (intnum) {
         case 0x10: {
             switch (CPU_AH) {
@@ -1248,6 +1261,9 @@ void reset86() {
     #endif
 #endif
     init_umb();
+#if !PICO_ON_DEVICE
+    hostfs_init();
+#endif
     ip = 0x0000;
     i8237_reset();
 }

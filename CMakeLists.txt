@@ -48,8 +48,14 @@ message(STATUS "")
 # HOST BUILD (Windows/Linux)
 # =========================
 if (PICO_PLATFORM STREQUAL "host")
+    option(ENABLE_HOSTFS "Enable Host Filesystem Passthrough" ON)
     add_compile_options(-fms-extensions -O2)
     
+    if(ENABLE_HOSTFS)
+        list(APPEND SRC "src/emulator/hostfs.c")
+        message(STATUS "HostFS passthrough enabled.")
+    endif()
+
     if (WIN32)
         add_executable(${PROJECT_NAME} ${SRC} src/win32-main.cpp src/WinMiniFB.c src/printf/printf.c)
         target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
@@ -57,6 +63,10 @@ if (PICO_PLATFORM STREQUAL "host")
         # Linux build
         add_executable(${PROJECT_NAME} ${SRC} src/linux-main.cpp src/LinuxMiniFB.c src/linux-audio.c src/printf/printf.c)
         target_link_libraries(${PROJECT_NAME} PRIVATE X11 pthread)
+    endif()
+
+    if(ENABLE_HOSTFS)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_HOSTFS)
     endif()
     
     target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)

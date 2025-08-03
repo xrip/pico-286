@@ -66,7 +66,9 @@ extern "C" {
 
 #define BIOS_MEMORY_SIZE                0x413
 #define BIOS_TRUE_MEMORY_SIZE           0x415
-#define BIOS_CRTCPU_PAGE        0x48A
+#define BIOS_CRTCPU_PAGE                0x48A
+#define BIOS_CURRENT_DRIVE              0x476
+#define BIOS_LAST_DRIVE                 0x477
 extern uint8_t log_debug;
 
 extern uint8_t VIDEORAM[VIDEORAM_SIZE + 4];

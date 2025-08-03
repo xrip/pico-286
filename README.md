@@ -96,6 +96,14 @@ The emulator expects the following file paths and names for the disk images:
 *   The disk type (floppy or hard disk) is determined by the drive number it is assigned to in the emulator, not by the filename itself.
 *   The emulator automatically determines the disk geometry (cylinders, heads, sectors) based on the size of the image file. Ensure your disk images have standard sizes for floppy disks (e.g., 360KB, 720KB, 1.2MB, 1.44MB) for proper detection. For hard disks, the geometry is calculated based on a standard CHS (Cylinder/Head/Sector) layout.
 
+## 🗄️ Host Filesystem Passthrough (Host Builds Only)
+
+For host builds (Windows/Linux), the emulator supports direct passthrough to the host's filesystem, which simplifies transferring and accessing files.
+
+*   **Drive `E:`:** The directory named `hostfs` in the root of the project is automatically mapped to drive `E:` inside the emulator.
+*   **Usage:** You can place any files or subdirectories inside the `hostfs` folder, and they will be immediately accessible from the emulated DOS environment. For example, `hostfs/mygame/game.exe` on your host machine will be available as `E:\MYGAME\GAME.EXE` in DOS.
+*   **Configuration:** This feature is enabled by default on host builds. You can disable it by setting the CMake option `-DENABLE_HOSTFS=OFF` during configuration.
+
 ## 🔧 Hardware Configuration
 
 The Pico-286 emulator is designed to run on Raspberry Pi Pico (RP2040) based hardware. 🍓
