@@ -133,3 +133,11 @@ Example of a different configuration (HDMI for rp2040):
 ```sh
 cmake .. -DPICO_PLATFORM=rp2040 -DENABLE_HDMI=ON -DENABLE_I2S_SOUND=ON
 ```
+
+## Technical Notes
+
+### Boot Process
+The project uses a custom boot stage 2 (`slower_boot2`) for Pico builds. This configuration slows down the flash clock divider, which can improve system stability, especially on startup.
+
+### `PICO_BOARD` Variable
+The build system sets a `PICO_BOARD` variable to `pico2` internally. This is a low-level setting for the Pico SDK and is not intended to be changed by the user. The primary way to select the target hardware is via the `PICO_PLATFORM` variable (`rp2040` or `rp2350`).
