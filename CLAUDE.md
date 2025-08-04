@@ -61,9 +61,13 @@ cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2040 -DENABLE_TFT=ON -DENABLE
 - `src/linux-main.cpp` - Linux host build entry point with X11-based MiniFB graphics
 
 **Memory Layout**:
-- `RAM[RAM_SIZE]` - Main system RAM (size varies by platform: 116-350KB)
-- `VIDEORAM[64KB]` - Video memory buffer at 0xA0000-0xC0000
-- External PSRAM or virtual memory for extended memory (EMS/XMS)
+- `RAM[RAM_SIZE]` - Main system RAM (size varies by platform, see `README.md` for details).
+- `VIDEORAM[64KB]` - Video memory buffer at 0xA0000-0xC0000.
+- See the "Platform-specific Details" and "Extended Memory (EMS/XMS)" sections in `README.md` for a full breakdown.
+
+**Extended Memory Systems**:
+- **PSRAM**: High-speed hardware-based extended memory using an external PSRAM chip. This is the default and recommended option. It uses a custom PIO and DMA driver.
+- **Virtual Memory**: A slower, file-based fallback for systems without PSRAM. It uses a `pagefile.sys` on the SD card. Enabled with `-DTOTAL_VIRTUAL_MEMORY_KBS > 0`.
 
 ### Video System
 
@@ -107,10 +111,17 @@ cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2040 -DENABLE_TFT=ON -DENABLE
 - **Windows**: Uses Win32 API with `CreateWindow()`, `StretchDIBits()` for rendering
 - **Linux**: Uses X11 with `XCreateWindow()`, `XPutImage()` for rendering
 
-**Threading Model for Host Builds**:
-- Main thread: CPU emulation (`exec86()`) and window management
-- Ticks thread: Timer interrupts (~18.2Hz), frame rendering (~60Hz), audio sampling
-- Sound thread: Audio buffer management and synchronization
+### Platform-specific Architectures
+See `README.md` for a more detailed explanation.
+
+**Pico (Dual-Core)**:
+- **Core 0**: Runs the `exec86()` emulation loop and handles input.
+- **Core 1**: Manages real-time tasks: rendering, audio, and PIT timer interrupts.
+
+**Host - Windows & Linux (Multi-threaded)**:
+- **Main thread**: Runs `exec86()` and manages the window.
+- **Ticks thread**: Simulates hardware timers for interrupts, rendering, and audio generation.
+- **Sound thread**: Handles audio output to the OS.
 
 ### Driver System
 
@@ -123,22 +134,10 @@ cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2040 -DENABLE_TFT=ON -DENABLE
 - `audio/` - Audio output drivers
 
 **Driver Architecture**:
-- Each driver has its own CMakeLists.txt and can be conditionally compiled
-- PIO (Programmable I/O) extensively used for hardware interfaces
-- Drivers provide hardware abstraction for the emulator core
-
-### Dual-core Architecture (Pico builds)
-
-**Core 0**: CPU emulation main loop
-- Runs `exec86()` with configurable throttling
-- Handles keyboard/gamepad input 
-- Mouse emulation via NES gamepad when no PS/2 mouse detected
-
-**Core 1**: Real-time rendering and audio
-- Graphics rendering at ~60Hz
-- Audio sample generation and output
-- Timer interrupt generation
-- Hardware interrupt handling
+- Each driver has its own CMakeLists.txt and can be conditionally compiled.
+- PIO (Programmable I/O) extensively used for hardware interfaces.
+- Drivers provide hardware abstraction for the emulator core.
+- **Note**: Default hardware pinouts are now documented in the main `README.md`.
 
 ## Development Workflow
 
