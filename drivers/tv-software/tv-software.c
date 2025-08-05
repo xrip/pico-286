@@ -4,6 +4,8 @@
 #include "graphics.h"
 #include "hardware/clocks.h"
 #include <stdalign.h>
+#include "emulator/emulator.h"
+#include "graphics.h"
 
 #include "hardware/structs/pll.h"
 #include "hardware/structs/systick.h"
@@ -30,15 +32,7 @@ typedef struct tv_out_mode_t {
 } tv_out_mode_t;
 
 //параметры по умолчанию
-static tv_out_mode_t tv_out_mode = {
-    .tv_system = g_TV_OUT_NTSC,
-    .N_lines = _525_lines,
-    .mode_bpp = GRAPHICSMODE_DEFAULT,
-    .c_freq = _3579545,
-    .color_index = 1.0, //0-1
-    .cb_sync_PI_shift_lines = true,
-    .cb_sync_PI_shift_half_frame = true
-};
+static tv_out_mode_t tv_out_mode;
 
 
 //программы PIO
@@ -115,14 +109,14 @@ static G_BUFFER graphics_buffer = {
 //буферы строк
 //количество буферов задавать кратно степени двойки
 //например 2^2=4 буфера
-#define N_LINE_BUF_log2 (2)
+#define N_LINE_BUF_log2 (1)
 
 
 #define N_LINE_BUF_DMA (1<<N_LINE_BUF_log2)
 #define N_LINE_BUF (N_LINE_BUF_DMA)
 
 //максимальный размер строки(кратно 4)
-#define LINE_SIZE_MAX (1152)
+#define LINE_SIZE_MAX (1024)
 //указатели на буферы строк
 //выравнивание нужно для кольцевого буфера
 static uint32_t rd_addr_DMA_CTRL[N_LINE_BUF * 2]__attribute__ ((aligned (4*N_LINE_BUF_DMA)));
@@ -151,6 +145,8 @@ static uint32_t* conv_color[2];
 static uint8_t __scratch_x("buff4") paletteRGB[3][256]; //768 байт
 
 static repeating_timer_t video_timer;
+
+extern int cursor_blink_state;
 
 
 void graphics_set_modeTV(tv_out_mode_t mode) {
@@ -207,9 +203,6 @@ void graphics_set_modeTV(tv_out_mode_t mode) {
         video_mode.LVL_Y_MAX += 3;
     };
     video_mode.LVL_BLACK_TMPL = CONV_DAC(video_mode.LVL_BLACK) | (1 << SYNC_PIN);
-
-    sm_config_set_clkdiv(PIO_VIDEO->sm, clock_get_hz(clk_sys) / (color_freq * 4));
-
 };
 
 
@@ -242,8 +235,8 @@ void graphics_set_palette(uint8_t i, uint32_t color888) {
     int8_t Y8 = ((int)(Y * video_mode.LVL_Y_MAX)) + base8;
 
     uint32_t cd0_32, cd1_32;
-    int8_t* cd0 = &cd0_32;
-    int8_t* cd1 = &cd1_32;
+    int8_t* cd0 = (int8_t*)&cd0_32;
+    int8_t* cd1 = (int8_t*)&cd1_32;
 
     float sin[] = { 0, 1, 0, -1 };
     // float sin[]={-1,1,1,-1,-1};//test
@@ -410,14 +403,14 @@ void graphics_set_palette(uint8_t i, uint32_t color888) {
 
 
     uint32_t Y32 = (Y8 << 24) | (Y8 << 16) | (Y8 << 8) | (Y8 << 0);
-    int8_t* yi = &Y32;
-    int8_t* ci = &cd0_32;
+    int8_t* yi = (int8_t*)&Y32;
+    int8_t* ci = (int8_t*)&cd0_32;
 
     for (int i = 0; i < 4; i++) { yi[i] = CONV_DAC(yi[i]+ci[i]) | (1 << SYNC_PIN); };
     conv_color[0][i] = Y32;
 
     Y32 = (Y8 << 24) | (Y8 << 16) | (Y8 << 8) | (Y8 << 0);
-    ci = &cd1_32;
+    ci = (int8_t*)&cd1_32;
     for (int i = 0; i < 4; i++) { yi[i] = CONV_DAC(yi[i]+ci[i]) | (1 << SYNC_PIN); };
     conv_color[1][i] = Y32;
 
@@ -988,68 +981,191 @@ static bool __time_critical_func(video_timer_callbackTV)(repeating_timer_t* rt) 
                 */
                 // graphics_buffer.shift_y = graphics_buffer.shift_y > 8 ? graphics_buffer.shift_y - 8 : 0;
                 // graphics_buffer.shift_y =0;
-                if (graphics_buffer.data != NULL || text_buffer != NULL )
+                if (graphics_buffer.data != NULL || text_buffer != NULL ) {
+                    uint8_t* input_buffer_8bit;
+
                     switch (tv_out_mode.mode_bpp) {
-                        case TEXTMODE_DEFAULT: {
-                            output_buffer8 += 8;
-                            for (int x = 0; x < TEXTMODE_COLS; x++) {
-                                const uint16_t offset = y / 8 * (TEXTMODE_COLS * 2) + x * 2;
-                                const uint8_t c = text_buffer[offset];
-                                const uint8_t colorIndex = text_buffer[offset + 1];
-                                uint8_t glyph_row = font_6x8[c * 8 + y % 8];
+                        case TEXTMODE_80x25_COLOR: {
+                            const uint8_t y_div_6 = y / 6;
+                            const uint8_t glyph_line = y - y_div_6 * 6; // Optimized modulo
+                            const uint8_t* text_buffer_line = text_buffer + __fast_mul(y_div_6, 160);
 
-                                for (int bit = 6; bit--;) {
-                                    uint32_t cout32 = conv_color[li][glyph_row & 1
-                                                                         ? textmode_palette[colorIndex & 0xf]
-                                                                         //цвет шрифта
-                                                                         : textmode_palette[colorIndex >> 4] //цвет фона
-                                    ];
-                                    uint8_t* c_4 = &cout32;
-                                    *output_buffer8++ = c_4[bit % 4];
-                                    *output_buffer8++ = c_4[bit % 4];
-                                    *output_buffer8++ = c_4[bit % 4];
-                                    glyph_row >>= 1;
+                            for (unsigned int column = 0; column < TEXTMODE_COLS; column++) {
+                                uint8_t glyph_pixels = font_4x6[__fast_mul(*text_buffer_line++, 6) + glyph_line];
+                                const uint8_t color = *text_buffer_line++; // TODO: cga_blinking
+
+                                if (color & 0x80 && cursor_blink_state) {
+                                    glyph_pixels = 0;
                                 }
-                            }
-                        }
-                        break;
-                        case GRAPHICSMODE_DEFAULT: {
-                            if (y < graphics_buffer.shift_y || y > graphics_buffer.height+graphics_buffer.shift_y) {
-                                memset(output_buffer8, video_mode.LVL_BLACK_TMPL, video_mode.img_W);
-                            } else {
-                                //для 8-битного буфера
-                                uint8_t* input_buffer8 = input_buffer + (y-graphics_buffer.shift_y) * graphics_buffer.width;
 
-                                // todo bgcolor
-                                uint8_t color = graphics_buffer.shift_x ? 200 : *input_buffer8++;
-                                uint32_t cout32 = conv_color[li][color];
-                                // uint8_t* c_4=&conv_color[0][c8&0xf];
-                                uint8_t* c_4 = &cout32;
-                                output_buffer8 += buffer_shift;
+                                // TODO: Actual cursor size
+                                const uint8_t cursor_active = cursor_blink_state &&
+                                                              y_div_6 == CURSOR_Y && column == CURSOR_X &&
+                                                              glyph_line >= 4;
+                                uint32_t cout32;
+                                uint8_t* c_4;
 
-
-                                int x = 0;
-
-                                for (int i = 0; i < video_mode.img_W - d_end; i++) {
-                                    *output_buffer8++ = c_4[i % 4];
-                                    next_ibuf -= di;
-                                    if (next_ibuf <= 0) {
-                                        x++;
-                                        if (x > graphics_buffer.shift_x && x < graphics_buffer.shift_x + graphics_buffer.
-                                            width) {
-                                            color = *input_buffer8++;
-                                            }
-                                        else {
-                                            color = 200;
-                                        }
-                                        cout32 = conv_color[li][color];
-                                        next_ibuf += 0x100;
+                                if (cursor_active) {
+                                    cout32 = conv_color[li][textmode_palette[color & 0xf]];
+                                    c_4 = (uint8_t*)&cout32;
+                                    *output_buffer8++ = c_4[0];
+                                    *output_buffer8++ = c_4[1];
+                                    *output_buffer8++ = c_4[2];
+                                    *output_buffer8++ = c_4[3];
+                                } else if (cga_blinking && color >> 7 & 1) {
+                                    for (int bit = 4; bit--;) {
+                                        cout32 = conv_color[li][cursor_blink_state
+                                                                    ? color >> 4 & 0x7
+                                                                    : glyph_pixels & 1
+                                                                          ? textmode_palette[color & 0xf] //цвет шрифта
+                                                                          : textmode_palette[color >> 4 & 0x7]];
+                                        c_4 = (uint8_t*)&cout32;
+                                        *output_buffer8++ = c_4[bit % 4];
+                                        glyph_pixels >>= 1;
+                                    }
+                                } else {
+                                    for (int bit = 4; bit--;) {
+                                        cout32 = conv_color[li][glyph_pixels & 1
+                                                                    ? textmode_palette[color & 0xf] //цвет шрифта
+                                                                    : textmode_palette[color >> 4]];
+                                        c_4 = (uint8_t*)&cout32;
+                                        *output_buffer8++ = c_4[bit % 4];
+                                        glyph_pixels >>= 1;
                                     }
                                 }
                             }
+                            break;
                         }
-                        break;
+                        case CGA_320x200x4:
+                        case CGA_320x200x4_BW: {
+                            input_buffer_8bit = graphics_buffer.data + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                            //2bit buf
+                            for (int x = 320 / 4; x--;) {
+                                const uint8_t cga_byte = *input_buffer_8bit++;
+                                uint32_t cout32;
+                                uint8_t* c_4;
+                                uint8_t color;
+
+                                color = cga_byte >> 6 & 3;
+                                cout32 = conv_color[li][color ? color : cga_foreground_color];
+                                c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[0];
+
+                                color = cga_byte >> 4 & 3;
+                                cout32 = conv_color[li][color ? color : cga_foreground_color];
+                                c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[1];
+
+                                color = cga_byte >> 2 & 3;
+                                cout32 = conv_color[li][color ? color : cga_foreground_color];
+                                c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[2];
+
+                                color = cga_byte >> 0 & 3;
+                                cout32 = conv_color[li][color ? color : cga_foreground_color];
+                                c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[3];
+                            }
+                            break;
+                        }
+                        case COMPOSITE_160x200x16_force:
+                        case COMPOSITE_160x200x16:
+                        case TGA_160x200x16:
+                            input_buffer_8bit = tga_offset + graphics_buffer.data + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                            for (int x = 320 / 4; x--;) {
+                                const uint8_t cga_byte = *input_buffer_8bit++; // Fetch 8 pixels from TGA memory
+                                uint8_t color1 = cga_byte >> 4;
+                                uint8_t color2 = cga_byte & 15;
+                                uint32_t cout32;
+                                uint8_t* c_4;
+
+                                if (videomode == 0x8) {
+                                    if (!color1) color1 = cga_foreground_color;
+                                    if (!color2) color2 = cga_foreground_color;
+                                }
+
+                                cout32 = conv_color[li][color1];
+                                c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[0];
+                                *output_buffer8++ = c_4[1];
+
+                                cout32 = conv_color[li][color2];
+                                c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[2];
+                                *output_buffer8++ = c_4[3];
+                            }
+                            break;
+                        case TGA_320x200x16: {
+                            //4bit buf
+                            input_buffer_8bit = tga_offset + graphics_buffer.data + (y & 3) * 8192 + __fast_mul(y >> 2, 160);
+                            for (int x = 320 / 2; x--;) {
+                                uint8_t val = *input_buffer_8bit++;
+                                uint32_t cout32;
+                                uint8_t* c_4;
+
+                                cout32 = conv_color[li][val >> 4];
+                                c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[0];
+
+                                cout32 = conv_color[li][val & 15];
+                                c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[1];
+                            }
+                            break;
+                        }
+                        case VGA_320x200x256x4:
+                            input_buffer_8bit = graphics_buffer.data + __fast_mul(y, 80);
+                            for (int x = 640 / 4; x--;) {
+                                uint32_t cout32;
+                                uint8_t* c_4;
+
+                                cout32 = conv_color[li][*input_buffer_8bit];
+                                c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[0];
+
+                                cout32 = conv_color[li][*(input_buffer_8bit + 16000)];
+                                c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[1];
+
+                                cout32 = conv_color[li][*(input_buffer_8bit + 32000)];
+                                c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[2];
+
+                                cout32 = conv_color[li][*(input_buffer_8bit + 48000)];
+                                c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[3];
+
+                                input_buffer_8bit++;
+                            }
+                            break;
+                        case EGA_320x200x16x4: {
+                            input_buffer_8bit = graphics_buffer.data + __fast_mul(y, 40);
+                            for (int x = 0; x < 40; x++) {
+                                for (int bit = 7; bit--;) {
+                                    uint32_t cout32 = conv_color[li][input_buffer_8bit[0] >> bit & 1 |
+                                                                    (input_buffer_8bit[16000] >> bit & 1) << 1 |
+                                                                    (input_buffer_8bit[32000] >> bit & 1) << 2 |
+                                                                    (input_buffer_8bit[48000] >> bit & 1) << 3];
+                                    uint8_t* c_4 = (uint8_t*)&cout32;
+                                    *output_buffer8++ = c_4[bit % 4];
+                                }
+                                input_buffer_8bit++;
+                            }
+                            break;
+                        }
+                        default:
+                        case VGA_320x200x256: {
+                            input_buffer_8bit = graphics_buffer.data + __fast_mul(y, 320);
+                            for (unsigned int x = 320; x--;) {
+                                const uint8_t color = *input_buffer_8bit++;
+                                uint32_t cout32 = conv_color[li][color];
+                                uint8_t* c_4 = (uint8_t*)&cout32;
+                                *output_buffer8++ = c_4[x%4];
+                            }
+                            break;
+                        }
                     }
+                }
             }
         }
 
@@ -1075,6 +1191,14 @@ void graphics_set_buffer(uint8_t* buffer, const uint16_t width, const uint16_t h
 void graphics_init() {
     //настройка PIO
     SM_video = pio_claim_unused_sm(PIO_VIDEO, true);
+
+    tv_out_mode.tv_system = g_TV_OUT_NTSC;
+    tv_out_mode.N_lines = _525_lines;
+    tv_out_mode.mode_bpp = VGA_320x200x256;
+    tv_out_mode.c_freq = _3579545;
+    tv_out_mode.color_index = 1.0; //0-1
+    tv_out_mode.cb_sync_PI_shift_lines = true;
+    tv_out_mode.cb_sync_PI_shift_half_frame = true;
     //выделение  DMA каналов
     dma_chan_ctrl = dma_claim_unused_channel(true);
     dma_chan_ctrl2 = dma_claim_unused_channel(true);
@@ -1094,6 +1218,14 @@ void graphics_init() {
     uint16_t* conv_color16 = (uint16_t *)conv_color;
 
     pio_sm_config c_c = pio_get_default_sm_config();
+    double color_freq;
+    switch (tv_out_mode.c_freq) {
+        case _3579545: color_freq = 3.579545 * 1e6;
+            break;
+        case _4433619: color_freq = 4.43361875 * 1e6;
+            break;
+    }
+    sm_config_set_clkdiv(&c_c, clock_get_hz(clk_sys) / (color_freq * 4));
 
     sm_config_set_wrap(&c_c, offs_prg0, offs_prg0 + (program_pio_TV.length - 1));
     for (int i = 0; i < 8; i++) {
@@ -1227,8 +1359,8 @@ void clrScr(const uint8_t color) {
 
 void graphics_set_mode(const enum graphics_mode_t mode) {
     tv_out_mode.mode_bpp = mode;
-    tv_out_mode.color_index = TEXTMODE_DEFAULT == mode ? 0.0 : 1.0;
-    tv_out_mode.cb_sync_PI_shift_lines = TEXTMODE_DEFAULT == mode ? true : false;
+    tv_out_mode.color_index = TEXTMODE_80x25_COLOR == mode ? 0.0 : 1.0;
+    tv_out_mode.cb_sync_PI_shift_lines = TEXTMODE_80x25_COLOR == mode ? true : false;
     graphics_set_modeTV(tv_out_mode);
     clrScr(0);
 }

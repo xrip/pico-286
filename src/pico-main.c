@@ -50,7 +50,7 @@ pwm_config pwm;
 #endif
 
 // Debug VRAM for text output
-uint8_t __aligned(4) DEBUG_VRAM[80 * 10] = {0};
+uint8_t __aligned(4) DEBUG_VRAM[80 * 5] = {0};
 
 // Function declarations
 bool handleScancode(uint32_t ps2scancode);
@@ -138,10 +138,10 @@ INLINE void _putchar(char character) {
     static int x = 0, y = 0;
 
     // Handle screen scrolling
-    if (y == 10) {
-        y = 9;
-        memmove(DEBUG_VRAM, DEBUG_VRAM + 80, 80 * 9);
-        memset(DEBUG_VRAM + 80 * 9, 0, 80);
+    if (y == 5) {
+        y = 4;
+        memmove(DEBUG_VRAM, DEBUG_VRAM + 80, 80 * 4);
+        memset(DEBUG_VRAM + 80 * 4, 0, 80);
     }
 
     uint8_t *vidramptr = DEBUG_VRAM + __fast_mul(y, 80) + x;
@@ -174,16 +174,26 @@ INLINE void _putchar(char character) {
 void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem
     graphics_init();
+#if !SOFTTV
     graphics_set_buffer(VIDEORAM, 320, 200);
+#else
+    graphics_set_buffer(VIDEORAM, 256, 192);
+#endif
     graphics_set_textbuffer(VIDEORAM + 32768);
     graphics_set_bgcolor(0);
     graphics_set_offset(0, 0);
     graphics_set_flashmode(true, true);
 
     // Set initial VGA palette
+#if !SOFTTV
     for (uint8_t i = 0; i < 255; i++) {
         graphics_set_palette(i, vga_palette[i]);
     }
+#else
+    for (uint8_t i = 0; i < 15; i++) {
+        graphics_set_palette(i, tga_palette[i]);
+    }
+#endif
 
     // Initialize sound hardware
 #if !HARDWARE_SOUND
@@ -327,6 +337,9 @@ void __time_critical_func() second_core(void) {
             refresh_lcd();
             port3DA = 8;
             port3DA |= 1;
+#elif defined(SOFTTV)
+            port3DA=8;
+            port3DA|=1;
 #endif
             last_frame_tick = tick;
         }

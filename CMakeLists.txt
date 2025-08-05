@@ -75,6 +75,7 @@ else ()
     option(ENABLE_TFT "Enable TFT display output" OFF)
     option(ENABLE_VGA "Enable VGA display output" OFF)
     option(ENABLE_HDMI "Enable HDMI display output" OFF)
+    option(ENABLE_SOFTTV "Enable Software TV output" OFF)
 
     # Audio Options (mutually exclusive)
     option(ENABLE_I2S_SOUND "Enable I2S audio output" OFF)
@@ -127,6 +128,10 @@ else ()
         message(STATUS "HDMI enabled - CPU frequency locked to 378 MHz")
         math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
     endif ()
+    if (ENABLE_SOFTTV)
+        message(STATUS "SOFTTV Enabled")
+        math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
+    endif ()
 
     if (DISPLAY_COUNT EQUAL 0)
         message(FATAL_ERROR "At least one display option must be enabled")
@@ -174,6 +179,8 @@ else ()
         set(BUILD_NAME "${BUILD_NAME}-VGA")
     elseif (ENABLE_HDMI)
         set(BUILD_NAME "${BUILD_NAME}-HDMI")
+    elseif (ENABLE_SOFTTV)
+        set(BUILD_NAME "${BUILD_NAME}-SOFTTV")
     endif ()
 
     # Add audio type
@@ -259,6 +266,10 @@ else ()
         add_subdirectory(drivers/hdmi)
         target_link_libraries(${PROJECT_NAME} PRIVATE hdmi)
         message(STATUS "HDMI display enabled")
+    elseif (ENABLE_SOFTTV)
+        add_subdirectory(drivers/tv-software)
+        target_link_libraries(${PROJECT_NAME} PRIVATE tv-software)
+        message(STATUS "Software TV display enabled")
     endif ()
 
     # =========================
@@ -285,6 +296,7 @@ else ()
             $<$<BOOL:${ENABLE_TFT}>:TFT>
             $<$<BOOL:${ENABLE_VGA}>:VGA>
             $<$<BOOL:${ENABLE_HDMI}>:HDMI>
+            $<$<BOOL:${ENABLE_SOFTTV}>:SOFTTV>
 
             # Audio type
             $<$<BOOL:${ENABLE_I2S_SOUND}>:I2S_SOUND>
