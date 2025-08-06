@@ -61,7 +61,72 @@ void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused co
 void __no_inline_not_in_flash_func(psram_init)(uint cs_pin);
 #endif
 
+static const uint32_t TORMOZ_MODEL_30 = 32768;
+static const uint32_t TORMOZ_TURBO_8 = 1024;
+static const uint32_t TORMOZ_PC_XT = 512;
+
+static uint32_t tormoz = TORMOZ_MODEL_30;
+static bool ctrlPressed = false;
+static bool altPressed = false;
+
+static const uint32_t SCANCODE_CTRL_PRESS = 0x1D;
+static const uint32_t SCANCODE_CTRL_RELEASE = 0x9D;
+static const uint32_t SCANCODE_ALT_PRESS = 0x38;
+static const uint32_t SCANCODE_ALT_RELEASE = 0xB8;
+static const uint32_t SCANCODE_KP_MULT_UP = 0xB7;
+static const uint32_t SCANCODE_KP_MINUS_UP = 0xCA;
+static const uint32_t SCANCODE_KP_PLUS_UP = 0xCE;
+
 bool handleScancode(uint32_t ps2scancode) {
+    //printf("PS/2 SCANCODE: %d\n", ps2scancode);
+
+    switch(ps2scancode) {
+        case SCANCODE_CTRL_PRESS:
+            ctrlPressed = true;
+            break;
+        case SCANCODE_CTRL_RELEASE:
+            ctrlPressed = false;
+            break;
+        case SCANCODE_ALT_PRESS:
+            altPressed = true;
+            break;
+        case SCANCODE_ALT_RELEASE:
+            altPressed = false;
+            break;
+        case SCANCODE_KP_MULT_UP: // KP "*" up
+            ega_vga_enabled = !ega_vga_enabled;
+            printf("EGA/VGA: %s\n", ega_vga_enabled ? "ON" : "OFF");
+            break;
+        case SCANCODE_KP_MINUS_UP: // KP "-" up
+            if (ctrlPressed && altPressed) {
+                switch (tormoz) {
+                    case TORMOZ_MODEL_30:
+                        tormoz = TORMOZ_TURBO_8;
+                        printf("TURBO 8\n"); // TODO: calibrate on other configurations
+                        break;
+                    case TORMOZ_TURBO_8:
+                        tormoz = TORMOZ_PC_XT;
+                        printf("PC XT\n");
+                        break;
+                }
+            }
+            break;
+        case SCANCODE_KP_PLUS_UP: // KP "+" up
+            if (ctrlPressed && altPressed) {
+                switch (tormoz) {
+                    case TORMOZ_PC_XT:
+                        tormoz = TORMOZ_TURBO_8;
+                        printf("TURBO 8\n");
+                        break;
+                    case TORMOZ_TURBO_8:
+                        tormoz = TORMOZ_MODEL_30;
+                        printf("Model 30\n");
+                        break;
+                }
+            }
+            break;
+    }
+
     port60 = ps2scancode;
     port64 |= 2;
     doirq(1);
@@ -381,11 +446,9 @@ int main(void) {
 #ifdef ONBOARD_PSRAM_GPIO
     psram_init(ONBOARD_PSRAM_GPIO);
 #else
-#ifdef TOTAL_VIRTUAL_MEMORY_KBS
-    init_swap();
-#else
+    #ifndef TOTAL_VIRTUAL_MEMORY_KBS
     init_psram();
-#endif
+    #endif
 #endif
 
     // Set exception handler
@@ -425,7 +488,12 @@ int main(void) {
     // Mount SD card filesystem
     if (FR_OK != f_mount(&fs, "0", 1)) {
         printf("SD Card not inserted or SD Card error!");
+        while (1);
     }
+    // adlib_init(SOUND_FREQUENCY);
+#ifdef TOTAL_VIRTUAL_MEMORY_KBS
+    init_swap();
+#endif
 
     // Initialize audio and reset emulator
     sn76489_reset();
@@ -441,7 +509,7 @@ int main(void) {
 
     // Main emulation loop
     while (true) {
-        exec86(32768);
+        exec86(tormoz);
 
         // Handle gamepad input for mouse emulation
         if (!mouse_available) {

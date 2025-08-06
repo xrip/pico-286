@@ -115,16 +115,17 @@ void portout(uint16_t portnum, uint16_t value) {
         case 0x0d:
         case 0x0e:
         case 0x0f:
+// i8237 DMA
             return i8237_writeport(portnum, value);
         case 0x20:
-        case 0x21: //i8259
+        case 0x21: // i8259 PIC
             return out8259(portnum, value);
         case 0x40:
         case 0x41:
         case 0x42:
-        case 0x43: //i8253
+        case 0x43: // i8253 PIT
             return out8253(portnum, value);
-        case 0x61:
+        case 0x61: // PC Speaker
             port61 = value;
             if ((value & 3) == 3) {
 #if I2S_SOUND || HARDWARE_SOUND || !PICO_ON_DEVICE
@@ -141,7 +142,7 @@ void portout(uint16_t portnum, uint16_t value) {
             }
 
             break;
-        case 0x64:
+        case 0x64: // Keyboard Controller
 #if PICO_ON_DEVICE
             keyboard_send(value);
 #endif
@@ -152,13 +153,15 @@ void portout(uint16_t portnum, uint16_t value) {
         case 0x82:
         case 0x83:
         case 0x87:
+// i8237 DMA Page Registers
             return i8237_writepage(portnum, value);
 
-            // A20
+// A20 Gate
         case 0x92:
-            printf("A20 W\n");
+            a20_enabled = value & 1;
+            printf("A20 W: %d\n", a20_enabled);
             return;
-// Tandy 3 voice
+// Tandy 3-Voice Sound
         case 0x1E0:
         case 0x2C0:
         case 0xC0:
@@ -178,10 +181,10 @@ void portout(uint16_t portnum, uint16_t value) {
 #else
         return sn76489_out(value);
 #endif
-// Gamepad
+// Joystick
         case 0x201:
             return joystick_out();
-// GameBlaster / Creative Music System
+// Creative Music System / GameBlaster
         case 0x220:
         case 0x221:
         case 0x222:
@@ -220,6 +223,7 @@ if (sound_chips_clock) {
         case 0x22d:
         case 0x22e:
         case 0x22f:
+// Sound Blaster
 #if !PICO_RP2040
             blaster_write(portnum, value);
 #endif
@@ -228,18 +232,22 @@ if (sound_chips_clock) {
         case 0x261:
         case 0x262:
         case 0x263:
+// EMS
             return out_ems(portnum, value);
 
         case 0x278:
+// Covox Speech Thing
             covox_sample = (int16_t) (value - 128 << 6);
             return;
         case 0x330:
         case 0x331:
+// MPU-401
             return mpu401_write(portnum, value);
         case 0x378:
         case 0x37A:
+// Disney Sound Source
             return dss_out(portnum, value);
-// AdLib / OPL
+// AdLib / OPL2
         case 0x388:
             adlib_register = value;
             break;
@@ -264,14 +272,14 @@ if (sound_chips_clock) {
             return OPL_writeReg(emu8950_opl, adlib_register, value);
 #endif
 // EGA/VGA
-        case 0x3C0:
         case 0x3C4:
+        case 0x3CE:
+        case 0x3C0:
         case 0x3C5:
         case 0x3C6:
         case 0x3C7:
         case 0x3C8:
         case 0x3C9:
-        case 0x3CE:
         case 0x3CF:
             return vga_portout(portnum, value);
 // https://stanislavs.org/helppc/6845.html
@@ -349,10 +357,12 @@ if (sound_chips_clock) {
         case 0x3BF:
         case 0x3D8:
         case 0x3D9:
+// CGA
             return cga_portout(portnum, value);
         case 0x3DA:
         case 0x3DE:
         case 0x3DF:
+// TGA
             return tga_portout(portnum, value);
         case 0x3F8:
         case 0x3F9:
@@ -362,6 +372,7 @@ if (sound_chips_clock) {
         case 0x3FD:
         case 0x3FE:
         case 0x3FF:
+// Serial Port (Mouse)
             return mouse_portout(portnum, value);
     }
 }
@@ -384,14 +395,15 @@ uint16_t portin(uint16_t portnum) {
         case 0x0d:
         case 0x0e:
         case 0x0f:
+// i8237 DMA
             return i8237_readport(portnum);
         case 0x20:
-        case 0x21: //i8259
+        case 0x21: // i8259 PIC
             return in8259(portnum);
         case 0x40:
         case 0x41:
         case 0x42:
-        case 0x43: //i8253
+        case 0x43: // i8253 PIT
             return in8253(portnum);
 
 // Keyboard
@@ -401,17 +413,18 @@ uint16_t portin(uint16_t portnum) {
             return port61;
         case 0x64:
             return port64;
-// i8237 DMA
+// i8237 DMA Page Registers
         case 0x81:
         case 0x82:
         case 0x83:
         case 0x87:
             return i8237_readpage(portnum);
-            // A20
+// A20 Gate
         case 0x92:
-            printf("A20 R\n");
-            return 0xFF;
+            printf("A20 R: %d\n", a20_enabled);
+            return a20_enabled;
         case 0x201:
+// Joystick
             return joystick_in();
 
         case 0x220:
@@ -430,6 +443,7 @@ uint16_t portin(uint16_t portnum) {
         case 0x22d:
         case 0x22e:
         case 0x22f:
+// Sound Blaster / GameBlaster
 #if !PICO_RP2040
             return blaster_read(portnum);
 #else
@@ -461,17 +475,19 @@ uint16_t portin(uint16_t portnum) {
         case 0x256:
         case 0x257:
             return rtc_read(portnum);
-        case 0x27A: // LPT2 status (covox is always ready)
+        case 0x27A: // Covox Speech Thing
             return 0;
         case 0x330:
         case 0x331:
+// MPU-401
             return mpu401_read(portnum);
         case 0x378:
         case 0x379:
+// Disney Sound Source
             return dss_in(portnum);
         case 0x37A:
             return 0;
-// Adlib
+// AdLib
         case 0x388:
         case 0x389:
             if (!adlibregmem[4])
@@ -486,13 +502,17 @@ uint16_t portin(uint16_t portnum) {
         case 0x3C7:
         case 0x3C8:
         case 0x3C9:
+// VGA
             return vga_portin(portnum);
 
         case 0x3D4:
+// CRTC
             return crt_controller_idx;
         case 0x3D5:
+// CRTC
             return crt_controller[crt_controller_idx];
         case 0x3DA:
+// CGA
             return cga_portin(portnum);
         case 0x3F8:
         case 0x3F9:
@@ -502,6 +522,7 @@ uint16_t portin(uint16_t portnum) {
         case 0x3FD:
         case 0x3FE:
         case 0x3FF:
+// Serial Port (Mouse)
             return mouse_portin(portnum);
         default:
             return 0xFF;

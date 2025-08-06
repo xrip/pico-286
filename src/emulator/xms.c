@@ -37,12 +37,6 @@
 // FIXME: Calculate with EMS offset
 #define XMS_PSRAM_OFFSET (4096*1024)
 
-typedef struct umb {
-    uint16_t segment;
-    uint16_t size; // paragraphs
-    bool allocated;
-} umb_t;
-
 //typedef struct __attribute__((packed, aligned)) {
 typedef struct __attribute__((packed, aligned)) {
     uint32_t length;
@@ -52,28 +46,113 @@ typedef struct __attribute__((packed, aligned)) {
     uint32_t destination_offset;
 } move_data_t;
 
+typedef struct umb {
+    uint16_t segment;
+    uint16_t size; // paragraphs
+    int allocated_paragraphs; // -1 for chain
+} umb_t;
+
 static umb_t umb_blocks[] = {
-// Used by EMS driver
-//        { 0xC000, 0x0800, false },
-//        { 0xC800, 0x0800, false },
-        {0xD000, 0x0800, false},
-        {0xD800, 0x0800, false},
-        {0xE000, 0x0800, false},
-        {0xE800, 0x0800, false},
-        {0xF000, 0x0800, false},
-        {0xF800, 0x0400, false},
+    // 0xD0000–0xDFFFF (64 KB)
+    {0xD000, 0x0080, 0}, {0xD080, 0x0080, 0}, {0xD100, 0x0080, 0}, {0xD180, 0x0080, 0},
+    {0xD200, 0x0080, 0}, {0xD280, 0x0080, 0}, {0xD300, 0x0080, 0}, {0xD380, 0x0080, 0},
+    {0xD400, 0x0080, 0}, {0xD480, 0x0080, 0}, {0xD500, 0x0080, 0}, {0xD580, 0x0080, 0},
+    {0xD600, 0x0080, 0}, {0xD680, 0x0080, 0}, {0xD700, 0x0080, 0}, {0xD780, 0x0080, 0},
+    {0xD800, 0x0080, 0}, {0xD880, 0x0080, 0}, {0xD900, 0x0080, 0}, {0xD980, 0x0080, 0},
+    {0xDA00, 0x0080, 0}, {0xDA80, 0x0080, 0}, {0xDB00, 0x0080, 0}, {0xDB80, 0x0080, 0},
+    {0xDC00, 0x0080, 0}, {0xDC80, 0x0080, 0}, {0xDD00, 0x0080, 0}, {0xDD80, 0x0080, 0},
+    {0xDE00, 0x0080, 0}, {0xDE80, 0x0080, 0}, {0xDF00, 0x0080, 0}, {0xDF80, 0x0080, 0},
+
+    // 0xE0000–0xEFFFF (64 KB)
+    {0xE000, 0x0080, 0}, {0xE080, 0x0080, 0}, {0xE100, 0x0080, 0}, {0xE180, 0x0080, 0},
+    {0xE200, 0x0080, 0}, {0xE280, 0x0080, 0}, {0xE300, 0x0080, 0}, {0xE380, 0x0080, 0},
+    {0xE400, 0x0080, 0}, {0xE480, 0x0080, 0}, {0xE500, 0x0080, 0}, {0xE580, 0x0080, 0},
+    {0xE600, 0x0080, 0}, {0xE680, 0x0080, 0}, {0xE700, 0x0080, 0}, {0xE780, 0x0080, 0},
+    {0xE800, 0x0080, 0}, {0xE880, 0x0080, 0}, {0xE900, 0x0080, 0}, {0xE980, 0x0080, 0},
+    {0xEA00, 0x0080, 0}, {0xEA80, 0x0080, 0}, {0xEB00, 0x0080, 0}, {0xEB80, 0x0080, 0},
+    {0xEC00, 0x0080, 0}, {0xEC80, 0x0080, 0}, {0xED00, 0x0080, 0}, {0xED80, 0x0080, 0},
+    {0xEE00, 0x0080, 0}, {0xEE80, 0x0080, 0}, {0xEF00, 0x0080, 0}, {0xEF80, 0x0080, 0},
+
+    // 0xF0000–0xF7FFF (32 KB)
+    {0xF000, 0x0080, 0}, {0xF080, 0x0080, 0}, {0xF100, 0x0080, 0}, {0xF180, 0x0080, 0},
+    {0xF200, 0x0080, 0}, {0xF280, 0x0080, 0}, {0xF300, 0x0080, 0}, {0xF380, 0x0080, 0},
+    {0xF400, 0x0080, 0}, {0xF480, 0x0080, 0}, {0xF500, 0x0080, 0}, {0xF580, 0x0080, 0},
+    {0xF600, 0x0080, 0}, {0xF680, 0x0080, 0}, {0xF700, 0x0080, 0}, {0xF780, 0x0080, 0},
+
+    // 0xF8000–0xFBFFF (16 KB)
+    {0xF800, 0x0080, 0}, {0xF880, 0x0080, 0}, {0xF900, 0x0080, 0}, {0xF980, 0x0080, 0},
+    {0xFA00, 0x0080, 0}, {0xFA80, 0x0080, 0}, {0xFB00, 0x0080, 0}, {0xFB80, 0x0080, 0},
 };
 #define UMB_BLOCKS_COUNT (sizeof(umb_blocks) / sizeof(umb_t))
 
 static int umb_blocks_allocated = 0;
 
+void init_umb() {
+    for (int i = 0; i < UMB_BLOCKS_COUNT; ++i) {
+        umb_blocks[i].allocated_paragraphs = 0;
+    }
+}
 
-umb_t *get_free_umb_block(uint16_t size) {
-    for (int i = umb_blocks_allocated; i < UMB_BLOCKS_COUNT; i++)
-        if (umb_blocks[i].allocated == false && umb_blocks[i].size >= size) {
-            return &umb_blocks[i];
+const umb_t* get_largest_free_umb_block(uint16_t* psz) {
+    const umb_t* best = NULL;
+    int best_length = 0;
+    int i = 0;
+    while (i < UMB_BLOCKS_COUNT) {
+        if (0 == umb_blocks[i].allocated_paragraphs) {
+            int j = i;
+            uint16_t expected_segment = umb_blocks[i].segment;
+            int length = 0;
+            while (j < UMB_BLOCKS_COUNT && umb_blocks[j].allocated_paragraphs == 0) {
+                if (j > i) {
+                    uint16_t expected_segment = umb_blocks[j - 1].segment + umb_blocks[j - 1].size;
+                    if (umb_blocks[j].segment != expected_segment)
+                        break;
+                }
+                length += umb_blocks[j].size;
+                j++;
+            }
+            if (length > best_length) {
+                best = &umb_blocks[i];
+                best_length = length;
+            }
+            i = j;
+        } else {
+            i++;
         }
-    return NULL;
+    }
+    *psz = best_length;
+    return best;
+}
+
+umb_t* get_free_umb_block(uint16_t size) {
+    umb_t* best = NULL;
+    int best_size = 0;
+    int i = 0;
+    while (i < UMB_BLOCKS_COUNT) {
+        if (umb_blocks[i].allocated_paragraphs != 0) {
+            i++;
+            continue;
+        }
+        uint16_t total_size = 0;
+        int j = i;
+        while (j < UMB_BLOCKS_COUNT && umb_blocks[j].allocated_paragraphs == 0) {
+            if (j > i) {
+                uint16_t expected_segment = umb_blocks[j - 1].segment + umb_blocks[j - 1].size;
+                if (umb_blocks[j].segment != expected_segment)
+                    break;
+            }
+            total_size += umb_blocks[j].size;
+            j++;
+        }
+        if (total_size >= size) {
+            if (best == NULL || total_size < best_size) {
+                best = &umb_blocks[i];
+                best_size = total_size;
+            }
+        }
+        i = j; // skip tested block
+    }
+    return best;
 }
 
 uint32_t xms_available = XMS_MEMORY_SIZE;
@@ -165,7 +244,7 @@ uint8_t __not_in_flash() xms_handler() {
             printf("[XMS] Query free\r\n");
 #endif
             CPU_AX = XMS_MEMORY_SIZE >> 10;
-            CPU_DX = XMS_HANDLES;
+            CPU_DX = XMS_HANDLES - xms_handles;
             CPU_BL = 0;
             break;
         }
@@ -241,38 +320,55 @@ uint8_t __not_in_flash() xms_handler() {
             if (CPU_DX == 0xFFFF) {
                 // Query largest available block
                 if (umb_blocks_allocated < UMB_BLOCKS_COUNT) {
-                    const umb_t *umb_block = get_free_umb_block(0x0800); // 0x0800 cause we dont have blocks bigger
+                    uint16_t sz = 0;
+                    const umb_t *umb_block = get_largest_free_umb_block(&sz);
                     if (umb_block != NULL) {
-                        CPU_DX = umb_block->size;
-                        CPU_BX = 0x00B0; // Success
-                        CPU_AX = 0x0000; // Success
+                        CPU_AX = 1;
+                        CPU_BX = umb_block->segment;
+                        CPU_DX = sz;
+                        CPU_BL = 0;
                         break;
                     }
                 }
             } else {
-                umb_t *umb_block = get_free_umb_block(CPU_DX);
+                uint16_t requested_size = CPU_DX;
+                umb_t *umb_block = get_free_umb_block(requested_size);
                 if (umb_block != NULL) {
+                    int unmarked_size = requested_size;
                     CPU_BX = umb_block->segment;
-                    CPU_DX = umb_block->size;
                     CPU_AX = 0x0001;
-
-                    umb_block->allocated = true;
-                    umb_blocks_allocated++;
+                    umb_t* ub = umb_block;
+                    uint32_t total_allocated = 0;
+                    while (unmarked_size > 0) {
+                        total_allocated += umb_block->size;
+                        umb_block->allocated_paragraphs = -1;
+                        umb_blocks_allocated++;
+                        unmarked_size -= umb_block->size;
+                        umb_block++;
+                    }
+                    ub->allocated_paragraphs = total_allocated;
+                    CPU_DX = total_allocated;
                     break;
                 }
             }
 
+            uint16_t sz = 0;
+            get_largest_free_umb_block(&sz);
             CPU_AX = 0x0000;
-            CPU_DX = 0x0000;
+            CPU_DX = sz;
             CPU_BL = umb_blocks_allocated >= UMB_BLOCKS_COUNT ? 0xB1 : 0xB0;
             break;
         }
         case RELEASE_UMB: { // Release Upper Memory Block (Function 11h)
             // Stub: Release Upper Memory Block
-            for (int i = 0; i < UMB_BLOCKS_COUNT; i++)
-                if (umb_blocks[i].segment == CPU_BX && umb_blocks[i].allocated) {
-                    umb_blocks[i].allocated = false;
-                    umb_blocks_allocated--;
+            for (int i = 0; i < UMB_BLOCKS_COUNT; ++i)
+                if (umb_blocks[i].segment == CPU_BX && umb_blocks[i].allocated_paragraphs > 0) {
+                    int par = umb_blocks[i].allocated_paragraphs;
+                    while(par > 0 && i < UMB_BLOCKS_COUNT) {
+                        umb_blocks[i].allocated_paragraphs = 0;
+                        par -= umb_blocks[i++].size;
+                        umb_blocks_allocated--;
+                    }
                     CPU_AX = 0x0001; // Success
                     CPU_BL = 0;
                     return 0xCB; // Early return to avoid fall-through

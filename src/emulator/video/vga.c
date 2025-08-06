@@ -45,8 +45,11 @@ uint32_t vga_palette[256] = {
         0x2D412D, 0x2D4131, 0x2D4139, 0x2D413D, 0x2D4141, 0x2D3D41, 0x2D3941, 0x2D3141, // 240-247
         0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000  // 248-255
 };
+#if PICO_ON_DEVICE
+bool ega_vga_enabled = true;
+#endif
 
- void vga_portout(uint16_t portnum, uint16_t value) {
+void vga_portout(uint16_t portnum, uint16_t value) {
 //    http://www.techhelpmanual.com/900-video_graphics_array_i_o_ports.html
 //    if (portnum != 0x3c8 && portnum != 0x3c9)
 //        printf("vga_portout %x %x\n", portnum, value);

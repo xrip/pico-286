@@ -25,7 +25,7 @@ extern "C" {
 //#define RAM_SIZE (146 << 10)
 
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
-#define RAM_SIZE (76 << 10)
+#define RAM_SIZE (72 << 10)
 #else
 #define RAM_SIZE (116 << 10)
 #endif
@@ -170,6 +170,12 @@ uint16_t cga_portin(uint16_t portnum);
 #define vga_plane_size (16000)
 extern uint32_t vga_plane_offset;
 extern uint8_t vga_planar_mode;
+
+#if PICO_ON_DEVICE
+    extern bool ega_vga_enabled;
+#else
+#define ega_vga_enabled (1)
+#endif
 
 void vga_portout(uint16_t portnum, uint16_t value);
 
@@ -365,10 +371,16 @@ static INLINE void write8psram(uint32_t address, uint8_t value) {
 static INLINE void write16psram(uint32_t address, uint16_t value) {
     swap_write16(address, value);
 }
+static INLINE void write32psram(uint32_t address, uint32_t value) {
+    swap_write32(address, value);
+}
 static INLINE uint8_t read8psram(uint32_t address) {
     return swap_read(address);
 }
 static INLINE uint16_t read16psram(uint32_t address) {
     return swap_read16(address);
+}
+static INLINE uint32_t read32psram(uint32_t address) {
+    return swap_read32(address);
 }
 #endif

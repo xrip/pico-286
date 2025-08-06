@@ -531,7 +531,11 @@ void intcall86(uint8_t intnum) {
                     break;
                 case 0x1A: //get display combination code (ps, vga/mcga)
                     CPU_AL = 0x1A;
-                    CPU_BL = 0x08;
+                    if (ega_vga_enabled) {
+                        CPU_BL = 0x08;
+                    } else {
+                        CPU_BL = 0x05; // MCGA
+                    }
                     return;
             }
             break;
@@ -561,10 +565,10 @@ void intcall86(uint8_t intnum) {
             insertdisk(128, "\\XT\\hdd.img");
             insertdisk(129, "\\XT\\hdd2.img");
 #else
-            insertdisk(0, "..\\fdd0.img");
-            insertdisk(1, "..\\fdd1.img");
-            insertdisk(128, "..\\hdd.img");
-            insertdisk(129, "..\\hdd2.img");
+            insertdisk(0, "../fdd0.img");
+            insertdisk(1, "../fdd1.img");
+            insertdisk(128, "../hdd.img");
+            insertdisk(129, "../hdd2.img");
 #endif
             if (1) {
 /* PCjr reserves the top of its internal 128KB of RAM for video RAM.  * Sidecars can extend it past 128KB but it
@@ -1227,8 +1231,13 @@ void reset86() {
     //memset(XMS, 0, sizeof(XMS));
 #else
     #ifdef ONBOARD_PSRAM_GPIO
-    memset(PSRAM_DATA + UMB_START, 0, (UMB_END - UMB_START) + 4);
-    memset(PSRAM_DATA + HMA_START, 0, (HMA_END - HMA_START) + 4);
+        #ifndef TOTAL_VIRTUAL_MEMORY_KBS
+            memset(PSRAM_DATA + UMB_START, 0, (UMB_END - UMB_START) + 4);
+            memset(PSRAM_DATA + HMA_START, 0, (HMA_END - HMA_START) + 4);
+        #else
+            for (uint32_t a = UMB_START;  a < ((UMB_END - UMB_START) + 4); a += 4) write32psram(a, 0);
+            for (uint32_t a = HMA_START;  a < ((HMA_END - HMA_START) + 4); a += 4) write32psram(a, 0);
+        #endif
     #else
     for (uint32_t a = UMB_START;  a < ((UMB_END - UMB_START) + 4); a += 4) {
         write32psram(a, 0);
@@ -1238,7 +1247,7 @@ void reset86() {
     }
     #endif
 #endif
-
+    init_umb();
     ip = 0x0000;
     i8237_reset();
 }
