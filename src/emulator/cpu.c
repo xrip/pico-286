@@ -15,6 +15,7 @@
 #else
 
 #include "disks-win32.c.inl"
+#include "redirector.c.inl"
 
 #endif
 
@@ -606,7 +607,11 @@ void intcall86(uint8_t intnum) {
                     return;
             }
             break;
-        case 0x2F: /* XMS memory */
+        case 0x2F: /* XMS memory / Multiplex */
+            if (CPU_AH == 0x11) {
+                redirector_handler();
+                return;
+            }
 
             switch (CPU_AX) {
                 case 0x4300:
@@ -624,6 +629,10 @@ void intcall86(uint8_t intnum) {
 #endif
             }
             break;
+
+        case 0x88: // Custom interrupt for Filesystem Redirector
+            redirector_handler();
+            return;
             /**/
     }
 
@@ -1248,6 +1257,7 @@ void reset86() {
     #endif
 #endif
     init_umb();
+    redirector_init();
     ip = 0x0000;
     i8237_reset();
 }
