@@ -629,10 +629,6 @@ void intcall86(uint8_t intnum) {
 #endif
             }
             break;
-
-        case 0x88: // Custom interrupt for Filesystem Redirector
-            redirector_handler();
-            return;
             /**/
     }
 
