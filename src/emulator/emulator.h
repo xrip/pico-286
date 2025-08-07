@@ -48,7 +48,6 @@ extern "C" {
 #define rgb(r, g, b) (((r)<<16) | ((g) << 8 ) | (b) )
 
 #define VIDEORAM_START (0xA0000)
-#define MDA_START (0xB0000)
 #define VIDEORAM_END (0xC0000)
 
 #define EMS_START (0xC0000)
