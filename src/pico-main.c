@@ -61,11 +61,19 @@ void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused co
 void __no_inline_not_in_flash_func(psram_init)(uint cs_pin);
 #endif
 
-static const uint32_t TORMOZ_MODEL_30 = 32768;
+static const uint32_t NO_TORMOZ = 32768;
+#if !PICO_RP2040
+static const uint32_t TORMOZ_TURBO_8 = 4;
+static const uint32_t TORMOZ_PC_XT = 3;
+static uint32_t delay = 0;
+static const uint32_t DELAY_TURBO_8 = 8;
+static const uint32_t DELAY_PC_XT = 10;
+#else
 static const uint32_t TORMOZ_TURBO_8 = 1024;
 static const uint32_t TORMOZ_PC_XT = 512;
+#endif
+static uint32_t tormoz = NO_TORMOZ;
 
-static uint32_t tormoz = TORMOZ_MODEL_30;
 static bool ctrlPressed = false;
 static bool altPressed = false;
 
@@ -100,12 +108,18 @@ bool handleScancode(uint32_t ps2scancode) {
         case SCANCODE_KP_MINUS_UP: // KP "-" up
             if (ctrlPressed && altPressed) {
                 switch (tormoz) {
-                    case TORMOZ_MODEL_30:
+                    case NO_TORMOZ:
                         tormoz = TORMOZ_TURBO_8;
                         printf("TURBO 8\n"); // TODO: calibrate on other configurations
+                        #if !PICO_RP2040
+                            delay = DELAY_TURBO_8;
+                        #endif
                         break;
                     case TORMOZ_TURBO_8:
                         tormoz = TORMOZ_PC_XT;
+                        #if !PICO_RP2040
+                            delay = DELAY_PC_XT;
+                        #endif
                         printf("PC XT\n");
                         break;
                 }
@@ -117,10 +131,18 @@ bool handleScancode(uint32_t ps2scancode) {
                     case TORMOZ_PC_XT:
                         tormoz = TORMOZ_TURBO_8;
                         printf("TURBO 8\n");
+                        #if !PICO_RP2040
+                            delay = DELAY_TURBO_8;
+                        #endif
                         break;
                     case TORMOZ_TURBO_8:
-                        tormoz = TORMOZ_MODEL_30;
-                        printf("Model 30\n");
+                        tormoz = NO_TORMOZ;
+                        #if !PICO_RP2040
+                            delay = 0;
+                            printf("Model 70\n");
+                        #else
+                            printf("Model 30\n");
+                        #endif
                         break;
                 }
             }
@@ -510,7 +532,9 @@ int main(void) {
     // Main emulation loop
     while (true) {
         exec86(tormoz);
-
+#if !PICO_RP2040
+        if (delay) sleep_us(delay);
+#endif
         // Handle gamepad input for mouse emulation
         if (!mouse_available) {
             nespad_read();

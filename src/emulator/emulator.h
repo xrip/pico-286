@@ -48,6 +48,7 @@ extern "C" {
 #define rgb(r, g, b) (((r)<<16) | ((g) << 8 ) | (b) )
 
 #define VIDEORAM_START (0xA0000)
+#define MDA_START (0xB0000)
 #define VIDEORAM_END (0xC0000)
 
 #define EMS_START (0xC0000)
@@ -178,7 +179,12 @@ uint16_t cga_portin(uint16_t portnum);
 extern volatile uint32_t vga_plane_offset;
 extern volatile uint8_t vga_planar_mode;
 
-extern bool ega_vga_enabled;
+#if PICO_ON_DEVICE
+    extern bool ega_vga_enabled;
+#else
+#define ega_vga_enabled (1)
+#endif
+
 void vga_portout(uint16_t portnum, uint16_t value);
 
 uint16_t vga_portin(uint16_t portnum);

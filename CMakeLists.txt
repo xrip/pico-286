@@ -12,7 +12,12 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif ()
 # ====================================================================================
-    set(PICO_BOARD pico2 CACHE STRING "Board type")
+set(PICO_BOARD pico2 CACHE STRING "Board type")
+set(PICO_PLATFORM rp2350-arm-s)
+set(ENABLE_VGA ON)
+set(ENABLE_PWM_SOUND ON)
+#set(TOTAL_VIRTUAL_MEMORY_KBS 2048)
+set(ONBOARD_PSRAM OFF)
 
 cmake_minimum_required(VERSION 3.22)
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
@@ -45,8 +50,16 @@ message(STATUS "")
 # =========================
 if (PICO_PLATFORM STREQUAL "host")
     add_compile_options(-fms-extensions -O2)
-    add_executable(${PROJECT_NAME} ${SRC} src/win32-main.cpp src/WinMiniFB.c src/printf/printf.c)
-    target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
+    
+    if (WIN32)
+        add_executable(${PROJECT_NAME} ${SRC} src/win32-main.cpp src/WinMiniFB.c src/printf/printf.c)
+        target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
+    else()
+        # Linux build
+        add_executable(${PROJECT_NAME} ${SRC} src/linux-main.cpp src/LinuxMiniFB.c src/linux-audio.c src/printf/printf.c)
+        target_link_libraries(${PROJECT_NAME} PRIVATE X11 pthread)
+    endif()
+    
     target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)
 else ()
     # =========================
@@ -86,6 +99,7 @@ else ()
     # PSRAM Configuration (onboard only available for RP2350)
     if (NOT PICO_PLATFORM STREQUAL "rp2040")
         option(ONBOARD_PSRAM "Enable onboard PSRAM support" ON)
+        set(ONBOARD_PSRAM_GPIO "47" CACHE STRING "GPIO pin for onboard PSRAM")
     endif ()
 
     # CPU Configuration
