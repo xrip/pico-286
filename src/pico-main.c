@@ -102,8 +102,10 @@ bool handleScancode(uint32_t ps2scancode) {
             altPressed = false;
             break;
         case SCANCODE_KP_MULT_UP: // KP "*" up
-            ega_vga_enabled = !ega_vga_enabled;
-            printf("EGA/VGA: %s\n", ega_vga_enabled ? "ON" : "OFF");
+            if (ctrlPressed && altPressed) {
+                ega_vga_enabled = !ega_vga_enabled;
+                printf("EGA/VGA: %s\n", ega_vga_enabled ? "ON" : "OFF");
+            }
             break;
         case SCANCODE_KP_MINUS_UP: // KP "-" up
             if (ctrlPressed && altPressed) {

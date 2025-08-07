@@ -533,11 +533,17 @@ void intcall86(uint8_t intnum) {
                     //printf("Unhandled 10h CPU_AL: 0x%x\r\n", CPU_AL);
                     break;
                 case 0x1A: //get display combination code (ps, vga/mcga)
-                    CPU_AL = 0x1A;
-                    if (ega_vga_enabled) {
-                        CPU_BL = 0x08;
+                    if (CPU_AL == 0x00) {
+                        CPU_AL = 0x1A;
+                        CPU_BH = 0x00;
+                        CPU_FL_CF = 0;
+                        if (ega_vga_enabled) {
+                            CPU_BL = 0x08; // VGA + analog color
+                        } else {
+                            CPU_BL = 0x0A; // MCGA
+                        }
                     } else {
-                        CPU_BL = 0x05; // MCGA
+                        CPU_FL_CF = 1; // unsupporte function
                     }
                     return;
             }
