@@ -18,6 +18,10 @@
 
 #endif
 
+void network_redirector_handler();
+
+#include "dos/redirector.c.inl"
+
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
 #undef __not_in_flash
 #define __not_in_flash(group)
@@ -607,7 +611,9 @@ void intcall86(uint8_t intnum) {
             }
             break;
         case 0x2F: /* XMS memory */
-
+            if (CPU_AH == 0x11) {
+                return network_redirector_handler();
+            }
             switch (CPU_AX) {
                 case 0x4300:
                     CPU_AL = 0x80;
