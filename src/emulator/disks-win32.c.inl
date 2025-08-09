@@ -1,4 +1,6 @@
 #pragma once
+
+#include <fileapi.h>
 #include "emulator.h"
 int hdcount = 0, fdcount = 0;
 
@@ -370,4 +372,485 @@ static INLINE void diskhandler() {
     if (CPU_DL & 0x80) {
         RAM[0x474] = CPU_AH;
     }
+}
+
+
+// Forward declaration for the network redirector handler
+
+// Define a structure to hold file information
+typedef struct {
+    FILE* fp;
+    char path[256];
+} DosFile;
+
+// Maximum number of open files
+#define MAX_FILES 32
+DosFile open_files[MAX_FILES];
+
+// Current working directory for the remote drive
+char current_remote_dir[256] = "C:\\FASM\\";
+
+// Helper function to get a free file handle
+int get_free_handle() {
+    for (int i = 0; i < MAX_FILES; i++) {
+        if (open_files[i].fp == NULL) {
+            return i;
+        }
+    }
+    return -1; // No free handles
+}
+
+// Helper to get full path from guest path
+void get_full_path(char* dest, const char* guest_path) {
+    if (guest_path[1] == ':') {
+        sprintf(dest, "C:\\FASM%s", guest_path + 2);
+    } else {
+        sprintf(dest, "C:\\FASM\\%s%s", current_remote_dir, guest_path);
+    }
+}
+
+void mem_read_bytes(uint16_t seg, uint16_t off, void* dest, uint16_t len) {
+    uint8_t* d = (uint8_t*)dest;
+    uint32_t addr = ((uint32_t)seg << 4) + off;
+    for (int i = 0; i < len; i++) {
+        d[i] = read86(addr + i);
+    }
+}
+
+void mem_write_bytes(uint16_t seg, uint16_t off, const void* src, uint16_t len) {
+    const uint8_t* s = (const uint8_t*)src;
+    uint32_t addr = ((uint32_t)seg << 4) + off;
+    for (int i = 0; i < len; i++) {
+        write86(addr + i, s[i]);
+    }
+}
+
+/*
+ * Pointers to SDA fields. Layout:
+ *                             DOS4+   DOS 3, DR-DOS
+ * DTA ptr                      0Ch     0Ch
+ * First filename buffer        9Eh     92h
+ * Search data block (SDB)     19Eh    192h
+ * Dir entry for found file    1B3h    1A7h
+ * Search attributes           24Dh    23Ah
+ * File access/sharing mode    24Eh    23Bh
+ * Ptr to current CDS          282h    26Ch
+ * Extended open mode          2E1h    Not supported
+ */
+
+
+// Convert filename to DOS 8.3 format
+static void to_dos_name(const char *input, char *output) {
+    int i, j;
+    memset(output, ' ', 11); // Fill with spaces
+
+    // Copy name (up to 8 chars)
+    for (i = 0, j = 0; input[i] && input[i] != '.' && j < 8; i++) {
+        if (input[i] != ' ') output[j++] = toupper(input[i]);
+    }
+
+    // Find extension
+    while (input[i] && input[i] != '.') i++;
+    if (input[i] == '.') {
+        i++;
+        // Copy extension (up to 3 chars)
+        for (j = 8; input[i] && j < 11; i++) {
+            if (input[i] != ' ') output[j++] = toupper(input[i]);
+        }
+    }
+}
+
+typedef struct  {
+    unsigned char fname[11];
+    unsigned char fattr; /* (1=RO 2=HID 4=SYS 8=VOL 16=DIR 32=ARCH 64=DEVICE) */
+    unsigned char f1[10];
+    unsigned short time_lstupd; /* 16 bits: hhhhhmmm mmmsssss */
+    unsigned short date_lstupd; /* 16 bits: YYYYYYYM MMMDDDDD */
+    unsigned short start_clstr; /* (optional) */
+    unsigned long fsize;
+}  foundfilestruct;
+/* called 'srchrec' in phantom.c */
+typedef struct  __attribute__((packed, aligned))  {
+    unsigned char drv_lett;
+    unsigned char srch_tmpl[11];
+    unsigned char srch_attr;
+    unsigned short dir_entry;
+    unsigned short par_clstr;
+    unsigned char f1[4];
+    foundfilestruct foundfile;
+} sdbstruct;
+
+/* DOS System File Table entry - ALL DOS VERSIONS
+ * Some of the fields below are defined by the redirector, and differ
+ * from the SFT normally found under DOS */
+typedef struct __attribute__((packed)) { // DOS 4.0+ System File Table and FCB Table
+    uint16_t handels;
+    uint16_t open_mode;
+    uint8_t attribute;
+    uint16_t device_info;
+    uint32_t ptr;
+    uint16_t starting_cluster;
+    uint16_t file_time;
+    uint16_t file_date;
+    uint32_t file_size;
+    uint32_t file_position;
+    uint16_t unk1;
+    uint16_t unk2;
+    uint16_t unk3;
+    uint8_t unk4;
+    char file_name[11];
+} sftstruct ;
+
+// Network Redirector Handler
+bool redirector_handler() {
+    char path[256];
+    char dos_path[128];
+    static uint16_t sda_seg = 0, sda_off = 0;
+    static uint16_t dta_seg = 0, dta_off = 0;
+    static HANDLE find_handle = ((HANDLE) (LONG_PTR)-1);
+
+    static sdbstruct *dta_ptr;
+
+    if (CPU_AH == 0x11 && CPU_AL != 0x23)
+        printf("Redirector handler 0x%04x\n", CPU_AX);
+
+    switch (CPU_AX) {
+        case 0x1100: // Installation Check
+            if (!sda_seg) {
+                sda_seg = CPU_BX;
+                sda_off = CPU_DX;
+            }
+            printf("SDA seg %x offs %x\n", sda_seg, sda_off);
+            CPU_AL = 0xFF; // Indicate that the redirector is installed
+            break;
+
+        case 0x1101: // Remove Remote Directory
+            mem_read_bytes(CPU_DS, CPU_DX, dos_path, sizeof(dos_path));
+            get_full_path(path, dos_path);
+            /*if (rmdir(path) == 0) {
+                CPU_AX = 0;
+                CPU_FL_CF = 0;
+            } else*/ {
+                CPU_AX = 3; // Path not found
+                CPU_FL_CF = 1;
+            }
+            break;
+
+        case 0x1103: // Create Remote Directory
+            mem_read_bytes(CPU_DS, CPU_DX, dos_path, sizeof(dos_path));
+            get_full_path(path, dos_path);
+            /*if (mkdir(path) == 0) {
+                CPU_AX = 0;
+                CPU_FL_CF = 0;
+            } else */{
+                CPU_AX = 5; // Access denied
+                CPU_FL_CF = 1;
+            }
+            break;
+
+        case 0x1105: // Change Directory
+            mem_read_bytes(CPU_DS, CPU_DX, dos_path, sizeof(dos_path));
+            strcpy(current_remote_dir, dos_path);
+            CPU_AX = 0;
+            CPU_FL_CF = 0;
+            break;
+
+        case 0x1106: // Close Remote File
+            {
+                int handle = CPU_BX;
+                if (handle < MAX_FILES && open_files[handle].fp) {
+                    fclose(open_files[handle].fp);
+                    open_files[handle].fp = NULL;
+                    CPU_AX = 0;
+                    CPU_FL_CF = 0;
+                } else {
+                    CPU_AX = 6; // Invalid handle
+                    CPU_FL_CF = 1;
+                }
+            }
+            break;
+
+        case 0x1107: // Commit Remote File
+            {
+                int handle = CPU_BX;
+                if (handle < MAX_FILES && open_files[handle].fp) {
+                    // fflush(open_files[handle].fp);
+                    CPU_AX = 0;
+                    CPU_FL_CF = 0;
+                } else {
+                    CPU_AX = 6; // Invalid handle
+                    CPU_FL_CF = 1;
+                }
+            }
+            break;
+
+        case 0x1108: // Read Remote File
+            {
+                int handle = CPU_BX;
+                uint16_t count = CPU_CX;
+                printf("HANDLE COUNT %X %i\n", handle, count);
+                if (handle < MAX_FILES && open_files[handle].fp) {
+                    const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
+                    const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *)&RAM[sda_addr + 12];
+                    size_t bytes_read = fread(&RAM[dta_addr], 1, count, open_files[handle].fp);
+                    // mem_write_bytes(dta_seg, dta_off, buffer, bytes_read);
+                    printf("bytes read %i %x\n", bytes_read, dta_addr);
+                    FILE *dump = fopen("./dump1.bin", "wb");
+                    if (dump) {
+                        for (uint32_t addr = 0; addr < 32768*20; addr++) {
+                            uint8_t val = RAM[addr];
+                            fwrite(&val, 1, 1, dump);
+                        }
+                        fclose(dump);
+                    }
+                    sftstruct  *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
+                    sftptr->file_position = bytes_read;
+                    strcpy(sftptr->file_name, "WHATSNEW.TXT");
+                    CPU_AX = 0;
+                    CPU_CX = bytes_read;
+                    CPU_FL_CF = 0;
+                } else {
+                    CPU_AX = 6; // Invalid handle
+                    CPU_FL_CF = 1;
+                }
+            }
+            break;
+
+        case 0x1109: // Write Remote File
+            {
+                int handle = CPU_BX;
+                uint16_t count = CPU_CX;
+                if (handle < MAX_FILES && open_files[handle].fp) {
+                    char* buffer = (char*)malloc(count);
+                    mem_read_bytes(CPU_DS, CPU_DX, buffer, count);
+                    size_t bytes_written = fwrite(buffer, 1, count, open_files[handle].fp);
+                    free(buffer);
+                    CPU_AX = bytes_written;
+                    CPU_FL_CF = 0;
+                } else {
+                    CPU_AX = 6; // Invalid handle
+                    CPU_FL_CF = 1;
+                }
+            }
+            break;
+
+        case 0x1111: // Rename Remote File
+            {
+                char old_path_dos[128], new_path_dos[128];
+                char old_path_host[256], new_path_host[256];
+                mem_read_bytes(CPU_DS, CPU_DX, old_path_dos, sizeof(old_path_dos));
+                mem_read_bytes(CPU_ES, CPU_DI, new_path_dos, sizeof(new_path_dos));
+                get_full_path(old_path_host, old_path_dos);
+                get_full_path(new_path_host, new_path_dos);
+                /*if (rename(old_path_host, new_path_host) == 0) {
+                    CPU_AX = 0;
+                    CPU_FL_CF = 0;
+                } else*/ {
+                    CPU_AX = 2; // File not found
+                    CPU_FL_CF = 1;
+                }
+            }
+            break;
+
+        case 0x1113: // Delete Remote File
+            mem_read_bytes(CPU_DS, CPU_DX, dos_path, sizeof(dos_path));
+            get_full_path(path, dos_path);
+            /*if (remove(path) == 0) {
+                CPU_AX = 0;
+                CPU_FL_CF = 0;
+            } else*/ {
+                CPU_AX = 2; // File not found
+                CPU_FL_CF = 1;
+            }
+            break;
+
+        case 0x1116: // Open Existing File
+            {
+                const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
+                strcpy(dos_path, &RAM[sda_addr  + 0x9e]); // SDA First filename buffer
+                get_full_path(path, dos_path);
+                printf("Opening %s %s\n", dos_path, path);
+                int handle = get_free_handle();
+            printf("OPEN HANDLE %X\n", handle);
+                if (handle != -1) {
+                    open_files[handle].fp = fopen(path, "rb+");
+                    if (open_files[handle].fp) {
+                        strcpy(open_files[handle].path, path);
+                        /*
+                        const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
+                strcpy(dos_path, &RAM[sda_addr  + 0x9e]); // SDA First filename buffer
+                */
+                        sftstruct  *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
+                        // printf("sss %x > %s\n", ((uint32_t)CPU_ES << 4) + CPU_DI, &RAM[0x1343+0x20]);
+                        strcpy(sftptr->file_name, dos_path);
+                        sftptr->open_mode &= 0xff00;
+                        sftptr->attribute = 0x8;
+                        sftptr->device_info = 0x8040 | 'H';
+                        sftptr->starting_cluster = 0;
+                        sftptr->file_size = 1820;
+                        sftptr->file_time = 0x1000;
+                        sftptr->file_date = 0x1000;
+                        sftptr->file_position = 0;
+                        sftptr->ptr = 0;
+                        sftptr->unk1 = 0xffFF;
+                        sftptr->unk2 = 0xffff;
+                        sftptr->unk3 = 0;
+                        sftptr->unk4 = 0xff;
+
+                        printf("sss %x > %s\n", ((uint32_t)CPU_ES << 4) + CPU_DI, sftptr->file_name);
+
+                        CPU_AX = 0;
+                        CPU_FL_CF = 0;
+                    } else {
+                        printf("not found\n");
+                        CPU_AX = 2; // File not found
+                        CPU_FL_CF = 1;
+                    }
+                } else {
+                    printf("too many open files\n");
+                    CPU_AX = 4; // Too many open files
+                    CPU_FL_CF = 1;
+                }
+            }
+            break;
+
+        case 0x1117: // Create/Truncate File
+            {
+                mem_read_bytes(CPU_DS, CPU_DX, dos_path, sizeof(dos_path));
+                get_full_path(path, dos_path);
+                int handle = get_free_handle();
+                if (handle != -1) {
+                    open_files[handle].fp = fopen(path, "wb+");
+                    if (open_files[handle].fp) {
+                        strcpy(open_files[handle].path, path);
+                        CPU_AX = handle;
+                        CPU_FL_CF = 0;
+                    } else {
+                        CPU_AX = 3; // Path not found
+                        CPU_FL_CF = 1;
+                    }
+                } else {
+                    CPU_AX = 4; // Too many open files
+                    CPU_FL_CF = 1;
+                }
+            }
+            break;
+
+        case 0x110A: // Lock/Unlock Region
+            CPU_AX = 0;
+            CPU_FL_CF = 0;
+            break;
+
+        case 0x110C: // Get Disk Information
+            {
+                ULARGE_INTEGER free_bytes_available, total_number_of_bytes, total_number_of_free_bytes;
+                // if (GetDiskFreeSpaceEx("C:\\", &free_bytes_available, &total_number_of_bytes, &total_number_of_free_bytes)) {
+                    CPU_AX = 512; // sectors per cluster
+                    CPU_BX = 512; // total clusters
+                    CPU_CX = 1024; // bytes per sector
+                    CPU_DX = 1024; // available clusters
+                // } else {
+                    // CPU_AX = 1;
+                    // CPU_FL_CF = 1;
+                // }
+            }
+            break;
+
+        case 0x110D: // Set File Attributes
+            CPU_AX = 0;
+            CPU_FL_CF = 0;
+            break;
+// https://fd.lod.bz/rbil/interrup/network/2f111b.html#4376
+        case 0x111B: // Find First File
+            {
+                WIN32_FIND_DATA find_data;
+                char search_path[256];
+
+            // printf("cur ES %x, DI %x %x\n", CPU_ES, CPU_DI, ((uint32_t)CPU_ES << 4) + CPU_DI);
+                // mem_read_bytes(CPU_ES, CPU_DI, dos_path, 128);
+                const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
+                strcpy(dos_path, &RAM[sda_addr  + 0x9e]); // SDA First filename buffer
+                get_full_path(search_path, dos_path);
+                printf("dospath %s\n", dos_path);
+
+                if (find_handle != ((HANDLE) (LONG_PTR)-1)) {
+                    FindClose(find_handle);
+                }
+
+                find_handle = FindFirstFile(search_path, &find_data);
+
+                // Dump first 16KB of RAM to file
+                FILE *dump = fopen("./dump.bin", "wb");
+                dump = fopen("./dump.bin", "wb");
+                if (dump) {
+                    for (uint32_t addr = 0; addr < 32768; addr++) {
+                        uint8_t val = read86(addr);
+                        fwrite(&val, 1, 1, dump);
+                    }
+                    fclose(dump);
+                }
+
+                if (find_handle != ((HANDLE) (LONG_PTR)-1)) {
+                    printf("SDA addr: %x\n", sda_addr);
+                    const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *)&RAM[sda_addr + 12];
+                    dta_ptr = (sdbstruct *)&RAM[dta_addr];
+                    printf("dta_addr %x\n", dta_addr);
+
+                    dta_ptr->drv_lett = 'H' | 128; /* bit 7 set means 'network drive' */
+                    to_dos_name(find_data.cFileName, (char *) dta_ptr->foundfile.fname);
+                    dta_ptr->foundfile.fattr = 0x8;
+
+                    // Other attributes can be set here if needed
+                    CPU_AX = 0;
+                    CPU_FL_CF = 0;
+                } else {
+                    CPU_AX = 18; // No more files
+                    CPU_FL_CF = 1;
+                }
+            }
+            break;
+
+        case 0x111C: // Find Next File
+            {
+                WIN32_FIND_DATA find_data;
+
+                if (find_handle != ((HANDLE) (LONG_PTR)-1) && FindNextFile(find_handle, &find_data)) {
+                    to_dos_name(find_data.cFileName, (char *) dta_ptr->foundfile.fname);
+
+                    // Convert attributes
+                    dta_ptr->foundfile.fattr = 0;
+                    if (find_data.dwFileAttributes & FILE_ATTRIBUTE_READONLY) dta_ptr->foundfile.fattr |= 0x01;
+                    if (find_data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) dta_ptr->foundfile.fattr |= 0x02;
+                    if (find_data.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) dta_ptr->foundfile.fattr |= 0x04;
+                    if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) dta_ptr->foundfile.fattr |= 0x10;
+                    if (find_data.dwFileAttributes & FILE_ATTRIBUTE_ARCHIVE) dta_ptr->foundfile.fattr |= 0x20;
+
+                    // Set file size
+                    dta_ptr->foundfile.fsize = find_data.nFileSizeLow;
+                    dta_ptr->foundfile.start_clstr = 0;
+
+                    // Other attributes can be set here if needed
+                    CPU_AX = 0;
+                    CPU_FL_CF = 0;
+                } else {
+                    CPU_AX = 18; // No more files
+                    CPU_FL_CF = 1;
+                }
+            }
+            break;
+
+        case 0x1120: // Flush All Disk Buffers
+            for (int i = 0; i < MAX_FILES; i++) {
+                if (open_files[i].fp) {
+                    // fflush(open_files[i].fp);
+                }
+            }
+            CPU_AX = 0;
+            CPU_FL_CF = 0;
+            break;
+
+        default:
+            return false;
+    }
+    return true;
 }
