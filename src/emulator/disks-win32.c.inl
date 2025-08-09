@@ -1,7 +1,12 @@
 #pragma once
 
 #include <fileapi.h>
+
 #include "emulator.h"
+
+// Host filesystem passthrough base directory
+#define HOST_BASE_DIR "C:\\FASM"
+
 int hdcount = 0, fdcount = 0;
 
 static uint8_t sectorbuffer[512];
@@ -377,6 +382,7 @@ static INLINE void diskhandler() {
 
 // Forward declaration for the network redirector handler
 
+#define INVALID_HANDLE_VALUE ((HANDLE) (LONG_PTR)-1)
 // Define a structure to hold file information
 typedef struct {
     FILE* fp;
@@ -385,10 +391,10 @@ typedef struct {
 
 // Maximum number of open files
 #define MAX_FILES 32
-DosFile open_files[MAX_FILES];
+DosFile open_files[MAX_FILES] = {0};
 
-// Current working directory for the remote drive
-char current_remote_dir[256] = "C:\\FASM\\";
+// Current working directory for the remote drive (relative to HOST_BASE_DIR)
+char current_remote_dir[256] = "";
 
 // Helper function to get a free file handle
 int get_free_handle() {
@@ -403,10 +409,28 @@ int get_free_handle() {
 // Helper to get full path from guest path
 void get_full_path(char* dest, const char* guest_path) {
     if (guest_path[1] == ':') {
-        sprintf(dest, "C:\\FASM%s", guest_path + 2);
+        // Absolute path with drive letter (e.g., "H:\file.txt" or "H:\TOOLS\file.txt")
+        const char* path_part = guest_path + 2; // Skip "H:"
+        if (path_part[0] == '\\') {
+            path_part++; // Skip leading backslash, so "\TOOLS\file.txt" becomes "TOOLS\file.txt"
+        }
+        if (strlen(path_part) > 0) {
+            sprintf(dest, HOST_BASE_DIR "\\%s", path_part);
+        } else {
+            sprintf(dest, HOST_BASE_DIR);
+        }
+    } else if (guest_path[0] == '\\') {
+        // Root-relative path (e.g., "\subdir\file.txt")
+        sprintf(dest, HOST_BASE_DIR "%s", guest_path);
     } else {
-        sprintf(dest, "C:\\FASM\\%s%s", current_remote_dir, guest_path);
+        // Relative path (e.g., "file.txt" or "subdir\file.txt")
+        if (strlen(current_remote_dir) > 0) {
+            sprintf(dest, HOST_BASE_DIR "\\%s\\%s", current_remote_dir, guest_path);
+        } else {
+            sprintf(dest, HOST_BASE_DIR "\\%s", guest_path);
+        }
     }
+    // printf("Path conversion: guest='%s', current_dir='%s' -> host='%s'\n", guest_path, current_remote_dir, dest);
 }
 
 void mem_read_bytes(uint16_t seg, uint16_t off, void* dest, uint16_t len) {
@@ -507,7 +531,7 @@ bool redirector_handler() {
     char dos_path[128];
     static uint16_t sda_seg = 0, sda_off = 0;
     static uint16_t dta_seg = 0, dta_off = 0;
-    static HANDLE find_handle = ((HANDLE) (LONG_PTR)-1);
+    static HANDLE find_handle = INVALID_HANDLE_VALUE;
 
     static sdbstruct *dta_ptr;
 
@@ -550,14 +574,29 @@ bool redirector_handler() {
 
         case 0x1105: // Change Directory
             mem_read_bytes(CPU_DS, CPU_DX, dos_path, sizeof(dos_path));
-            strcpy(current_remote_dir, dos_path);
+            // printf("Change directory to: '%s'\n", dos_path);
+            
+            // Handle different path formats
+            if (dos_path[0] == '\\' && dos_path[1] == '\0') {
+                // Root directory "\"
+                strcpy(current_remote_dir, "");
+            } else if (dos_path[0] == '\\') {
+                // Absolute path from root, remove leading backslash
+                strcpy(current_remote_dir, dos_path + 1);
+            } else {
+                // Relative path
+                strcpy(current_remote_dir, dos_path);
+            }
+            
+            // printf("Current remote dir set to: '%s'\n", current_remote_dir);
             CPU_AX = 0;
             CPU_FL_CF = 0;
             break;
 
         case 0x1106: // Close Remote File
             {
-                int handle = CPU_BX;
+                sftstruct *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
+                int handle = sftptr->starting_cluster; // We store our handle here
                 if (handle < MAX_FILES && open_files[handle].fp) {
                     fclose(open_files[handle].fp);
                     open_files[handle].fp = NULL;
@@ -572,7 +611,8 @@ bool redirector_handler() {
 
         case 0x1107: // Commit Remote File
             {
-                int handle = CPU_BX;
+                sftstruct *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
+                int handle = sftptr->starting_cluster; // We store our handle here
                 if (handle < MAX_FILES && open_files[handle].fp) {
                     // fflush(open_files[handle].fp);
                     CPU_AX = 0;
@@ -586,26 +626,18 @@ bool redirector_handler() {
 
         case 0x1108: // Read Remote File
             {
-                int handle = CPU_BX;
+                sftstruct *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
+                int handle = sftptr->starting_cluster; // We store our handle here
                 uint16_t count = CPU_CX;
                 printf("HANDLE COUNT %X %i\n", handle, count);
                 if (handle < MAX_FILES && open_files[handle].fp) {
                     const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
                     const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *)&RAM[sda_addr + 12];
                     size_t bytes_read = fread(&RAM[dta_addr], 1, count, open_files[handle].fp);
-                    // mem_write_bytes(dta_seg, dta_off, buffer, bytes_read);
                     printf("bytes read %i %x\n", bytes_read, dta_addr);
-                    FILE *dump = fopen("./dump1.bin", "wb");
-                    if (dump) {
-                        for (uint32_t addr = 0; addr < 32768*20; addr++) {
-                            uint8_t val = RAM[addr];
-                            fwrite(&val, 1, 1, dump);
-                        }
-                        fclose(dump);
-                    }
-                    sftstruct  *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
-                    sftptr->file_position = bytes_read;
-                    strcpy(sftptr->file_name, "WHATSNEW.TXT");
+                    
+                    // Update file position in SFT
+                    sftptr->file_position += bytes_read;
                     CPU_AX = 0;
                     CPU_CX = bytes_read;
                     CPU_FL_CF = 0;
@@ -618,13 +650,16 @@ bool redirector_handler() {
 
         case 0x1109: // Write Remote File
             {
-                int handle = CPU_BX;
+                sftstruct *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
+                int handle = sftptr->starting_cluster; // We store our handle here
                 uint16_t count = CPU_CX;
                 if (handle < MAX_FILES && open_files[handle].fp) {
-                    char* buffer = (char*)malloc(count);
-                    mem_read_bytes(CPU_DS, CPU_DX, buffer, count);
-                    size_t bytes_written = fwrite(buffer, 1, count, open_files[handle].fp);
-                    free(buffer);
+                    const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
+                    const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *)&RAM[sda_addr + 12];
+                    size_t bytes_written = fwrite(&RAM[dta_addr], 1, count, open_files[handle].fp);
+                    
+                    // Update file position in SFT
+                    sftptr->file_position += bytes_written;
                     CPU_AX = bytes_written;
                     CPU_FL_CF = 0;
                 } else {
@@ -669,25 +704,44 @@ bool redirector_handler() {
                 const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
                 strcpy(dos_path, &RAM[sda_addr  + 0x9e]); // SDA First filename buffer
                 get_full_path(path, dos_path);
-                printf("Opening %s %s\n", dos_path, path);
+                // printf("Opening %s %s\n", dos_path, path);
+                
                 int handle = get_free_handle();
-            printf("OPEN HANDLE %X\n", handle);
                 if (handle != -1) {
                     open_files[handle].fp = fopen(path, "rb+");
+                    if (!open_files[handle].fp) {
+                        // Try read-only mode if read-write fails
+                        open_files[handle].fp = fopen(path, "rb");
+                        // printf("Tried rb+ failed, trying rb: %s\n", open_files[handle].fp ? "SUCCESS" : "FAILED");
+                    }
                     if (open_files[handle].fp) {
                         strcpy(open_files[handle].path, path);
                         /*
                         const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
                 strcpy(dos_path, &RAM[sda_addr  + 0x9e]); // SDA First filename buffer
                 */
+                        // Get file size
+                        fseek(open_files[handle].fp, 0, SEEK_END);
+                        long file_size = ftell(open_files[handle].fp);
+                        rewind(open_files[handle].fp);
+                        
                         sftstruct  *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
-                        // printf("sss %x > %s\n", ((uint32_t)CPU_ES << 4) + CPU_DI, &RAM[0x1343+0x20]);
-                        strcpy(sftptr->file_name, dos_path);
+                        
+                        // Extract just the filename from the path for SFT
+                        const char* filename = strrchr(dos_path, '\\');
+                        if (filename) {
+                            filename++; // Skip the backslash
+                        } else {
+                            filename = dos_path; // No backslash found, use whole string
+                        }
+                        
+                        // Convert to DOS 8.3 format
+                        to_dos_name(filename, sftptr->file_name);
                         sftptr->open_mode &= 0xff00;
                         sftptr->attribute = 0x8;
                         sftptr->device_info = 0x8040 | 'H';
-                        sftptr->starting_cluster = 0;
-                        sftptr->file_size = 1820;
+                        sftptr->starting_cluster = handle; // Store our handle here
+                        sftptr->file_size = file_size;
                         sftptr->file_time = 0x1000;
                         sftptr->file_date = 0x1000;
                         sftptr->file_position = 0;
@@ -716,14 +770,43 @@ bool redirector_handler() {
 
         case 0x1117: // Create/Truncate File
             {
-                mem_read_bytes(CPU_DS, CPU_DX, dos_path, sizeof(dos_path));
+                const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
+                strcpy(dos_path, &RAM[sda_addr  + 0x9e]); // SDA First filename buffer
                 get_full_path(path, dos_path);
                 int handle = get_free_handle();
                 if (handle != -1) {
                     open_files[handle].fp = fopen(path, "wb+");
                     if (open_files[handle].fp) {
                         strcpy(open_files[handle].path, path);
-                        CPU_AX = handle;
+                        
+                        // Initialize SFT structure
+                        sftstruct *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
+                        
+                        // Extract just the filename from the path for SFT
+                        const char* filename = strrchr(dos_path, '\\');
+                        if (filename) {
+                            filename++; // Skip the backslash
+                        } else {
+                            filename = dos_path; // No backslash found, use whole string
+                        }
+                        
+                        // Convert to DOS 8.3 format
+                        to_dos_name(filename, sftptr->file_name);
+                        sftptr->open_mode &= 0xff00;
+                        sftptr->attribute = 0x8;
+                        sftptr->device_info = 0x8040 | 'H';
+                        sftptr->starting_cluster = handle; // Store our handle here
+                        sftptr->file_size = 0; // New file
+                        sftptr->file_time = 0x1000;
+                        sftptr->file_date = 0x1000;
+                        sftptr->file_position = 0;
+                        sftptr->ptr = 0;
+                        sftptr->unk1 = 0xffFF;
+                        sftptr->unk2 = 0xffff;
+                        sftptr->unk3 = 0;
+                        sftptr->unk4 = 0xff;
+                        
+                        CPU_AX = 0;
                         CPU_FL_CF = 0;
                     } else {
                         CPU_AX = 3; // Path not found
@@ -773,24 +856,14 @@ bool redirector_handler() {
                 get_full_path(search_path, dos_path);
                 printf("dospath %s\n", dos_path);
 
-                if (find_handle != ((HANDLE) (LONG_PTR)-1)) {
+                if (find_handle != INVALID_HANDLE_VALUE) {
                     FindClose(find_handle);
                 }
 
                 find_handle = FindFirstFile(search_path, &find_data);
 
-                // Dump first 16KB of RAM to file
-                FILE *dump = fopen("./dump.bin", "wb");
-                dump = fopen("./dump.bin", "wb");
-                if (dump) {
-                    for (uint32_t addr = 0; addr < 32768; addr++) {
-                        uint8_t val = read86(addr);
-                        fwrite(&val, 1, 1, dump);
-                    }
-                    fclose(dump);
-                }
 
-                if (find_handle != ((HANDLE) (LONG_PTR)-1)) {
+                if (find_handle != INVALID_HANDLE_VALUE) {
                     printf("SDA addr: %x\n", sda_addr);
                     const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *)&RAM[sda_addr + 12];
                     dta_ptr = (sdbstruct *)&RAM[dta_addr];
@@ -814,7 +887,7 @@ bool redirector_handler() {
             {
                 WIN32_FIND_DATA find_data;
 
-                if (find_handle != ((HANDLE) (LONG_PTR)-1) && FindNextFile(find_handle, &find_data)) {
+                if (find_handle != INVALID_HANDLE_VALUE && FindNextFile(find_handle, &find_data)) {
                     to_dos_name(find_data.cFileName, (char *) dta_ptr->foundfile.fname);
 
                     // Convert attributes
