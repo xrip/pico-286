@@ -704,12 +704,20 @@ bool redirector_handler() {
                 sftstruct *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
                 int handle = sftptr->starting_cluster; // We store our handle here
                 uint16_t bytes_to_read = CPU_CX;
-                printf("HANDLE COUNT %X %i\n", handle, bytes_to_read);
+                printf("HANDLE COUNT %X %i (file_pos: %ld)\n", handle, bytes_to_read, sftptr->file_position);
                 if (handle < MAX_FILES && open_files[handle].fp) {
+                    // Ensure file pointer is at the correct position
+                    if (fseek(open_files[handle].fp, sftptr->file_position, SEEK_SET) != 0) {
+                        printf("Seek error to position %ld\n", sftptr->file_position);
+                        CPU_AX = 6; // Invalid handle or seek error
+                        CPU_FL_CF = 1;
+                        break;
+                    }
+                    
                     const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
                     const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *)&RAM[sda_addr + 12];
                     size_t bytes_read = fread(&RAM[dta_addr], 1, bytes_to_read, open_files[handle].fp);
-                    printf("bytes read %i %x\n", bytes_read, dta_addr);
+                    printf("bytes read %i at offset %ld -> %x\n", (int)bytes_read, sftptr->file_position, dta_addr);
                     
                     // Update file position in SFT
                     sftptr->file_position += bytes_read;
@@ -728,13 +736,24 @@ bool redirector_handler() {
                 sftstruct *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
                 int handle = sftptr->starting_cluster; // We store our handle here
                 uint16_t count = CPU_CX;
+                printf("WRITE HANDLE %X %i (file_pos: %ld)\n", handle, count, sftptr->file_position);
                 if (handle < MAX_FILES && open_files[handle].fp) {
+                    // Ensure file pointer is at the correct position
+                    if (fseek(open_files[handle].fp, sftptr->file_position, SEEK_SET) != 0) {
+                        printf("Write seek error to position %ld\n", sftptr->file_position);
+                        CPU_AX = 6; // Invalid handle or seek error
+                        CPU_FL_CF = 1;
+                        break;
+                    }
+                    
                     const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
                     const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *)&RAM[sda_addr + 12];
                     size_t bytes_written = fwrite(&RAM[dta_addr], 1, count, open_files[handle].fp);
+                    printf("bytes written %i at offset %ld\n", (int)bytes_written, sftptr->file_position);
                     
-                    // Update file position in SFT
+                    // Update file position in SFT and force write to disk
                     sftptr->file_position += bytes_written;
+                    fflush(open_files[handle].fp); // Ensure data is written to disk
                     CPU_AX = bytes_written;
                     CPU_FL_CF = 0;
                 } else {
