@@ -1,6 +1,7 @@
 #pragma once
 
 #include <fileapi.h>
+#include <errhandlingapi.h>
 
 #include "emulator.h"
 
@@ -11,6 +12,8 @@ int hdcount = 0, fdcount = 0;
 
 static uint8_t sectorbuffer[512];
 typedef struct _IO_FILE FILE;
+typedef unsigned long DWORD;
+
 extern FILE *fopen(const char *pathname, const char *mode);
 extern int fclose(FILE *stream);
 extern size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
@@ -18,6 +21,59 @@ extern size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);
 extern int fseek(FILE *stream, long offset, int whence);
 extern long ftell(FILE *stream);
 extern void rewind(FILE *stream);
+extern int MoveFileA(const char* lpExistingFileName, const char* lpNewFileName);
+// Windows API declarations (provided by fileapi.h)
+// extern declarations removed to avoid conflicts with fileapi.h
+
+// Windows error constants (if not already defined)
+#ifndef ERROR_FILE_NOT_FOUND
+#define ERROR_FILE_NOT_FOUND 2
+#endif
+#ifndef ERROR_PATH_NOT_FOUND
+#define ERROR_PATH_NOT_FOUND 3
+#endif
+#ifndef ERROR_ACCESS_DENIED
+#define ERROR_ACCESS_DENIED 5
+#endif
+#ifndef ERROR_ALREADY_EXISTS
+#define ERROR_ALREADY_EXISTS 183
+#endif
+#ifndef ERROR_DIR_NOT_EMPTY
+#define ERROR_DIR_NOT_EMPTY 145
+#endif
+
+// File access constants (if not already defined)
+#ifndef GENERIC_READ
+#define GENERIC_READ 0x80000000
+#endif
+#ifndef FILE_SHARE_READ
+#define FILE_SHARE_READ 0x1
+#endif
+#ifndef OPEN_EXISTING
+#define OPEN_EXISTING 3
+#endif
+#ifndef FILE_ATTRIBUTE_READONLY
+#define FILE_ATTRIBUTE_READONLY 0x1
+#endif
+#ifndef FILE_ATTRIBUTE_HIDDEN
+#define FILE_ATTRIBUTE_HIDDEN 0x2
+#endif
+#ifndef FILE_ATTRIBUTE_SYSTEM
+#define FILE_ATTRIBUTE_SYSTEM 0x4
+#endif
+#ifndef FILE_ATTRIBUTE_DIRECTORY
+#define FILE_ATTRIBUTE_DIRECTORY 0x10
+#endif
+#ifndef FILE_ATTRIBUTE_ARCHIVE
+#define FILE_ATTRIBUTE_ARCHIVE 0x20
+#endif
+#ifndef FILE_ATTRIBUTE_NORMAL
+#define FILE_ATTRIBUTE_NORMAL 0x80
+#endif
+#ifndef INVALID_FILE_ATTRIBUTES
+#define INVALID_FILE_ATTRIBUTES 0xFFFFFFFF
+#endif
+
 
 #define SEEK_CUR    1
 #define SEEK_END    2
@@ -551,11 +607,18 @@ bool redirector_handler() {
         case 0x1101: // Remove Remote Directory
             mem_read_bytes(CPU_DS, CPU_DX, dos_path, sizeof(dos_path));
             get_full_path(path, dos_path);
-            /*if (rmdir(path) == 0) {
+            if (RemoveDirectoryA(path)) {
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
-            } else*/ {
-                CPU_AX = 3; // Path not found
+            } else {
+                DWORD error = GetLastError();
+                if (error == ERROR_PATH_NOT_FOUND || error == ERROR_FILE_NOT_FOUND) {
+                    CPU_AX = 3; // Path not found
+                } else if (error == ERROR_ACCESS_DENIED || error == ERROR_DIR_NOT_EMPTY) {
+                    CPU_AX = 5; // Access denied
+                } else {
+                    CPU_AX = 3; // Default to path not found
+                }
                 CPU_FL_CF = 1;
             }
             break;
@@ -563,11 +626,20 @@ bool redirector_handler() {
         case 0x1103: // Create Remote Directory
             mem_read_bytes(CPU_DS, CPU_DX, dos_path, sizeof(dos_path));
             get_full_path(path, dos_path);
-            /*if (mkdir(path) == 0) {
+            if (CreateDirectoryA(path, NULL)) {
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
-            } else */{
-                CPU_AX = 5; // Access denied
+            } else {
+                DWORD error = GetLastError();
+                if (error == ERROR_PATH_NOT_FOUND) {
+                    CPU_AX = 3; // Path not found
+                } else if (error == ERROR_ALREADY_EXISTS) {
+                    CPU_AX = 5; // Access denied (directory exists)
+                } else if (error == ERROR_ACCESS_DENIED) {
+                    CPU_AX = 5; // Access denied
+                } else {
+                    CPU_AX = 5; // Default to access denied
+                }
                 CPU_FL_CF = 1;
             }
             break;
@@ -677,26 +749,43 @@ bool redirector_handler() {
                 mem_read_bytes(CPU_ES, CPU_DI, new_path_dos, sizeof(new_path_dos));
                 get_full_path(old_path_host, old_path_dos);
                 get_full_path(new_path_host, new_path_dos);
-                /*if (rename(old_path_host, new_path_host) == 0) {
+                if (MoveFileA(old_path_host, new_path_host)) {
                     CPU_AX = 0;
                     CPU_FL_CF = 0;
-                } else*/ {
-                    CPU_AX = 2; // File not found
+                } else {
+                    DWORD error = GetLastError();
+                    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+                        CPU_AX = 2; // File not found
+                    } else if (error == ERROR_ACCESS_DENIED || error == ERROR_ALREADY_EXISTS) {
+                        CPU_AX = 5; // Access denied
+                    } else {
+                        CPU_AX = 2; // Default to file not found
+                    }
                     CPU_FL_CF = 1;
                 }
             }
             break;
 
-        case 0x1113: // Delete Remote File
-            mem_read_bytes(CPU_DS, CPU_DX, dos_path, sizeof(dos_path));
+        case 0x1113: {
+            // Delete Remote File
+            const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
+            strcpy(dos_path, &RAM[sda_addr  + 0x9e]); // SDA First filename buffer
             get_full_path(path, dos_path);
-            /*if (remove(path) == 0) {
+            if (DeleteFileA(path)) {
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
-            } else*/ {
-                CPU_AX = 2; // File not found
+            } else {
+                DWORD error = GetLastError();
+                if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+                    CPU_AX = 2; // File not found
+                } else if (error == ERROR_ACCESS_DENIED) {
+                    CPU_AX = 5; // Access denied (read-only, in use, etc.)
+                } else {
+                    CPU_AX = 2; // Default to file not found
+                }
                 CPU_FL_CF = 1;
             }
+        }
             break;
 
         case 0x1116: // Open Existing File
@@ -704,7 +793,7 @@ bool redirector_handler() {
                 const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
                 strcpy(dos_path, &RAM[sda_addr  + 0x9e]); // SDA First filename buffer
                 get_full_path(path, dos_path);
-                // printf("Opening %s %s\n", dos_path, path);
+                printf("Opening %s %s\n", dos_path, path);
                 
                 int handle = get_free_handle();
                 if (handle != -1) {
@@ -712,14 +801,11 @@ bool redirector_handler() {
                     if (!open_files[handle].fp) {
                         // Try read-only mode if read-write fails
                         open_files[handle].fp = fopen(path, "rb");
-                        // printf("Tried rb+ failed, trying rb: %s\n", open_files[handle].fp ? "SUCCESS" : "FAILED");
+                        printf("Tried rb+ failed, trying rb: %s\n", open_files[handle].fp ? "SUCCESS" : "FAILED");
                     }
                     if (open_files[handle].fp) {
                         strcpy(open_files[handle].path, path);
-                        /*
-                        const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
-                strcpy(dos_path, &RAM[sda_addr  + 0x9e]); // SDA First filename buffer
-                */
+
                         // Get file size
                         fseek(open_files[handle].fp, 0, SEEK_END);
                         long file_size = ftell(open_files[handle].fp);
@@ -738,6 +824,8 @@ bool redirector_handler() {
                         // Convert to DOS 8.3 format
                         to_dos_name(filename, sftptr->file_name);
                         sftptr->open_mode &= 0xff00;
+                        sftptr->open_mode |= 0xff02;
+
                         sftptr->attribute = 0x8;
                         sftptr->device_info = 0x8040 | 'H';
                         sftptr->starting_cluster = handle; // Store our handle here
@@ -751,7 +839,7 @@ bool redirector_handler() {
                         sftptr->unk3 = 0;
                         sftptr->unk4 = 0xff;
 
-                        printf("sss %x > %s\n", ((uint32_t)CPU_ES << 4) + CPU_DI, sftptr->file_name);
+                        // printf("sss %x > %s\n", ((uint32_t)CPU_ES << 4) + CPU_DI, sftptr->file_name);
 
                         CPU_AX = 0;
                         CPU_FL_CF = 0;
@@ -793,7 +881,8 @@ bool redirector_handler() {
                         // Convert to DOS 8.3 format
                         to_dos_name(filename, sftptr->file_name);
                         sftptr->open_mode &= 0xff00;
-                        sftptr->attribute = 0x8;
+                        sftptr->open_mode |= 0x0002; // Create/truncate file
+                        sftptr->attribute = 0x08;
                         sftptr->device_info = 0x8040 | 'H';
                         sftptr->starting_cluster = handle; // Store our handle here
                         sftptr->file_size = 0; // New file
@@ -827,21 +916,108 @@ bool redirector_handler() {
         case 0x110C: // Get Disk Information
             {
                 ULARGE_INTEGER free_bytes_available, total_number_of_bytes, total_number_of_free_bytes;
-                // if (GetDiskFreeSpaceEx("C:\\", &free_bytes_available, &total_number_of_bytes, &total_number_of_free_bytes)) {
-                    CPU_AX = 512; // sectors per cluster
-                    CPU_BX = 512; // total clusters
-                    CPU_CX = 1024; // bytes per sector
-                    CPU_DX = 1024; // available clusters
-                // } else {
-                    // CPU_AX = 1;
-                    // CPU_FL_CF = 1;
-                // }
+                char drive_path[4];
+                sprintf(drive_path, "%c:\\", HOST_BASE_DIR[0]); // Extract drive letter from HOST_BASE_DIR
+                
+                if (GetDiskFreeSpaceExA(drive_path, &free_bytes_available, &total_number_of_bytes, &total_number_of_free_bytes)) {
+                    // Convert to DOS format (sectors per cluster, bytes per sector, etc.)
+                    const DWORD bytes_per_sector = 512;
+                    const DWORD sectors_per_cluster = 1;
+                    
+                    DWORD total_clusters = (DWORD)(total_number_of_bytes.QuadPart / (bytes_per_sector * sectors_per_cluster));
+                    DWORD free_clusters = (DWORD)(free_bytes_available.QuadPart / (bytes_per_sector * sectors_per_cluster));
+                    
+                    // Limit values to 16-bit ranges for DOS compatibility
+                    if (total_clusters > 65535) total_clusters = 65535;
+                    if (free_clusters > 65535) free_clusters = 65535;
+                    
+                    CPU_AX = sectors_per_cluster;
+                    CPU_BX = total_clusters;
+                    CPU_CX = bytes_per_sector;
+                    CPU_DX = free_clusters;
+                    CPU_FL_CF = 0;
+                } else {
+                    CPU_AX = 1; // Error
+                    CPU_FL_CF = 1;
+                }
             }
             break;
 
-        case 0x110D: // Set File Attributes
-            CPU_AX = 0;
-            CPU_FL_CF = 0;
+        case 0x110e: // Set File Attributes
+            const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
+            strcpy(dos_path, &RAM[sda_addr + 0x9e]); // SDA First filename buffer
+            get_full_path(path, dos_path);
+            printf("setattr %s %s\n", dos_path, path);
+            // Convert DOS attributes to Windows attributes
+            DWORD attributes = 0;
+            if (CPU_CX & 0x01) attributes |= FILE_ATTRIBUTE_READONLY;
+            if (CPU_CX & 0x02) attributes |= FILE_ATTRIBUTE_HIDDEN;
+            if (CPU_CX & 0x04) attributes |= FILE_ATTRIBUTE_SYSTEM;
+            if (CPU_CX & 0x20) attributes |= FILE_ATTRIBUTE_ARCHIVE;
+            
+            if (attributes == 0) attributes = FILE_ATTRIBUTE_NORMAL;
+            
+            if (SetFileAttributesA(path, attributes)) {
+                CPU_AX = 0;
+                CPU_FL_CF = 0;
+            } else {
+                DWORD error = GetLastError();
+                if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+                    CPU_AX = 2; // File not found
+                } else {
+                    CPU_AX = 5; // Access denied
+                }
+                CPU_FL_CF = 1;
+            }
+            break;
+
+        case 0x110F: // Get Remote File's Attributes and Size
+            {
+                const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
+                strcpy(dos_path, &RAM[sda_addr + 0x9e]); // SDA First filename buffer
+                get_full_path(path, dos_path);
+                
+                // Get file attributes
+                DWORD win_attributes = GetFileAttributesA(path);
+                if (win_attributes == INVALID_FILE_ATTRIBUTES) {
+
+                    DWORD error = GetLastError();
+                    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+                        CPU_AX = 2; // File not found
+                        printf("not found\n");
+                    } else {
+                        CPU_AX = 5; // Access denied
+                    }
+                    CPU_FL_CF = 1;
+                } else {
+                    // Convert Windows attributes to DOS attributes
+                    uint16_t dos_attributes = 0;
+                    if (win_attributes & FILE_ATTRIBUTE_READONLY) dos_attributes |= 0x01;
+                    if (win_attributes & FILE_ATTRIBUTE_HIDDEN) dos_attributes |= 0x02;
+                    if (win_attributes & FILE_ATTRIBUTE_SYSTEM) dos_attributes |= 0x04;
+                    if (win_attributes & FILE_ATTRIBUTE_DIRECTORY) dos_attributes |= 0x10; // Directory
+                    if (win_attributes & FILE_ATTRIBUTE_ARCHIVE) dos_attributes |= 0x20;
+                    
+                        // For now, use a simpler approach to get file size
+                        FILE* fp = fopen(path, "rb");
+                        if (fp) {
+                            fseek(fp, 0, SEEK_END);
+                            uint32_t  file_size = (uint32_t)ftell(fp);
+                            fclose(fp);
+
+                            CPU_AX = dos_attributes;
+                            CPU_BX = (file_size >> 16) & 0xFFFF; // High word
+                            CPU_DI = file_size & 0xFFFF;         // Low word
+                            CPU_CX = 0x1000; // Default time stamp
+                            CPU_DX = 0x1000; // Default date stamp
+                            CPU_FL_CF = 0;
+                        } else {
+                            printf("not found\n");
+                        CPU_AX = 2;
+                        CPU_FL_CF = 1;
+                    }
+                }
+            }
             break;
 // https://fd.lod.bz/rbil/interrup/network/2f111b.html#4376
         case 0x111B: // Find First File
