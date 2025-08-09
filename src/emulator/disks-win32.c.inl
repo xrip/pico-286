@@ -623,8 +623,10 @@ bool redirector_handler() {
             }
             break;
 
-        case 0x1103: // Create Remote Directory
-            mem_read_bytes(CPU_DS, CPU_DX, dos_path, sizeof(dos_path));
+        case 0x1103: {
+            // Create Remote Directory
+            const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
+            strcpy(dos_path, &RAM[sda_addr  + 0x9e]); // SDA First filename buffer
             get_full_path(path, dos_path);
             if (CreateDirectoryA(path, NULL)) {
                 CPU_AX = 0;
@@ -642,6 +644,7 @@ bool redirector_handler() {
                 }
                 CPU_FL_CF = 1;
             }
+        }
             break;
 
         case 0x1105: // Change Directory
@@ -700,12 +703,12 @@ bool redirector_handler() {
             {
                 sftstruct *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
                 int handle = sftptr->starting_cluster; // We store our handle here
-                uint16_t count = CPU_CX;
-                printf("HANDLE COUNT %X %i\n", handle, count);
+                uint16_t bytes_to_read = CPU_CX;
+                printf("HANDLE COUNT %X %i\n", handle, bytes_to_read);
                 if (handle < MAX_FILES && open_files[handle].fp) {
                     const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
                     const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *)&RAM[sda_addr + 12];
-                    size_t bytes_read = fread(&RAM[dta_addr], 1, count, open_files[handle].fp);
+                    size_t bytes_read = fread(&RAM[dta_addr], 1, bytes_to_read, open_files[handle].fp);
                     printf("bytes read %i %x\n", bytes_read, dta_addr);
                     
                     // Update file position in SFT
