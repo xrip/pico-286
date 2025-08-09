@@ -18,6 +18,7 @@ extern FILE *fopen(const char *pathname, const char *mode);
 extern int fclose(FILE *stream);
 extern size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
 extern size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);
+extern int	fflush (FILE *);
 extern int fseek(FILE *stream, long offset, int whence);
 extern long ftell(FILE *stream);
 extern void rewind(FILE *stream);
@@ -604,8 +605,10 @@ bool redirector_handler() {
             CPU_AL = 0xFF; // Indicate that the redirector is installed
             break;
 
-        case 0x1101: // Remove Remote Directory
-            mem_read_bytes(CPU_DS, CPU_DX, dos_path, sizeof(dos_path));
+        case 0x1101: {
+            // Remove Remote Directory
+            const uint32_t sda_addr = ((uint32_t)sda_seg << 4) + sda_off;
+            strcpy(dos_path, &RAM[sda_addr  + 0x9e]); // SDA First filename buffer
             get_full_path(path, dos_path);
             if (RemoveDirectoryA(path)) {
                 CPU_AX = 0;
@@ -621,6 +624,7 @@ bool redirector_handler() {
                 }
                 CPU_FL_CF = 1;
             }
+        }
             break;
 
         case 0x1103: {
@@ -689,7 +693,7 @@ bool redirector_handler() {
                 sftstruct *sftptr = (sftstruct*)&RAM[((uint32_t)CPU_ES << 4) + CPU_DI];
                 int handle = sftptr->starting_cluster; // We store our handle here
                 if (handle < MAX_FILES && open_files[handle].fp) {
-                    // fflush(open_files[handle].fp);
+                    fflush(open_files[handle].fp);
                     CPU_AX = 0;
                     CPU_FL_CF = 0;
                 } else {
