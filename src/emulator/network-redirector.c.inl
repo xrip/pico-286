@@ -1,7 +1,7 @@
 // For linux build use https://github.com/MathieuTurcotte/findfirst
 // Forward declaration for the network redirector handler
 #pragma once
-#define DEBUG_2F
+// #define DEBUG_2F
 #include <ctype.h>
 #include <sys/stat.h>
 
@@ -101,7 +101,7 @@ typedef struct {
 
 /* called 'srchrec' in phantom.c */
 typedef struct __attribute__((packed, aligned)) {
-    unsigned char drv_lett;
+    unsigned char drive_letter;
     unsigned char srch_tmpl[11];
     unsigned char srch_attr;
     unsigned short dir_entry;
@@ -154,37 +154,49 @@ static inline bool redirector_handler() {
     static intptr_t handle = -1;
 
     switch (CPU_AX) {
-        case 0x1100: // Installation Check
+        // Check if network redirector is installed
+        case 0x1100:
             if (!sda_addr) {
-                // Set swappable data address, cause in emulator we don't have it
+                // Set swappable data address, cause in the emulator we don't have it
                 sda_addr = ((uint32_t) CPU_BX << 4) + CPU_DX;
             }
             CPU_AL = 0xFF; // Indicate that the redirector is installed
+            CPU_AH = 0x50; // Product identifier ('P' for Pico-286)
             break;
 
+        // Remove Remote Directory
         case 0x1101: {
-            // Remove Remote Directory
             get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
             debug_log("Removing directory %s\n", path);
 
             const int result = rmdir(path); // TODO recursive remove
-            CPU_AX = result;
-            CPU_FL_CF = result ? 0 : 1;
+            if (result == 0) {
+                CPU_AX = 0;
+                CPU_FL_CF = 0;
+            } else {
+                CPU_AX = 5; // Access denied (typical for rmdir failure)
+                CPU_FL_CF = 1;
+            }
         }
         break;
 
+        // Create Remote Directory
         case 0x1103: {
-            // Create Remote Directory
             get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
             debug_log("Creating directory %s\n", path);
             const int result = mkdir(path);
-            CPU_AX = result;
-            CPU_FL_CF = result ? 0 : 1;
+            if (result == 0) {
+                CPU_AX = 0;
+                CPU_FL_CF = 0;
+            } else {
+                CPU_AX = 3; // Path isn't found (typical for mkdir failure)
+                CPU_FL_CF = 1;
+            }
         }
         break;
 
+        // Change Remote Directory
         case 0x1105: {
-            // Change Directory
             const char *dos_path = &RAM[sda_addr + FIRST_FILENAME_OFFSET];
             debug_log("Change directory to: '%s'\n", dos_path);
 
@@ -206,8 +218,8 @@ static inline bool redirector_handler() {
         }
         break;
 
-        case 0x1106: // Close Remote File
-        {
+        // Close Remote File
+        case 0x1106: {
             const sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             const uint16_t file_handle = sftptr->file_handle;
             if (file_handle < MAX_FILES && open_files[file_handle]) {
@@ -222,8 +234,8 @@ static inline bool redirector_handler() {
         }
         break;
 
-        case 0x1107: // Commit Remote File
-        {
+        // Commit Remote File
+        case 0x1107: {
             const sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             const uint16_t file_handle = sftptr->file_handle; // We store our handle here
             if (file_handle < MAX_FILES && open_files[file_handle]) {
@@ -237,8 +249,8 @@ static inline bool redirector_handler() {
         }
         break;
 
-        case 0x1108: // Read Remote File
-        {
+        // Read Remote File
+        case 0x1108: {
             sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             const uint16_t file_handle = sftptr->file_handle; // We store our handle here
             if (file_handle < MAX_FILES && open_files[file_handle]) {
@@ -269,8 +281,8 @@ static inline bool redirector_handler() {
         }
         break;
 
-        case 0x1109: // Write Remote File
-        {
+        // Write Remote File
+        case 0x1109: {
             sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             uint16_t file_handle = sftptr->file_handle; // We store our handle here
 
@@ -293,7 +305,7 @@ static inline bool redirector_handler() {
                 // Update file position in SFT and force write to disk
                 sftptr->file_position += bytes_written;
                 fflush(open_files[file_handle]); // Ensure data is written to disk
-                CPU_AX = bytes_written;
+                CPU_CX = bytes_written; // RBIL6: return bytes written in CX, not AX
                 CPU_FL_CF = 0;
             } else {
                 CPU_AX = 6; // Invalid handle
@@ -302,35 +314,46 @@ static inline bool redirector_handler() {
         }
         break;
 
-        case 0x1111: // Rename Remote File
-        {
+        // Rename Remote File
+        case 0x1111: {
             char old_path[256], new_path[256];
-            
+
             // Get old filename from first filename buffer in SDA
             get_full_path(old_path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
-            
+
             // Get new filename from second filename buffer in SDA (offset 0x16A for DOS 4+)
             // For DOS 3.x it's at offset 0x15E, but we'll use DOS 4+ layout
             get_full_path(new_path, &RAM[sda_addr + 0x16A]);
-            
+
             debug_log("Renaming '%s' to '%s'\n", old_path, new_path);
-            
-            CPU_AX = rename(old_path, new_path);
-            CPU_FL_CF = 0;
 
+            int result = rename(old_path, new_path);
+            if (result == 0) {
+                CPU_AX = 0;
+                CPU_FL_CF = 0;
+            } else {
+                CPU_AX = 5; // Access denied (typical for rename failure)
+                CPU_FL_CF = 1;
+            }
         }
         break;
 
+        // Delete Remote File
         case 0x1113: {
-            // Delete Remote File
             get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
-            CPU_AX = unlink(path);
-            CPU_FL_CF = 0;
+            int result = unlink(path);
+            if (result == 0) {
+                CPU_AX = 0;
+                CPU_FL_CF = 0;
+            } else {
+                CPU_AX = 2; // File not found (typical for unlink failure)
+                CPU_FL_CF = 1;
+            }
         }
         break;
 
-        case 0x1116: // Open Existing File
-        {
+        // Open Existing File
+        case 0x1116: {
             const char *dos_path = &RAM[sda_addr + FIRST_FILENAME_OFFSET];
             get_full_path(path, dos_path);
             debug_log("Opening %s %s\n", dos_path, path);
@@ -392,8 +415,8 @@ static inline bool redirector_handler() {
         }
         break;
 
-        case 0x1117: // Create/Truncate File
-        {
+        // Create/Truncate File
+        case 0x1117: {
             const int8_t file_handle = get_free_handle();
             if (file_handle != -1) {
                 const char *dos_path = &RAM[sda_addr + FIRST_FILENAME_OFFSET];
@@ -441,29 +464,35 @@ static inline bool redirector_handler() {
             }
         }
         break;
-
-        case 0x110A: // Lock/Unlock Region
+        // Lock/Unlock File Region (stub implementation)
+        case 0x110A:
             CPU_AX = 0;
             CPU_FL_CF = 0;
             break;
 
-        case 0x110C: // TODO: Get Disk Information
-        {
-            CPU_AX = 512;
-            CPU_BX = 512;
-            CPU_CX = 512;
-            CPU_DX = 512;
+        // Get Disk Information (stub implementation)
+        case 0x110C: {
+            CPU_AH = 2;
+            CPU_AL = 255;
+            CPU_BX = 4096;
+            CPU_CX = 4096;
+            CPU_DX = 4096;
             CPU_FL_CF = 0;
         }
         break;
 
-        case 0x110e: // TODO: Set File Attributes
+        // Set File Attributes (stub implementation)
+        case 0x110e:
             CPU_AX = 0;
             CPU_FL_CF = 0;
             break;
 
+        // Get File Attributes and Size
         case 0x110F: {
-            // Get Remote File's Attributes and Size
+            // INT 2F AX=110Fh -
+            // Input: AX=110Fh, SDA+9Eh → filename
+            // Output: CF=0 if success with AX=attributes, BX:DI=file size, CX=time, DX=date
+            //         CF=1 if error with AX=DOS error code
             get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
 
             // Get file attributes
@@ -494,9 +523,9 @@ static inline bool redirector_handler() {
             }
         }
         break;
-        // https://fd.lod.bz/rbil/interrup/network/2f111b.html#4376
-        case 0x111B: // Find First File
-        {
+
+        // Find First File
+        case 0x111B: {
             struct _finddata_t fileinfo;
             get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
             debug_log("find first file: '%s'\n", path);
@@ -510,7 +539,7 @@ static inline bool redirector_handler() {
                 // Set actual DTA pointer
 
                 dta_ptr = (sdbstruct *) &RAM[(*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *) &RAM[sda_addr + 12]];
-                dta_ptr->drv_lett = 'H' | 128; /* bit 7 set means 'network drive' */
+                dta_ptr->drive_letter = 'H' | 128; /* bit 7 set means 'network drive' (RBIL6 compliance) */
 
                 to_dos_name(fileinfo.name, dta_ptr->foundfile.fname);
                 dta_ptr->foundfile.fsize = fileinfo.size;
@@ -527,13 +556,18 @@ static inline bool redirector_handler() {
         }
         break;
 
-        case 0x111C: // Find Next File
-        {
+        // Find Next File
+        case 0x111C: {
+            // INT 2F AX=111Ch - Find Next File
+            // Input: AX=111Ch, DTA contains search data from Find First
+            // Output: CF=0 if file found with DTA updated, CF=1 if no more files with AX=18
+            //         Must preserve bit 7 in DTA first byte (RBIL6 requirement)
             struct _finddata_t fileinfo;
             if (handle != -1 && _findnext(handle, &fileinfo) == 0) {
+                dta_ptr->drive_letter |= 128; // Ensure bit 7 remains set (RBIL6 compliance)
                 to_dos_name(fileinfo.name, dta_ptr->foundfile.fname);
                 // Set file size
-                dta_ptr->foundfile.fattr = fileinfo.attrib; // mark as system to hidee
+                dta_ptr->foundfile.fattr = fileinfo.attrib;
                 dta_ptr->foundfile.fsize = fileinfo.size;
                 dta_ptr->foundfile.start_clstr = 0;
 
@@ -547,7 +581,8 @@ static inline bool redirector_handler() {
         }
         break;
 
-        case 0x1120: // Flush All Disk Buffers
+        // Flush All Remote Disk Buffers
+        case 0x1120:
             for (int i = 0; i < MAX_FILES; i++) {
                 if (open_files[i]) {
                     fflush(open_files[i]);
@@ -557,54 +592,54 @@ static inline bool redirector_handler() {
             CPU_FL_CF = 0;
             break;
 
-        case 0x1121: // Seek from File End
-        {
+        // Seek from File End
+        case 0x1121: {
             sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             const uint16_t file_handle = sftptr->file_handle;
-            
+
             if (file_handle < MAX_FILES && open_files[file_handle]) {
                 // CX:DX contains offset from end (signed 32-bit)
-                int32_t offset_from_end = ((int32_t)CPU_CX << 16) | CPU_DX;
-                
+                int32_t offset_from_end = ((int32_t) CPU_CX << 16) | CPU_DX;
+
                 debug_log("Seek from end: handle %d, offset %ld\n", file_handle, offset_from_end);
-                
+
                 // Get current file size
                 if (fseek(open_files[file_handle], 0, SEEK_END) != 0) {
                     CPU_AX = 6; // Invalid handle
                     CPU_FL_CF = 1;
                     break;
                 }
-                
+
                 long file_size = ftell(open_files[file_handle]);
                 if (file_size == -1) {
                     CPU_AX = 6; // Invalid handle
                     CPU_FL_CF = 1;
                     break;
                 }
-                
+
                 // Calculate new position: file_size + offset_from_end
                 long new_position = file_size + offset_from_end;
-                
+
                 // Ensure new position is not negative
                 if (new_position < 0) {
                     new_position = 0;
                 }
-                
+
                 // Seek to new position
                 if (fseek(open_files[file_handle], new_position, SEEK_SET) != 0) {
                     CPU_AX = 6; // Invalid handle
                     CPU_FL_CF = 1;
                     break;
                 }
-                
+
                 // Update SFT position and return new position in DX:AX
                 sftptr->file_position = new_position;
                 CPU_DX = (new_position >> 16) & 0xFFFF; // High word
                 CPU_AX = new_position & 0xFFFF; // Low word
                 CPU_FL_CF = 0;
-                
-                debug_log("Seek result: new position %ld (DX:AX = %04X:%04X)\n", 
-                         new_position, CPU_DX, CPU_AX);
+
+                debug_log("Seek result: new position %ld (DX:AX = %04X:%04X)\n",
+                          new_position, CPU_DX, CPU_AX);
             } else {
                 CPU_AX = 6; // Invalid handle
                 CPU_FL_CF = 1;
