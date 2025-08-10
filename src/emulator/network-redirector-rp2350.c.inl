@@ -557,7 +557,7 @@ static inline bool redirector_handler() {
                 strcpy(path, ".");
             }
 
-            if (strlen(pattern) == 0) {
+            if (pattern[0] == '\0' || strcmp(pattern, "????????.???") == 0) {
                 strcpy(pattern, "*");
             }
 
