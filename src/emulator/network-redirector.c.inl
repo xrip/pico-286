@@ -491,9 +491,6 @@ static inline bool redirector_handler() {
                 _findclose(handle);
             }
 
-            handle = _findfirst(path, &fileinfo);
-
-
             if ((handle = _findfirst(path, &fileinfo)) != -1) {
                 // Set actual DTA pointer
 
