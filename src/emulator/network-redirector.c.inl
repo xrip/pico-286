@@ -472,10 +472,11 @@ static inline bool redirector_handler() {
 
         // Get Disk Information (stub implementation)
         case 0x110C: {
-            CPU_AX = 512;
-            CPU_BX = 512;
-            CPU_CX = 512;
-            CPU_DX = 512;
+            CPU_AH = 2;
+            CPU_AL = 255;
+            CPU_BX = 4096;
+            CPU_CX = 4096;
+            CPU_DX = 4096;
             CPU_FL_CF = 0;
         }
         break;
