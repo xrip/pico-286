@@ -6,6 +6,9 @@
 #else
 #define debug_log(...)
 #endif
+
+// Host filesystem passthrough base directory
+#define HOST_BASE_DIR "C:\\FASM"
 #define INVALID_HANDLE_VALUE ((HANDLE) -1)
 
 // Maximum number of open files
@@ -26,7 +29,7 @@ static inline int8_t get_free_handle() {
 }
 
 // Helper to get full path from guest path
-void get_full_path(char *dest, const char *guest_path) {
+static void get_full_path(char *dest, const char *guest_path) {
     if (guest_path[1] == ':') {
         // Absolute path with drive letter (e.g., "H:\file.txt" or "H:\TOOLS\file.txt")
         const char *path_part = guest_path + 2; // Skip "H:"

@@ -5,9 +5,6 @@
 
 #include "emulator.h"
 
-// Host filesystem passthrough base directory
-#define HOST_BASE_DIR "C:\\FASM"
-
 int hdcount = 0, fdcount = 0;
 
 static uint8_t sectorbuffer[512];
