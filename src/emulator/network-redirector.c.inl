@@ -483,7 +483,7 @@ static inline bool redirector_handler() {
         {
             struct _finddata_t fileinfo;
             get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
-            printf("find first file: '%s'\n", path);
+            debug_log("find first file: '%s'\n", path);
 
 
             if (handle) {
@@ -507,7 +507,7 @@ static inline bool redirector_handler() {
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
             } else {
-                printf("error finding file: '%s'\n", path);
+                debug_log("error finding file: '%s'\n", path);
                 CPU_AX = 18; // No more files
                 CPU_FL_CF = 1;
             }
@@ -527,7 +527,7 @@ static inline bool redirector_handler() {
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
             } else {
-                printf("no more files for: '%s'\n", path);
+                debug_log("no more files for: '%s'\n", path);
                 CPU_AX = 18; // No more files
                 CPU_FL_CF = 1;
             }
