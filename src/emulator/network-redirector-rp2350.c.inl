@@ -13,6 +13,67 @@
 #define debug_log(...)
 #endif
 
+// Convert FatFS FRESULT to DOS error codes according to RBIL6, sets CPU_AX and CPU_FL_CF
+static inline void fresult_to_dos_error(FRESULT fr) {
+    CPU_FL_CF = fr == FR_OK ? 0 : 1;
+    switch (fr) {
+        case FR_OK:                   CPU_AX = 0;   break; // Success
+        case FR_NO_FILE:              CPU_AX = 2;   break; // File not found
+        case FR_NO_PATH:              CPU_AX = 3;   break; // Path not found
+        case FR_TOO_MANY_OPEN_FILES:  CPU_AX = 4;   break; // Too many open files
+        case FR_DENIED:               // Access denied
+        case FR_EXIST:                CPU_AX = 5;   break; // Access denied (file exists)
+        case FR_INVALID_OBJECT:       CPU_AX = 6;   break; // Invalid handle
+        case FR_WRITE_PROTECTED:      CPU_AX = 19;  break; // Write protect error
+        case FR_INVALID_DRIVE:        CPU_AX = 15;  break; // Invalid drive
+        case FR_NOT_READY:            CPU_AX = 21;  break; // Drive not ready
+        case FR_DISK_ERR:              // General failure
+        case FR_INT_ERR:              CPU_AX = 29;  break; // General failure
+        case FR_INVALID_NAME:         CPU_AX = 3;   break; // Path not found (invalid name)
+        case FR_NOT_ENABLED:          // Invalid drive (not enabled)
+        case FR_NO_FILESYSTEM:        CPU_AX = 15;  break; // Invalid drive (no filesystem)
+        case FR_MKFS_ABORTED:         CPU_AX = 29;  break; // General failure
+        case FR_TIMEOUT:              CPU_AX = 32;  break; // Sharing violation
+        case FR_LOCKED:               CPU_AX = 33;  break; // Lock violation
+        case FR_NOT_ENOUGH_CORE:      CPU_AX = 8;   break; // Insufficient memory
+        case FR_INVALID_PARAMETER:    CPU_AX = 87;  break; // Invalid parameter
+        default:                      CPU_AX = 29;  break; // General failure
+    }
+}
+
+// Special handling for find operations: sets "No more files" (18) if FR_OK but no file found
+static inline void find_result_to_dos_error(FRESULT fr) {
+    CPU_FL_CF = 1; // Find operations always set carry flag on failure/no more files
+    if (fr == FR_OK) {
+        CPU_AX = 18; // No more files
+    } else {
+        // Use the switch directly to avoid overwriting CPU_FL_CF
+        switch (fr) {
+            case FR_NO_FILE:              CPU_AX = 2;   break; // File not found
+            case FR_NO_PATH:              CPU_AX = 3;   break; // Path not found
+            case FR_TOO_MANY_OPEN_FILES:  CPU_AX = 4;   break; // Too many open files
+            case FR_DENIED:               // Access denied
+            case FR_EXIST:                CPU_AX = 5;   break; // Access denied (file exists)
+            case FR_INVALID_OBJECT:       CPU_AX = 6;   break; // Invalid handle
+            case FR_WRITE_PROTECTED:      CPU_AX = 19;  break; // Write protect error
+            case FR_INVALID_DRIVE:        CPU_AX = 15;  break; // Invalid drive
+            case FR_NOT_READY:            CPU_AX = 21;  break; // Drive not ready
+            case FR_DISK_ERR:              // General failure
+            case FR_INT_ERR:              CPU_AX = 29;  break; // General failure
+            case FR_INVALID_NAME:         CPU_AX = 3;   break; // Path not found (invalid name)
+            case FR_NOT_ENABLED:           // Invalid drive (not enabled)
+            case FR_NO_FILESYSTEM:        CPU_AX = 15;  break; // Invalid drive (no filesystem)
+            case FR_MKFS_ABORTED:         CPU_AX = 29;  break; // General failure
+            case FR_TIMEOUT:              CPU_AX = 32;  break; // Sharing violation
+            case FR_LOCKED:               CPU_AX = 33;  break; // Lock violation
+            case FR_NOT_ENOUGH_CORE:      CPU_AX = 8;   break; // Insufficient memory
+            case FR_INVALID_PARAMETER:    CPU_AX = 87;  break; // Invalid parameter
+            default:                      CPU_AX = 29;  break; // General failure
+        }
+    }
+}
+
+
 // Host filesystem passthrough base directory
 #define HOST_BASE_DIR "\\XT\\"
 
@@ -204,9 +265,7 @@ static inline bool redirector_handler() {
             get_full_path(path, guest_path);
             debug_log("Removing directory %s\n", path);
 
-            FRESULT result = f_unlink(path);
-            CPU_AX = result;
-            CPU_FL_CF = result ? 0 : 1;
+            fresult_to_dos_error(f_unlink(path));
         }
         break;
 
@@ -215,9 +274,7 @@ static inline bool redirector_handler() {
             read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
             get_full_path(path, guest_path);
             debug_log("Creating directory %s\n", path);
-            FRESULT result = f_mkdir(path);
-            CPU_AX = result;
-            CPU_FL_CF = result ? 0 : 1;
+            fresult_to_dos_error(f_mkdir(path));
         }
         break;
 
@@ -285,10 +342,10 @@ static inline bool redirector_handler() {
                 uint16_t bytes_to_read = CPU_CX;
                 debug_log("HANDLE COUNT %X %i (file_pos: %ld)\n", file_handle, bytes_to_read, file_pos);
 
-                if (f_lseek(open_files[file_handle], file_pos) != FR_OK) {
+                FRESULT seek_result = f_lseek(open_files[file_handle], file_pos);
+                if (seek_result != FR_OK) {
                     debug_log("Seek error to position %ld\n", file_pos);
-                    CPU_AX = 6;
-                    CPU_FL_CF = 1;
+                    fresult_to_dos_error(seek_result);
                     break;
                 }
 
@@ -326,10 +383,10 @@ static inline bool redirector_handler() {
                 uint16_t bytes_to_write = CPU_CX;
                 debug_log("WRITE HANDLE %X %i (file_pos: %ld)\n", file_handle, bytes_to_write, file_pos);
 
-                if (f_lseek(open_files[file_handle], file_pos) != FR_OK) {
+                FRESULT seek_result = f_lseek(open_files[file_handle], file_pos);
+                if (seek_result != FR_OK) {
                     debug_log("Write seek error to position %ld\n", file_pos);
-                    CPU_AX = 6;
-                    CPU_FL_CF = 1;
+                    fresult_to_dos_error(seek_result);
                     break;
                 }
 
@@ -367,8 +424,7 @@ static inline bool redirector_handler() {
 
             debug_log("Renaming '%s' to '%s'\n", path, new_path);
 
-            CPU_AX = f_rename(path, new_path);
-            CPU_FL_CF = 0;
+            fresult_to_dos_error(f_rename(path, new_path));
 
         }
         break;
@@ -377,8 +433,7 @@ static inline bool redirector_handler() {
             // Delete Remote File
             read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
             get_full_path(path, guest_path);
-            CPU_AX = f_unlink(path);
-            CPU_FL_CF = 0;
+            fresult_to_dos_error(f_unlink(path));
         }
         break;
 
@@ -428,8 +483,7 @@ static inline bool redirector_handler() {
                 } else {
                     free(open_files[file_handle]);
                     open_files[file_handle] = NULL;
-                    CPU_AX = 2; // File not found
-                    CPU_FL_CF = 1;
+                    fresult_to_dos_error(res);
                 }
             } else {
                 CPU_AX = 4; // Too many open files
@@ -452,7 +506,8 @@ static inline bool redirector_handler() {
                     break;
                 }
 
-                if (f_open(open_files[file_handle], path, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK) {
+                FRESULT create_result = f_open(open_files[file_handle], path, FA_CREATE_ALWAYS | FA_WRITE);
+                if (create_result == FR_OK) {
                     sftstruct sft;
                     const char *filename = strrchr(guest_path, '\\');
                     if (filename) filename++; else filename = guest_path;
@@ -480,8 +535,7 @@ static inline bool redirector_handler() {
                 } else {
                     free(open_files[file_handle]);
                     open_files[file_handle] = NULL;
-                    CPU_AX = 3; // Path not found
-                    CPU_FL_CF = 1;
+                    fresult_to_dos_error(create_result);
                 }
             } else {
                 CPU_AX = 4; // Too many open files
@@ -515,9 +569,9 @@ static inline bool redirector_handler() {
             get_full_path(path, guest_path);
 
             FILINFO file_info;
-            if (f_stat(path, &file_info) != FR_OK) {
-                CPU_AX = 2; // Not found
-                CPU_FL_CF = 1;
+            FRESULT result = f_stat(path, &file_info);
+            if (result != FR_OK) {
+                fresult_to_dos_error(result);
             } else {
                 uint16_t dos_attributes = 0;
                 if (file_info.fattrib & AM_RDO) dos_attributes |= 0x01;
@@ -561,7 +615,8 @@ static inline bool redirector_handler() {
                 strcpy(pattern, "*");
             }
 
-            if (f_findfirst(&find_handle, &find_fileinfo, path, pattern) == FR_OK && find_fileinfo.fname[0]) {
+            FRESULT find_result = f_findfirst(&find_handle, &find_fileinfo, path, pattern);
+            if (find_result == FR_OK && find_fileinfo.fname[0]) {
                 uint32_t dta_addr = (readw86(sda_addr + 14) << 4) + readw86(sda_addr + 12);
                 sdbstruct sdb;
                 read_block_from_ram(dta_addr, (uint8_t*)&sdb, sizeof(sdb));
@@ -577,15 +632,15 @@ static inline bool redirector_handler() {
                 CPU_FL_CF = 0;
             } else {
                 debug_log("error finding file: '%s' in '%s'\n", pattern, path);
-                CPU_AX = 18; // No more files
-                CPU_FL_CF = 1;
+                find_result_to_dos_error(find_result);
             }
         }
         break;
 
         case 0x111C: // Find Next File
         {
-            if (f_findnext(&find_handle, &find_fileinfo) == FR_OK && find_fileinfo.fname[0]) {
+            FRESULT find_result = f_findnext(&find_handle, &find_fileinfo);
+            if (find_result == FR_OK && find_fileinfo.fname[0]) {
                 uint32_t dta_addr = (readw86(sda_addr + 14) << 4) + readw86(sda_addr + 12);
                 sdbstruct sdb;
                 read_block_from_ram(dta_addr, (uint8_t*)&sdb, sizeof(sdb));
@@ -601,8 +656,7 @@ static inline bool redirector_handler() {
                 CPU_FL_CF = 0;
             } else {
                 debug_log("no more files for\n");
-                CPU_AX = 18; // No more files
-                CPU_FL_CF = 1;
+                find_result_to_dos_error(find_result);
             }
         }
         break;
@@ -631,9 +685,9 @@ static inline bool redirector_handler() {
 
                 if (new_position < 0) new_position = 0;
 
-                if (f_lseek(open_files[file_handle], new_position) != FR_OK) {
-                    CPU_AX = 6;
-                    CPU_FL_CF = 1;
+                FRESULT seek_result = f_lseek(open_files[file_handle], new_position);
+                if (seek_result != FR_OK) {
+                    fresult_to_dos_error(seek_result);
                     break;
                 }
 
