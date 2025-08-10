@@ -64,6 +64,16 @@ static void to_dos_name(const char *input, char *output) {
     int i, j;
     memset(output, ' ', 11); // Fill with spaces
 
+    // Handle special directory entries
+    if (strcmp(input, ".") == 0) {
+        output[0] = '.';
+        return;
+    }
+    if (strcmp(input, "..") == 0) {
+        output[0] = output[1] = '.';
+        return;
+    }
+
     // Copy name (up to 8 chars)
     for (i = 0, j = 0; input[i] && input[i] != '.' && j < 8; i++) {
         if (input[i] != ' ') output[j++] = toupper(input[i]);
@@ -159,26 +169,18 @@ static inline bool redirector_handler() {
         case 0x1101: {
             // Remove Remote Directory
             get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
-            if (rmdir(path) == 0) {
-                CPU_AX = 0;
-                CPU_FL_CF = 0;
-            } else {
-                CPU_AX = 3; // Default to path not found
-                CPU_FL_CF = 1;
-            }
+            debug_log("Removing directory %s\n", path);
+            CPU_AX = rmdir(path); // TODO recursive remove
+            CPU_FL_CF = 0;
         }
         break;
 
         case 0x1103: {
             // Create Remote Directory
             get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
-            if (mkdir(path) == 0) {
-                CPU_AX = 0;
-                CPU_FL_CF = 0;
-            } else {
-                CPU_AX = 5; // Default to access denied
-                CPU_FL_CF = 1;
-            }
+            debug_log("Creating directory %s\n", path);
+            CPU_AX = mkdir(path);
+            CPU_FL_CF = 0;
         }
         break;
 
@@ -207,11 +209,11 @@ static inline bool redirector_handler() {
 
         case 0x1106: // Close Remote File
         {
-            sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
-            int8_t handle = sftptr->file_handle;
-            if (handle < MAX_FILES && open_files[handle]) {
-                fclose(open_files[handle]);
-                open_files[handle] = NULL;
+            const sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
+            const uint16_t file_handle = sftptr->file_handle;
+            if (file_handle < MAX_FILES && open_files[file_handle]) {
+                fclose(open_files[file_handle]);
+                open_files[file_handle] = NULL;
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
             } else {
@@ -223,10 +225,10 @@ static inline bool redirector_handler() {
 
         case 0x1107: // Commit Remote File
         {
-            sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
-            int8_t handle = sftptr->file_handle; // We store our handle here
-            if (handle < MAX_FILES && open_files[handle]) {
-                fflush(open_files[handle]);
+            const sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
+            const uint16_t file_handle = sftptr->file_handle; // We store our handle here
+            if (file_handle < MAX_FILES && open_files[file_handle]) {
+                fflush(open_files[file_handle]);
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
             } else {
@@ -239,13 +241,13 @@ static inline bool redirector_handler() {
         case 0x1108: // Read Remote File
         {
             sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
-            int8_t handle = sftptr->file_handle; // We store our handle here
-            if (handle < MAX_FILES && open_files[handle]) {
+            const uint16_t file_handle = sftptr->file_handle; // We store our handle here
+            if (file_handle < MAX_FILES && open_files[file_handle]) {
                 uint16_t bytes_to_read = CPU_CX;
-                debug_log("HANDLE COUNT %X %i (file_pos: %ld)\n", handle, bytes_to_read, sftptr->file_position);
+                debug_log("HANDLE COUNT %X %i (file_pos: %ld)\n", file_handle, bytes_to_read, sftptr->file_position);
 
                 // Ensure file pointer is at the correct position
-                if (fseek(open_files[handle], sftptr->file_position, SEEK_SET) != 0) {
+                if (fseek(open_files[file_handle], sftptr->file_position, SEEK_SET) != 0) {
                     debug_log("Seek error to position %ld\n", sftptr->file_position);
                     CPU_AX = 6; // Invalid handle or seek error
                     CPU_FL_CF = 1;
@@ -253,7 +255,7 @@ static inline bool redirector_handler() {
                 }
 
                 const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *) &RAM[sda_addr + 12];
-                size_t bytes_read = fread(&RAM[dta_addr], 1, bytes_to_read, open_files[handle]);
+                size_t bytes_read = fread(&RAM[dta_addr], 1, bytes_to_read, open_files[file_handle]);
                 debug_log("bytes read %i at offset %ld -> %x\n", (int) bytes_read, sftptr->file_position, dta_addr);
 
                 // Update file position in SFT
@@ -271,14 +273,14 @@ static inline bool redirector_handler() {
         case 0x1109: // Write Remote File
         {
             sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
-            int8_t handle = sftptr->file_handle; // We store our handle here
+            uint16_t file_handle = sftptr->file_handle; // We store our handle here
 
-            if (handle < MAX_FILES && open_files[handle]) {
+            if (file_handle < MAX_FILES && open_files[file_handle]) {
                 uint16_t bytes_to_write = CPU_CX;
-                debug_log("WRITE HANDLE %X %i (file_pos: %ld)\n", handle, bytes_to_write, sftptr->file_position);
+                debug_log("WRITE HANDLE %X %i (file_pos: %ld)\n", file_handle, bytes_to_write, sftptr->file_position);
 
                 // Ensure file pointer is at the correct position
-                if (fseek(open_files[handle], sftptr->file_position, SEEK_SET) != 0) {
+                if (fseek(open_files[file_handle], sftptr->file_position, SEEK_SET) != 0) {
                     debug_log("Write seek error to position %ld\n", sftptr->file_position);
                     CPU_AX = 6; // Invalid handle or seek error
                     CPU_FL_CF = 1;
@@ -286,12 +288,12 @@ static inline bool redirector_handler() {
                 }
 
                 const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *) &RAM[sda_addr + 12];
-                size_t bytes_written = fwrite(&RAM[dta_addr], 1, bytes_to_write, open_files[handle]);
+                size_t bytes_written = fwrite(&RAM[dta_addr], 1, bytes_to_write, open_files[file_handle]);
                 debug_log("bytes written %i at offset %ld\n", (int) bytes_written, sftptr->file_position);
 
                 // Update file position in SFT and force write to disk
                 sftptr->file_position += bytes_written;
-                fflush(open_files[handle]); // Ensure data is written to disk
+                fflush(open_files[file_handle]); // Ensure data is written to disk
                 CPU_AX = bytes_written;
                 CPU_FL_CF = 0;
             } else {
@@ -308,13 +310,8 @@ static inline bool redirector_handler() {
         case 0x1113: {
             // Delete Remote File
             get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
-            if (unlink(path) == 0) {
-                CPU_AX = 0;
-                CPU_FL_CF = 0;
-            } else {
-                CPU_AX = 5; // Access denied (read-only, in use, etc.)
-                CPU_FL_CF = 1;
-            }
+            CPU_AX = unlink(path);
+            CPU_FL_CF = 0;
         }
         break;
 
@@ -324,19 +321,19 @@ static inline bool redirector_handler() {
             get_full_path(path, dos_path);
             debug_log("Opening %s %s\n", dos_path, path);
 
-            int8_t handle = get_free_handle();
-            if (handle != -1) {
-                open_files[handle] = fopen(path, "rb+");
-                if (!open_files[handle]) {
+            const int8_t file_handle = get_free_handle();
+            if (file_handle != -1) {
+                open_files[file_handle] = fopen(path, "rb+");
+                if (!open_files[file_handle]) {
                     // Try read-only mode if read-write fails
-                    open_files[handle] = fopen(path, "rb");
-                    debug_log("Tried rb+ failed, trying rb: %s\n", open_files[handle] ? "SUCCESS" : "FAILED");
+                    open_files[file_handle] = fopen(path, "rb");
+                    debug_log("Tried rb+ failed, trying rb: %s\n", open_files[file_handle] ? "SUCCESS" : "FAILED");
                 }
-                if (open_files[handle]) {
+                if (open_files[file_handle]) {
                     // Get file size
-                    fseek(open_files[handle], 0, SEEK_END);
-                    long file_size = ftell(open_files[handle]);
-                    rewind(open_files[handle]);
+                    fseek(open_files[file_handle], 0, SEEK_END);
+                    const size_t file_size = ftell(open_files[file_handle]);
+                    rewind(open_files[file_handle]);
 
                     sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
 
@@ -355,7 +352,7 @@ static inline bool redirector_handler() {
 
                     sftptr->attribute = 0x8;
                     sftptr->device_info = 0x8040 | 'H';
-                    sftptr->file_handle = handle; // Store our handle here
+                    sftptr->file_handle = file_handle; // Store our handle here
                     sftptr->file_size = file_size;
                     sftptr->file_time = 0x1000;
                     sftptr->file_date = 0x1000;
@@ -383,13 +380,13 @@ static inline bool redirector_handler() {
 
         case 0x1117: // Create/Truncate File
         {
-            int8_t handle = get_free_handle();
-            if (handle != -1) {
+            const int8_t file_handle = get_free_handle();
+            if (file_handle != -1) {
                 const char *dos_path = &RAM[sda_addr + FIRST_FILENAME_OFFSET];
                 get_full_path(path, dos_path);
 
-                open_files[handle] = fopen(path, "wb+");
-                if (open_files[handle]) {
+                open_files[file_handle] = fopen(path, "wb+");
+                if (open_files[file_handle]) {
                     // Initialize SFT structure
                     sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
 
@@ -407,7 +404,7 @@ static inline bool redirector_handler() {
                     sftptr->open_mode |= 0x0002; // Create/truncate file
                     sftptr->attribute = 0x08;
                     sftptr->device_info = 0x8040 | 'H';
-                    sftptr->file_handle = handle; // Store our handle here
+                    sftptr->file_handle = file_handle; // Store our handle here
                     sftptr->file_size = 0; // New file
                     sftptr->file_time = 0x1000;
                     sftptr->file_date = 0x1000;
