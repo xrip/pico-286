@@ -153,9 +153,6 @@ static inline bool redirector_handler() {
     static sdbstruct *dta_ptr;
     static intptr_t handle = -1;
 
-    if (CPU_AH == 0x11 && CPU_AL != 0x23)
-        debug_log("Redirector handler 0x%04x\n", CPU_AX);
-
     switch (CPU_AX) {
         case 0x1100: // Installation Check
             if (!sda_addr) {
@@ -169,8 +166,10 @@ static inline bool redirector_handler() {
             // Remove Remote Directory
             get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
             debug_log("Removing directory %s\n", path);
-            CPU_AX = rmdir(path); // TODO recursive remove
-            CPU_FL_CF = 0;
+
+            const int result = rmdir(path); // TODO recursive remove
+            CPU_AX = result;
+            CPU_FL_CF = result ? 0 : 1;
         }
         break;
 
@@ -178,8 +177,9 @@ static inline bool redirector_handler() {
             // Create Remote Directory
             get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
             debug_log("Creating directory %s\n", path);
-            CPU_AX = mkdir(path);
-            CPU_FL_CF = 0;
+            const int result = mkdir(path);
+            CPU_AX = result;
+            CPU_FL_CF = result ? 0 : 1;
         }
         break;
 
@@ -302,9 +302,24 @@ static inline bool redirector_handler() {
         }
         break;
 
-        case 0x1111: // TODO: Rename Remote File
-            CPU_FL_CF = 1;
-            break;
+        case 0x1111: // Rename Remote File
+        {
+            char old_path[256], new_path[256];
+            
+            // Get old filename from first filename buffer in SDA
+            get_full_path(old_path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
+            
+            // Get new filename from second filename buffer in SDA (offset 0x16A for DOS 4+)
+            // For DOS 3.x it's at offset 0x15E, but we'll use DOS 4+ layout
+            get_full_path(new_path, &RAM[sda_addr + 0x16A]);
+            
+            debug_log("Renaming '%s' to '%s'\n", old_path, new_path);
+            
+            CPU_AX = rename(old_path, new_path);
+            CPU_FL_CF = 0;
+
+        }
+        break;
 
         case 0x1113: {
             // Delete Remote File
@@ -542,7 +557,64 @@ static inline bool redirector_handler() {
             CPU_FL_CF = 0;
             break;
 
+        case 0x1121: // Seek from File End
+        {
+            sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
+            const uint16_t file_handle = sftptr->file_handle;
+            
+            if (file_handle < MAX_FILES && open_files[file_handle]) {
+                // CX:DX contains offset from end (signed 32-bit)
+                int32_t offset_from_end = ((int32_t)CPU_CX << 16) | CPU_DX;
+                
+                debug_log("Seek from end: handle %d, offset %ld\n", file_handle, offset_from_end);
+                
+                // Get current file size
+                if (fseek(open_files[file_handle], 0, SEEK_END) != 0) {
+                    CPU_AX = 6; // Invalid handle
+                    CPU_FL_CF = 1;
+                    break;
+                }
+                
+                long file_size = ftell(open_files[file_handle]);
+                if (file_size == -1) {
+                    CPU_AX = 6; // Invalid handle
+                    CPU_FL_CF = 1;
+                    break;
+                }
+                
+                // Calculate new position: file_size + offset_from_end
+                long new_position = file_size + offset_from_end;
+                
+                // Ensure new position is not negative
+                if (new_position < 0) {
+                    new_position = 0;
+                }
+                
+                // Seek to new position
+                if (fseek(open_files[file_handle], new_position, SEEK_SET) != 0) {
+                    CPU_AX = 6; // Invalid handle
+                    CPU_FL_CF = 1;
+                    break;
+                }
+                
+                // Update SFT position and return new position in DX:AX
+                sftptr->file_position = new_position;
+                CPU_DX = (new_position >> 16) & 0xFFFF; // High word
+                CPU_AX = new_position & 0xFFFF; // Low word
+                CPU_FL_CF = 0;
+                
+                debug_log("Seek result: new position %ld (DX:AX = %04X:%04X)\n", 
+                         new_position, CPU_DX, CPU_AX);
+            } else {
+                CPU_AX = 6; // Invalid handle
+                CPU_FL_CF = 1;
+            }
+        }
+        break;
+
         default:
+            if (CPU_AH == 0x11 && CPU_AL != 0x23)
+                debug_log("UNIMPLEMENTED Redirector handler 0x%04x\n", CPU_AX);
             return false;
     }
     return true;
