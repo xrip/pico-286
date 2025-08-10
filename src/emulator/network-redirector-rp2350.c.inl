@@ -308,6 +308,7 @@ static inline bool redirector_handler() {
             if (file_handle < MAX_FILES && open_files[file_handle]) {
                 f_close(open_files[file_handle]);
                 free(open_files[file_handle]);
+                writew86(sft_addr + offsetof(sftstruct, file_handle), 0xffff);
                 open_files[file_handle] = NULL;
                 CPU_AX = 0;
                 CPU_FL_CF = 0;

@@ -220,10 +220,11 @@ static inline bool redirector_handler() {
 
         // Close Remote File
         case 0x1106: {
-            const sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
+            sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             const uint16_t file_handle = sftptr->file_handle;
             if (file_handle < MAX_FILES && open_files[file_handle]) {
                 fclose(open_files[file_handle]);
+                sftptr->total_handles = 0xffff;
                 open_files[file_handle] = NULL;
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
