@@ -329,6 +329,7 @@ uint8_t read86(uint32_t address) {
     if (address >= HMA_START && address < HMA_END) {
         if (a20_enabled) {
             return HMA[address - HMA_START];
+        }
         return RAM[address - HMA_START];
     }
     if (!a20_enabled && address >= HMA_END) {
@@ -360,6 +361,7 @@ uint16_t readw86(uint32_t address) {
     if (address >= HMA_START && address < HMA_END) {
         if (a20_enabled) {
             return *(uint16_t *) &HMA[address - HMA_START];
+        }
         return *(uint16_t *) &RAM[address - HMA_START];
     }
     if (!a20_enabled && address >= HMA_END) {

@@ -53,3 +53,5 @@ dkms.conf
 .vscode/
 bin/
 build/
+_deps
+CMakeFiles

@@ -13,7 +13,7 @@
 #include "pico/stdlib.h"
 #include "stdlib.h"
 #include "emulator/emulator.h"
-
+extern uint8_t vga_graphics_control[0xF];
 uint16_t pio_program_VGA_instructions[] = {
         //     .wrap_target
         0x6008, //  0: out    pins, 8
@@ -409,7 +409,6 @@ void __time_critical_func() dma_handler_VGA() {
                 input_buffer_8bit++;
             }
             break;
-            #if 0
         case EGA_320x200x16x4: {
             input_buffer_8bit = graphics_framebuffer + vga_plane_offset + __fast_mul(y, 40);
             for (int x = 0; x < 40; x++) {
@@ -424,7 +423,6 @@ void __time_critical_func() dma_handler_VGA() {
             }
             break;
         }
-            #endif
         default:
             input_buffer_8bit = graphics_framebuffer + __fast_mul(y, 320);
             for (int x = 640 / 2; x--;) {
