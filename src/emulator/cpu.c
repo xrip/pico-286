@@ -15,6 +15,7 @@
 #else
 
 #include "disks-win32.c.inl"
+#include "network-redirector.c.inl"
 
 #endif
 
