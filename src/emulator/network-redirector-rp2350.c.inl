@@ -348,7 +348,7 @@ static inline bool redirector_handler() {
 
                 writedw86(sft_addr + offsetof(sftstruct, file_position), file_pos + total_bytes_written);
                 f_sync(open_files[file_handle]);
-                CPU_AX = total_bytes_written;
+                CPU_CX = total_bytes_written;
                 CPU_FL_CF = 0;
             } else {
                 CPU_AX = 6; // Invalid handle
