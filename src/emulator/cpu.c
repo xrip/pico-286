@@ -10,6 +10,7 @@
 #if PICO_ON_DEVICE
 
 #include "disks-rp2350.c.inl"
+#include "network-redirector-rp2350.c.inl"
 #include "graphics.h"
 
 #else
