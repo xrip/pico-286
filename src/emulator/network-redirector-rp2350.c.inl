@@ -4,6 +4,7 @@
 #define DEBUG_2F
 #include <ctype.h>
 #include "ff.h"
+#include <stdlib.h>
 
 
 #if defined(DEBUG_2F)
@@ -17,7 +18,7 @@
 
 // Maximum number of open files
 #define MAX_FILES 32
-FIL open_files[MAX_FILES] = {0};
+FIL* open_files[MAX_FILES] = {0};
 
 // Current working directory for the remote drive (relative to HOST_BASE_DIR)
 char current_remote_dir[256] = "";
@@ -25,7 +26,7 @@ char current_remote_dir[256] = "";
 // Helper function to get a free file handle
 static inline int8_t get_free_handle() {
     for (int i = 0; i < MAX_FILES; i++) {
-        if (open_files[i].obj.fs == NULL) {
+        if (open_files[i] == NULL) {
             return i;
         }
     }
@@ -218,8 +219,10 @@ static inline bool redirector_handler() {
         {
             const sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             const uint16_t file_handle = sftptr->file_handle;
-            if (file_handle < MAX_FILES && open_files[file_handle].obj.fs) {
-                f_close(&open_files[file_handle]);
+            if (file_handle < MAX_FILES && open_files[file_handle]) {
+                f_close(open_files[file_handle]);
+                free(open_files[file_handle]);
+                open_files[file_handle] = NULL;
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
             } else {
@@ -233,8 +236,8 @@ static inline bool redirector_handler() {
         {
             const sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             const uint16_t file_handle = sftptr->file_handle; // We store our handle here
-            if (file_handle < MAX_FILES && open_files[file_handle].obj.fs) {
-                f_sync(&open_files[file_handle]);
+            if (file_handle < MAX_FILES && open_files[file_handle]) {
+                f_sync(open_files[file_handle]);
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
             } else {
@@ -248,12 +251,12 @@ static inline bool redirector_handler() {
         {
             sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             const uint16_t file_handle = sftptr->file_handle; // We store our handle here
-            if (file_handle < MAX_FILES && open_files[file_handle].obj.fs) {
+            if (file_handle < MAX_FILES && open_files[file_handle]) {
                 uint16_t bytes_to_read = CPU_CX;
                 debug_log("HANDLE COUNT %X %i (file_pos: %ld)\n", file_handle, bytes_to_read, sftptr->file_position);
 
                 // Ensure file pointer is at the correct position
-                if (f_lseek(&open_files[file_handle], sftptr->file_position) != FR_OK) {
+                if (f_lseek(open_files[file_handle], sftptr->file_position) != FR_OK) {
                     debug_log("Seek error to position %ld\n", sftptr->file_position);
                     CPU_AX = 6; // Invalid handle or seek error
                     CPU_FL_CF = 1;
@@ -262,7 +265,7 @@ static inline bool redirector_handler() {
 
                 const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *) &RAM[sda_addr + 12];
                 UINT bytes_read;
-                f_read(&open_files[file_handle], &RAM[dta_addr], bytes_to_read, &bytes_read);
+                f_read(open_files[file_handle], &RAM[dta_addr], bytes_to_read, &bytes_read);
                 debug_log("bytes read %i at offset %ld -> %x\n", (int) bytes_read, sftptr->file_position, dta_addr);
 
                 // Update file position in SFT
@@ -282,12 +285,12 @@ static inline bool redirector_handler() {
             sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             uint16_t file_handle = sftptr->file_handle; // We store our handle here
 
-            if (file_handle < MAX_FILES && open_files[file_handle].obj.fs) {
+            if (file_handle < MAX_FILES && open_files[file_handle]) {
                 uint16_t bytes_to_write = CPU_CX;
                 debug_log("WRITE HANDLE %X %i (file_pos: %ld)\n", file_handle, bytes_to_write, sftptr->file_position);
 
                 // Ensure file pointer is at the correct position
-                if (f_lseek(&open_files[file_handle], sftptr->file_position) != FR_OK) {
+                if (f_lseek(open_files[file_handle], sftptr->file_position) != FR_OK) {
                     debug_log("Write seek error to position %ld\n", sftptr->file_position);
                     CPU_AX = 6; // Invalid handle or seek error
                     CPU_FL_CF = 1;
@@ -296,12 +299,12 @@ static inline bool redirector_handler() {
 
                 const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *) &RAM[sda_addr + 12];
                 UINT bytes_written;
-                f_write(&open_files[file_handle], &RAM[dta_addr], bytes_to_write, &bytes_written);
+                f_write(open_files[file_handle], &RAM[dta_addr], bytes_to_write, &bytes_written);
                 debug_log("bytes written %i at offset %ld\n", (int) bytes_written, sftptr->file_position);
 
                 // Update file position in SFT and force write to disk
                 sftptr->file_position += bytes_written;
-                f_sync(&open_files[file_handle]); // Ensure data is written to disk
+                f_sync(open_files[file_handle]); // Ensure data is written to disk
                 CPU_AX = bytes_written;
                 CPU_FL_CF = 0;
             } else {
@@ -346,15 +349,21 @@ static inline bool redirector_handler() {
 
             const int8_t file_handle = get_free_handle();
             if (file_handle != -1) {
-                FRESULT res = f_open(&open_files[file_handle], path, FA_READ | FA_WRITE);
+                open_files[file_handle] = malloc(sizeof(FIL));
+                if (!open_files[file_handle]) {
+                    CPU_AX = 4; // Too many open files (or out of memory)
+                    CPU_FL_CF = 1;
+                    break;
+                }
+                FRESULT res = f_open(open_files[file_handle], path, FA_READ | FA_WRITE);
                 if (res != FR_OK) {
                     // Try read-only mode if read-write fails
-                    res = f_open(&open_files[file_handle], path, FA_READ);
+                    res = f_open(open_files[file_handle], path, FA_READ);
                     debug_log("Tried rb+ failed, trying rb: %s\n", res == FR_OK ? "SUCCESS" : "FAILED");
                 }
                 if (res == FR_OK) {
                     // Get file size
-                    const size_t file_size = f_size(&open_files[file_handle]);
+                    const size_t file_size = f_size(open_files[file_handle]);
 
                     sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
 
@@ -388,6 +397,8 @@ static inline bool redirector_handler() {
                     CPU_FL_CF = 0;
                 } else {
                     debug_log("not found\n");
+                    free(open_files[file_handle]);
+                    open_files[file_handle] = NULL;
                     CPU_AX = 2; // File not found
                     CPU_FL_CF = 1;
                 }
@@ -406,7 +417,14 @@ static inline bool redirector_handler() {
                 const char *dos_path = &RAM[sda_addr + FIRST_FILENAME_OFFSET];
                 get_full_path(path, dos_path);
 
-                if (f_open(&open_files[file_handle], path, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK) {
+                open_files[file_handle] = malloc(sizeof(FIL));
+                if (!open_files[file_handle]) {
+                    CPU_AX = 4; // Too many open files (or out of memory)
+                    CPU_FL_CF = 1;
+                    break;
+                }
+
+                if (f_open(open_files[file_handle], path, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK) {
                     // Initialize SFT structure
                     sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
 
@@ -438,6 +456,8 @@ static inline bool redirector_handler() {
                     CPU_AX = 0;
                     CPU_FL_CF = 0;
                 } else {
+                    free(open_files[file_handle]);
+                    open_files[file_handle] = NULL;
                     CPU_AX = 3; // Path not found
                     CPU_FL_CF = 1;
                 }
@@ -570,8 +590,8 @@ static inline bool redirector_handler() {
 
         case 0x1120: // Flush All Disk Buffers
             for (int i = 0; i < MAX_FILES; i++) {
-                if (open_files[i].obj.fs) {
-                    f_sync(&open_files[i]);
+                if (open_files[i]) {
+                    f_sync(open_files[i]);
                 }
             }
             CPU_AX = 0;
@@ -583,14 +603,14 @@ static inline bool redirector_handler() {
             sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             const uint16_t file_handle = sftptr->file_handle;
 
-            if (file_handle < MAX_FILES && open_files[file_handle].obj.fs) {
+            if (file_handle < MAX_FILES && open_files[file_handle]) {
                 // CX:DX contains offset from end (signed 32-bit)
                 int32_t offset_from_end = ((int32_t)CPU_CX << 16) | CPU_DX;
 
                 debug_log("Seek from end: handle %d, offset %ld\n", file_handle, offset_from_end);
 
                 // Get current file size
-                long file_size = f_size(&open_files[file_handle]);
+                long file_size = f_size(open_files[file_handle]);
 
                 // Calculate new position: file_size + offset_from_end
                 long new_position = file_size + offset_from_end;
@@ -601,7 +621,7 @@ static inline bool redirector_handler() {
                 }
 
                 // Seek to new position
-                if (f_lseek(&open_files[file_handle], new_position) != FR_OK) {
+                if (f_lseek(open_files[file_handle], new_position) != FR_OK) {
                     CPU_AX = 6; // Invalid handle
                     CPU_FL_CF = 1;
                     break;
