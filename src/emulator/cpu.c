@@ -10,11 +10,13 @@
 #if PICO_ON_DEVICE
 
 #include "disks-rp2350.c.inl"
+#include "network-redirector-rp2350.c.inl"
 #include "graphics.h"
 
 #else
 
 #include "disks-win32.c.inl"
+#include "network-redirector.c.inl"
 
 #endif
 
@@ -46,14 +48,14 @@ uint32_t ea;
 uint32_t dwordregs[8];
 
 static const bool __not_in_flash("cpu.pf") parity[0x100] = {
-        1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
-        0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
-        0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
-        1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
-        0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
-        1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
-        1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
-        0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1
+    1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
+    0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
+    0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
+    1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
+    0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
+    1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
+    1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
+    0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1
 };
 
 static __not_in_flash() void modregrm() {
@@ -128,61 +130,87 @@ static __not_in_flash() void getea(uint8_t rmval) {
     register uint32_t tempea = 0;
 #ifdef CPU_386_EXTENDED_OPS
     if (addressSizeOverride) {
-        addressSizeOverride  = false;
+        addressSizeOverride = false;
         if (operandSizeOverride) {
             operandSizeOverride = false;
             // Включена 32-битная адресация
             if (mode == 0 && rmval == 6) {
-                tempea = disp32;  // Используем 32-битный displacement
+                tempea = disp32; // Используем 32-битный displacement
             } else {
                 // Если Mode не 0 или RM не 6, считаем по обычной схеме с SIB
                 switch (mode) {
                     case 0:
                         switch (rmval) {
-                            case 0: tempea = CPU_EBX + CPU_ESI; break;
-                            case 1: tempea = CPU_EBX + CPU_EDI; break;
-                            case 2: tempea = CPU_EBP + CPU_ESI; break;
-                            case 3: tempea = CPU_EBP + CPU_EDI; break;
-                            case 4: tempea = CPU_ESI; break;
-                            case 5: tempea = CPU_EDI; break;
-                            case 6: tempea = disp32; break; // DISP32
-                            case 7: tempea = CPU_EBX; break;
+                            case 0: tempea = CPU_EBX + CPU_ESI;
+                                break;
+                            case 1: tempea = CPU_EBX + CPU_EDI;
+                                break;
+                            case 2: tempea = CPU_EBP + CPU_ESI;
+                                break;
+                            case 3: tempea = CPU_EBP + CPU_EDI;
+                                break;
+                            case 4: tempea = CPU_ESI;
+                                break;
+                            case 5: tempea = CPU_EDI;
+                                break;
+                            case 6: tempea = disp32;
+                                break; // DISP32
+                            case 7: tempea = CPU_EBX;
+                                break;
                         }
                         break;
                     case 1:
                     case 2:
                         switch (rmval) {
-                            case 0: tempea = CPU_EBX + CPU_ESI + disp32; break;
-                            case 1: tempea = CPU_EBX + CPU_EDI + disp32; break;
-                            case 2: tempea = CPU_EBP + CPU_ESI + disp32; break;
-                            case 3: tempea = CPU_EBP + CPU_EDI + disp32; break;
-                            case 4: tempea = CPU_ESI + disp32; break;
-                            case 5: tempea = CPU_EDI + disp32; break;
-                            case 6: tempea = CPU_EBP + disp32; break;
-                            case 7: tempea = CPU_EBX + disp32; break;
+                            case 0: tempea = CPU_EBX + CPU_ESI + disp32;
+                                break;
+                            case 1: tempea = CPU_EBX + CPU_EDI + disp32;
+                                break;
+                            case 2: tempea = CPU_EBP + CPU_ESI + disp32;
+                                break;
+                            case 3: tempea = CPU_EBP + CPU_EDI + disp32;
+                                break;
+                            case 4: tempea = CPU_ESI + disp32;
+                                break;
+                            case 5: tempea = CPU_EDI + disp32;
+                                break;
+                            case 6: tempea = CPU_EBP + disp32;
+                                break;
+                            case 7: tempea = CPU_EBX + disp32;
+                                break;
                         }
                         break;
                 }
             }
             // Учитываем SIB, если нужно
-            if (rmval == 4 && mode != 3) { // RM == 4 указывает на SIB
+            if (rmval == 4 && mode != 3) {
+                // RM == 4 указывает на SIB
                 uint8_t sib_scale = sib >> 6;
                 uint8_t sib_index = (sib >> 3) & 7;
-                uint8_t sib_base  = sib & 7;
+                uint8_t sib_base = sib & 7;
                 uint32_t sib_value = 0;
                 // Определим базовый регистр
                 switch (sib_base) {
-                    case 0: sib_value = CPU_EBX; break;
-                    case 1: sib_value = CPU_ECX; break;
-                    case 2: sib_value = CPU_EDX; break;
-                    case 3: sib_value = CPU_EBX; break;
-                    case 4: sib_value = CPU_ESP; break;
-                    case 5: sib_value = CPU_EBP; break;
-                    case 6: sib_value = CPU_ESI; break;
-                    case 7: sib_value = CPU_EDI; break;
+                    case 0: sib_value = CPU_EBX;
+                        break;
+                    case 1: sib_value = CPU_ECX;
+                        break;
+                    case 2: sib_value = CPU_EDX;
+                        break;
+                    case 3: sib_value = CPU_EBX;
+                        break;
+                    case 4: sib_value = CPU_ESP;
+                        break;
+                    case 5: sib_value = CPU_EBP;
+                        break;
+                    case 6: sib_value = CPU_ESI;
+                        break;
+                    case 7: sib_value = CPU_EDI;
+                        break;
                 }
                 // Учитываем индекс (если есть)
-                if (sib_index != 4) { // если индекс не базовый (ESP, EBP и т.д.)
+                if (sib_index != 4) {
+                    // если индекс не базовый (ESP, EBP и т.д.)
                     uint32_t index_value = getreg32(sib_index);
                     sib_value += (index_value << sib_scale); // Считываем с учётом масштаба
                 }
@@ -193,27 +221,43 @@ static __not_in_flash() void getea(uint8_t rmval) {
         switch (mode) {
             case 0:
                 switch (rmval) {
-                    case 0: tempea = CPU_EBX + CPU_ESI; break;
-                    case 1: tempea = CPU_EBX + CPU_EDI; break;
-                    case 2: tempea = CPU_EBP + CPU_ESI; break;
-                    case 3: tempea = CPU_EBP + CPU_EDI; break;
-                    case 4: tempea = CPU_ESI;           break;
-                    case 5: tempea = CPU_EDI;           break;
-                    case 6: tempea = disp32;            break;
-                    case 7: tempea = CPU_EBX;           break;
+                    case 0: tempea = CPU_EBX + CPU_ESI;
+                        break;
+                    case 1: tempea = CPU_EBX + CPU_EDI;
+                        break;
+                    case 2: tempea = CPU_EBP + CPU_ESI;
+                        break;
+                    case 3: tempea = CPU_EBP + CPU_EDI;
+                        break;
+                    case 4: tempea = CPU_ESI;
+                        break;
+                    case 5: tempea = CPU_EDI;
+                        break;
+                    case 6: tempea = disp32;
+                        break;
+                    case 7: tempea = CPU_EBX;
+                        break;
                 }
                 break;
             case 1:
             case 2:
                 switch (rmval) {
-                    case 0: tempea = CPU_EBX + CPU_ESI + disp32; break;
-                    case 1: tempea = CPU_EBX + CPU_EDI + disp32; break;
-                    case 2: tempea = CPU_EBP + CPU_ESI + disp32; break;
-                    case 3: tempea = CPU_EBP + CPU_EDI + disp32; break;
-                    case 4: tempea = CPU_ESI + disp32;           break;
-                    case 5: tempea = CPU_EDI + disp32;           break;
-                    case 6: tempea = CPU_EBP + disp32;           break;
-                    case 7: tempea = CPU_EBX + disp32;           break;
+                    case 0: tempea = CPU_EBX + CPU_ESI + disp32;
+                        break;
+                    case 1: tempea = CPU_EBX + CPU_EDI + disp32;
+                        break;
+                    case 2: tempea = CPU_EBP + CPU_ESI + disp32;
+                        break;
+                    case 3: tempea = CPU_EBP + CPU_EDI + disp32;
+                        break;
+                    case 4: tempea = CPU_ESI + disp32;
+                        break;
+                    case 5: tempea = CPU_EDI + disp32;
+                        break;
+                    case 6: tempea = CPU_EBP + disp32;
+                        break;
+                    case 7: tempea = CPU_EBX + disp32;
+                        break;
                 }
                 break;
         }
@@ -224,56 +268,82 @@ static __not_in_flash() void getea(uint8_t rmval) {
         operandSizeOverride = false;
         // Включена 32-битная адресация
         if (mode == 0 && rmval == 6) {
-            tempea = disp32;  // Используем 32-битный displacement
+            tempea = disp32; // Используем 32-битный displacement
         } else {
             // Если Mode не 0 или RM не 6, считаем по обычной схеме с SIB
             switch (mode) {
                 case 0:
                     switch (rmval) {
-                        case 0: tempea = CPU_BX + CPU_SI; break;
-                        case 1: tempea = CPU_BX + CPU_DI; break;
-                        case 2: tempea = CPU_BP + CPU_SI; break;
-                        case 3: tempea = CPU_BP + CPU_DI; break;
-                        case 4: tempea = CPU_SI; break;
-                        case 5: tempea = CPU_DI; break;
-                        case 6: tempea = disp32; break; // DISP32
-                        case 7: tempea = CPU_BX; break;
+                        case 0: tempea = CPU_BX + CPU_SI;
+                            break;
+                        case 1: tempea = CPU_BX + CPU_DI;
+                            break;
+                        case 2: tempea = CPU_BP + CPU_SI;
+                            break;
+                        case 3: tempea = CPU_BP + CPU_DI;
+                            break;
+                        case 4: tempea = CPU_SI;
+                            break;
+                        case 5: tempea = CPU_DI;
+                            break;
+                        case 6: tempea = disp32;
+                            break; // DISP32
+                        case 7: tempea = CPU_BX;
+                            break;
                     }
                     break;
                 case 1:
                 case 2:
                     switch (rmval) {
-                        case 0: tempea = CPU_BX + CPU_SI + disp32; break;
-                        case 1: tempea = CPU_BX + CPU_DI + disp32; break;
-                        case 2: tempea = CPU_BP + CPU_SI + disp32; break;
-                        case 3: tempea = CPU_BP + CPU_DI + disp32; break;
-                        case 4: tempea = CPU_SI + disp32; break;
-                        case 5: tempea = CPU_DI + disp32; break;
-                        case 6: tempea = CPU_BP + disp32; break;
-                        case 7: tempea = CPU_BX + disp32; break;
+                        case 0: tempea = CPU_BX + CPU_SI + disp32;
+                            break;
+                        case 1: tempea = CPU_BX + CPU_DI + disp32;
+                            break;
+                        case 2: tempea = CPU_BP + CPU_SI + disp32;
+                            break;
+                        case 3: tempea = CPU_BP + CPU_DI + disp32;
+                            break;
+                        case 4: tempea = CPU_SI + disp32;
+                            break;
+                        case 5: tempea = CPU_DI + disp32;
+                            break;
+                        case 6: tempea = CPU_BP + disp32;
+                            break;
+                        case 7: tempea = CPU_BX + disp32;
+                            break;
                     }
                     break;
             }
         }
         // Учитываем SIB, если нужно
-        if (rmval == 4 && mode != 3) { // RM == 4 указывает на SIB
+        if (rmval == 4 && mode != 3) {
+            // RM == 4 указывает на SIB
             uint8_t sib_scale = sib >> 6;
             uint8_t sib_index = (sib >> 3) & 7;
-            uint8_t sib_base  = sib & 7;
+            uint8_t sib_base = sib & 7;
             uint32_t sib_value = 0;
             // Определим базовый регистр
             switch (sib_base) {
-                case 0: sib_value = CPU_BX; break;
-                case 1: sib_value = CPU_CX; break;
-                case 2: sib_value = CPU_DX; break;
-                case 3: sib_value = CPU_BX; break;
-                case 4: sib_value = CPU_SP; break;
-                case 5: sib_value = CPU_BP; break;
-                case 6: sib_value = CPU_SI; break;
-                case 7: sib_value = CPU_DI; break;
+                case 0: sib_value = CPU_BX;
+                    break;
+                case 1: sib_value = CPU_CX;
+                    break;
+                case 2: sib_value = CPU_DX;
+                    break;
+                case 3: sib_value = CPU_BX;
+                    break;
+                case 4: sib_value = CPU_SP;
+                    break;
+                case 5: sib_value = CPU_BP;
+                    break;
+                case 6: sib_value = CPU_SI;
+                    break;
+                case 7: sib_value = CPU_DI;
+                    break;
             }
             // Учитываем индекс (если есть)
-            if (sib_index != 4) { // если индекс не базовый (ESP, EBP и т.д.)
+            if (sib_index != 4) {
+                // если индекс не базовый (ESP, EBP и т.д.)
                 uint32_t index_value = getreg32(sib_index);
                 sib_value += (index_value << sib_scale); // Считываем с учётом масштаба
             }
@@ -284,28 +354,44 @@ static __not_in_flash() void getea(uint8_t rmval) {
     switch (mode) {
         case 0:
             switch (rmval) {
-                case 0: tempea = CPU_BX + CPU_SI; break;
-                case 1: tempea = CPU_BX + CPU_DI; break;
-                case 2: tempea = CPU_BP + CPU_SI; break;
-                case 3: tempea = CPU_BP + CPU_DI; break;
-                case 4: tempea = CPU_SI;          break;
-                case 5: tempea = CPU_DI;          break;
-                case 6: tempea = disp16;          break;
-                case 7: tempea = CPU_BX;          break;
+                case 0: tempea = CPU_BX + CPU_SI;
+                    break;
+                case 1: tempea = CPU_BX + CPU_DI;
+                    break;
+                case 2: tempea = CPU_BP + CPU_SI;
+                    break;
+                case 3: tempea = CPU_BP + CPU_DI;
+                    break;
+                case 4: tempea = CPU_SI;
+                    break;
+                case 5: tempea = CPU_DI;
+                    break;
+                case 6: tempea = disp16;
+                    break;
+                case 7: tempea = CPU_BX;
+                    break;
             }
             break;
 
         case 1:
         case 2:
             switch (rmval) {
-                case 0: tempea = CPU_BX + CPU_SI + disp16; break;
-                case 1: tempea = CPU_BX + CPU_DI + disp16; break;
-                case 2: tempea = CPU_BP + CPU_SI + disp16; break;
-                case 3: tempea = CPU_BP + CPU_DI + disp16; break;
-                case 4: tempea = CPU_SI + disp16;          break;
-                case 5: tempea = CPU_DI + disp16;          break;
-                case 6: tempea = CPU_BP + disp16;          break;
-                case 7: tempea = CPU_BX + disp16;          break;
+                case 0: tempea = CPU_BX + CPU_SI + disp16;
+                    break;
+                case 1: tempea = CPU_BX + CPU_DI + disp16;
+                    break;
+                case 2: tempea = CPU_BP + CPU_SI + disp16;
+                    break;
+                case 3: tempea = CPU_BP + CPU_DI + disp16;
+                    break;
+                case 4: tempea = CPU_SI + disp16;
+                    break;
+                case 5: tempea = CPU_DI + disp16;
+                    break;
+                case 6: tempea = CPU_BP + disp16;
+                    break;
+                case 7: tempea = CPU_BX + disp16;
+                    break;
             }
             break;
     }
@@ -379,7 +465,7 @@ static INLINE uint16_t makeflagsword(void) {
     return 2 | x86_flags.value;
 #else
     return 2 | (x86_flags.value & 0b111111010101);
-#endif    
+#endif
 }
 
 static INLINE void decodeflagsword(uint16_t x) {
@@ -459,7 +545,6 @@ void intcall86(uint8_t intnum) {
 
                             if (videomode <= 0xa) {
                                 tga_palette_map[color_index] = color_byte;
-
                             } else {
                                 vga_palette[color_index] = rgb((r * 85), (g * 85), (b * 85));
 #if PICO_ON_DEVICE
@@ -469,7 +554,6 @@ void intcall86(uint8_t intnum) {
                             return;
                         }
                         case 0x02: {
-
                             uint32_t memloc = CPU_ES * 16 + CPU_DX;
                             for (int color_index = 0; color_index < 16; color_index++) {
                                 uint8_t color_byte = read86(memloc++);
@@ -491,7 +575,8 @@ void intcall86(uint8_t intnum) {
                             //printf("[CPU] INT BL 0x%02x\r\n", CPU_BL);
                             return;
                         }
-                        case 0x10: {// Set One DAC Color Register
+                        case 0x10: {
+                            // Set One DAC Color Register
                             vga_palette[CPU_BL] = rgb((CPU_DH & 63) << 2, (CPU_CH & 63) << 2,
                                                       (CPU_CL & 63) << 2);
 #if PICO_ON_DEVICE
@@ -499,7 +584,8 @@ void intcall86(uint8_t intnum) {
 #endif
                             return;
                         }
-                        case 0x12: {// set block of DAC color registers               VGA
+                        case 0x12: {
+                            // set block of DAC color registers               VGA
                             uint32_t memloc = CPU_ES * 16 + CPU_DX;
                             for (int color_index = CPU_BX; color_index < ((CPU_BX + CPU_CX) & 0xFF); color_index++) {
                                 vga_palette[color_index] = rgb((read86(memloc++) << 2), (read86(memloc++) << 2),
@@ -510,14 +596,16 @@ void intcall86(uint8_t intnum) {
                             }
                             return;
                         }
-                        case 0x15: { // Read One DAC Color Register
+                        case 0x15: {
+                            // Read One DAC Color Register
                             const uint8_t color_index = CPU_BX & 0xFF;
                             CPU_CL = ((vga_palette[color_index] >> 2)) & 63;
                             CPU_CH = ((vga_palette[color_index] >> 10)) & 63;
                             CPU_DH = ((vga_palette[color_index] >> 18)) & 63;
                             return;
                         }
-                        case 0x17: { // Read a Block of DAC Color Registers
+                        case 0x17: {
+                            // Read a Block of DAC Color Registers
                             uint32_t memloc = CPU_ES * 16 + CPU_DX;
                             for (int color_index = CPU_BX; color_index < ((CPU_BX + CPU_CX) & 0xFF); color_index++) {
                                 write86(memloc++, ((vga_palette[color_index] >> 2)) & 63);
@@ -546,7 +634,7 @@ void intcall86(uint8_t intnum) {
             switch (CPU_AH) {
                 case 0x87: {
                     //https://github.com/neozeed/himem.sys-2.06/blob/5761f4fc182543b3964fd0d3a236d04bac7bfb50/oemsrc/himem.asm#L690
-//                    printf("mem move?! %x %x:%x\n", CPU_CX, CPU_ES, CPU_SI);
+                    //                    printf("mem move?! %x %x:%x\n", CPU_CX, CPU_ES, CPU_SI);
                     CPU_AX = 0;
                     return;
                 }
@@ -557,7 +645,7 @@ void intcall86(uint8_t intnum) {
                 }
             }
             break;
-            /**/
+        /**/
         case 0x19:
 #if PICO_ON_DEVICE
             insertdisk(0, "\\XT\\fdd0.img");
@@ -571,15 +659,15 @@ void intcall86(uint8_t intnum) {
             insertdisk(129, "../hdd2.img");
 #endif
             if (1) {
-/* PCjr reserves the top of its internal 128KB of RAM for video RAM.  * Sidecars can extend it past 128KB but it
- * requires DOS drivers or TSRs to modify the MCB chain so that it a) marks the video memory as reserved and b)
- * creates a new free region above the video RAM region.
- *
- * Therefore, only subtract 16KB if 128KB or less is configured for this machine.
- *
- * Note this is not speculation, it's there in the PCjr BIOS source code:
- * [http://hackipedia.org/browse.cgi/Computer/Platform/PC%2c%20IBM%20compatible/Video/PCjr/IBM%20Personal%20Computer%20PCjr%20Hardware%20Reference%20Library%20Technical%20Reference%20%281983%2d11%29%20First%20Edition%20Revised%2epdf]
- * ROM BIOS source code page A-16 */
+                /* PCjr reserves the top of its internal 128KB of RAM for video RAM.  * Sidecars can extend it past 128KB but it
+                 * requires DOS drivers or TSRs to modify the MCB chain so that it a) marks the video memory as reserved and b)
+                 * creates a new free region above the video RAM region.
+                 *
+                 * Therefore, only subtract 16KB if 128KB or less is configured for this machine.
+                 *
+                 * Note this is not speculation, it's there in the PCjr BIOS source code:
+                 * [http://hackipedia.org/browse.cgi/Computer/Platform/PC%2c%20IBM%20compatible/Video/PCjr/IBM%20Personal%20Computer%20PCjr%20Hardware%20Reference%20Library%20Technical%20Reference%20%281983%2d11%29%20First%20Edition%20Revised%2epdf]
+                 * ROM BIOS source code page A-16 */
 
                 writew86(BIOS_TRUE_MEMORY_SIZE, 640 - 16);
 #if !PICO_ON_DEVICE
@@ -606,9 +694,9 @@ void intcall86(uint8_t intnum) {
                     return;
             }
             break;
-        case 0x2F: /* XMS memory */
-
+        case 0x2F: /* Multiplex Interrupt */
             switch (CPU_AX) {
+                /* XMS */
                 case 0x4300:
                     CPU_AL = 0x80;
                     return;
@@ -616,15 +704,13 @@ void intcall86(uint8_t intnum) {
                     CPU_ES = XMS_FN_CS; // to be handled by DOS memory manager using
                     CPU_BX = XMS_FN_IP; // CALL FAR ES:BX
                     return;
+                default:
+                    if (redirector_handler()) {
+                        return;
+                    }
                 }
-#if 0
-                    default:
-                        if (CPU_AH == 0x4A)
-                            printf("2fh %x %x\n", CPU_AX, CPU_BX);
-#endif
             }
             break;
-            /**/
     }
 
     push(makeflagsword());
@@ -683,7 +769,7 @@ static inline void flag_adc16(uint16_t v1, uint16_t v2, uint16_t v3) {
 
 static inline void flag_add8(uint8_t v1, uint8_t v2) {
     /* v1 = destination operand, v2 = source operand */
-    register uint32_t dst = (uint16_t)((uint16_t) v1 + (uint16_t) v2);
+    register uint32_t dst = (uint16_t) ((uint16_t) v1 + (uint16_t) v2);
     flag_szp8((uint8_t) dst);
     cf = (dst & 0xFF00) != 0;
     of = ((dst ^ v1) & (dst ^ v2) & 0x80) != 0;
@@ -1116,7 +1202,8 @@ static __not_in_flash() void op_grp3_16() {
             }
             break;
 
-        case 4: {/* MUL */
+        case 4: {
+            /* MUL */
             register uint32_t temp1 = (uint32_t) oper1 * (uint32_t) CPU_AX;
             CPU_AX = temp1 & 0xFFFF;
             CPU_DX = temp1 >> 16;
@@ -1131,7 +1218,8 @@ static __not_in_flash() void op_grp3_16() {
 #endif
             break;
         }
-        case 5: { /* IMUL */
+        case 5: {
+            /* IMUL */
             register uint32_t temp1 = CPU_AX;
             register uint32_t temp2 = oper1;
             if (temp1 & 0x8000) {
@@ -1230,22 +1318,22 @@ void reset86() {
     //memset(EMS, 0, sizeof(EMS));
     //memset(XMS, 0, sizeof(XMS));
 #else
-    #ifdef ONBOARD_PSRAM_GPIO
-        #ifndef TOTAL_VIRTUAL_MEMORY_KBS
-            memset(PSRAM_DATA + UMB_START, 0, (UMB_END - UMB_START) + 4);
-            memset(PSRAM_DATA + HMA_START, 0, (HMA_END - HMA_START) + 4);
-        #else
-            for (uint32_t a = UMB_START;  a < ((UMB_END - UMB_START) + 4); a += 4) write32psram(a, 0);
-            for (uint32_t a = HMA_START;  a < ((HMA_END - HMA_START) + 4); a += 4) write32psram(a, 0);
-        #endif
-    #else
-    for (uint32_t a = UMB_START;  a < ((UMB_END - UMB_START) + 4); a += 4) {
+#ifdef ONBOARD_PSRAM_GPIO
+#ifndef TOTAL_VIRTUAL_MEMORY_KBS
+    memset(PSRAM_DATA + UMB_START, 0, (UMB_END - UMB_START) + 4);
+    memset(PSRAM_DATA + HMA_START, 0, (HMA_END - HMA_START) + 4);
+#else
+    for (uint32_t a = UMB_START; a < ((UMB_END - UMB_START) + 4); a += 4) write32psram(a, 0);
+    for (uint32_t a = HMA_START; a < ((HMA_END - HMA_START) + 4); a += 4) write32psram(a, 0);
+#endif
+#else
+    for (uint32_t a = UMB_START; a < ((UMB_END - UMB_START) + 4); a += 4) {
         write32psram(a, 0);
     }
-    for (uint32_t a = HMA_START;  a < ((HMA_END - HMA_START) + 4); a += 4) {
+    for (uint32_t a = HMA_START; a < ((HMA_END - HMA_START) + 4); a += 4) {
         write32psram(a, 0);
     }
-    #endif
+#endif
 #endif
     init_umb();
     ip = 0x0000;
@@ -1258,7 +1346,6 @@ void __not_in_flash() exec86(uint32_t execloops) {
     //counterticks = (uint64_t) ( (double) timerfreq / (double) 65536.0);
     //tickssource();
     for (uint32_t loopcount = 0; loopcount < execloops; loopcount++) {
-
         if (unlikely(ifl && (i8259_controller.interrupt_request_register & (~i8259_controller.interrupt_mask_register)))) {
             intcall86(nextintr()); // get next interrupt from the i8259, if any d
         }
@@ -1270,10 +1357,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
         register uint8_t opcode;
 
         while (!docontinue) {
-   ///         CPU_CS &= 0xFFFF;
-   ///         CPU_IP &= 0xFFFF;
-//            savecs = CPU_CS;
-//            saveip = ip;
+            ///         CPU_CS &= 0xFFFF;
+            ///         CPU_IP &= 0xFFFF;
+            //            savecs = CPU_CS;
+            //            saveip = ip;
             // W/A-hack: last byte of interrupts table (actually should not be ever used as CS:IP)
             if (unlikely(CPU_CS == XMS_FN_CS && ip == XMS_FN_IP)) {
                 // hook for XMS
@@ -1317,14 +1404,14 @@ void __not_in_flash() exec86(uint32_t execloops) {
                     break;
 
                 case 0xF0: /* LOCK (блокировка шины, для атомарных операций) */
-                /// TODO:
+                    /// TODO:
                     break;
 
                 case 0xF2: /* REPNE/REPNZ */
                     reptype = 2;
                     break;
 
-                    /* repetition prefix check */
+                /* repetition prefix check */
                 case 0xF3: /* REP/REPE/REPZ */
                     reptype = 1;
                     break;
@@ -1340,7 +1427,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
         register uint8_t oper1b;
         register uint8_t oper2b;
         switch (opcode) {
-            case 0x0:    /* 00 ADD Eb Gb */
+            case 0x0: /* 00 ADD Eb Gb */
                 modregrm();
                 oper1b = readrm8(rm);
                 oper2b = getreg8(reg);
@@ -1348,7 +1435,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 writerm8(rm, res8);
                 break;
 
-            case 0x1:    /* 01 ADD Ev Gv */
+            case 0x1: /* 01 ADD Ev Gv */
                 modregrm();
                 if (operandSizeOverride) {
                     register uint32_t oper1 = readrm32(rm);
@@ -1363,7 +1450,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x2:    /* 02 ADD Gb Eb */
+            case 0x2: /* 02 ADD Gb Eb */
                 modregrm();
                 oper1b = getreg8(reg);
                 oper2b = readrm8(rm);
@@ -1371,7 +1458,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 putreg8(reg, res8);
                 break;
 
-            case 0x3: {   /* 03 ADD Gv Ev */
+            case 0x3: {
+                /* 03 ADD Gv Ev */
                 modregrm();
                 register uint32_t oper1 = getreg16(reg);
                 register uint32_t oper2 = readrm16(rm);
@@ -1379,7 +1467,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 putreg16(reg, res16);
                 break;
             }
-            case 0x4:    /* 04 ADD CPU_AL Ib */
+            case 0x4: /* 04 ADD CPU_AL Ib */
                 oper1b = CPU_AL;
                 oper2b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
@@ -1387,7 +1475,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AL = res8;
                 break;
 
-            case 0x5: {   /* 05 ADD eAX Iv */
+            case 0x5: {
+                /* 05 ADD eAX Iv */
                 register uint32_t oper1 = CPU_AX;
                 register uint32_t oper2 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
@@ -1395,15 +1484,15 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AX = res16;
                 break;
             }
-            case 0x6:    /* 06 PUSH CPU_ES */
+            case 0x6: /* 06 PUSH CPU_ES */
                 push(CPU_ES);
                 break;
 
-            case 0x7:    /* 07 POP CPU_ES */
+            case 0x7: /* 07 POP CPU_ES */
                 CPU_ES = pop();
                 break;
 
-            case 0x8:    /* 08 OR Eb Gb */
+            case 0x8: /* 08 OR Eb Gb */
                 modregrm();
 
                 oper1b = readrm8(rm);
@@ -1413,7 +1502,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x9:    /* 09 OR Ev Gv */
+            case 0x9: /* 09 OR Ev Gv */
                 modregrm();
 
                 oper1 = readrm16(rm);
@@ -1423,7 +1512,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0xA:    /* 0A OR Gb Eb */
+            case 0xA: /* 0A OR Gb Eb */
                 modregrm();
 
                 oper1b = getreg8(reg);
@@ -1433,21 +1522,21 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0xB:    /* 0B OR Gv Ev */
+            case 0xB: /* 0B OR Gv Ev */
                 modregrm();
 
                 oper1 = getreg16(reg);
                 oper2 = readrm16(rm);
                 op_or16();
-/*                if ((oper1 == 0xF802) && (oper2 == 0xF802)) {
-                    sf = 0;    *//* cheap hack to make Wolf 3D think we're a 286 so it plays *//*
+                /*                if ((oper1 == 0xF802) && (oper2 == 0xF802)) {
+                                    sf = 0;    *//* cheap hack to make Wolf 3D think we're a 286 so it plays */ /*
                 }*/
 
                 putreg16(reg, res16
                 );
                 break;
 
-            case 0xC:    /* 0C OR CPU_AL Ib */
+            case 0xC: /* 0C OR CPU_AL Ib */
                 oper1b = CPU_AL;
                 oper2b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
@@ -1455,7 +1544,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AL = res8;
                 break;
 
-            case 0xD:    /* 0D OR eAX Iv */
+            case 0xD: /* 0D OR eAX Iv */
                 oper1 = CPU_AX;
                 oper2 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
@@ -1463,22 +1552,22 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AX = res16;
                 break;
 
-            case 0xE:    /* 0E PUSH CPU_CS */
+            case 0xE: /* 0E PUSH CPU_CS */
                 push(CPU_CS);
                 break;
 
 #ifdef CPU_8086 //only the 8086/8088 does this.
-                case 0xF: //0F POP CS
-            CPU_CS = pop();
-            break;
+            case 0xF: //0F POP CS
+                CPU_CS = pop();
+                break;
 #else
-/*
-            case 0xF: // 286 protected mode
-            break;
-*/
+                /*
+                            case 0xF: // 286 protected mode
+                            break;
+                */
 #endif
 
-            case 0x10:    /* 10 ADC Eb Gb */
+            case 0x10: /* 10 ADC Eb Gb */
                 modregrm();
 
                 oper1b = readrm8(rm);
@@ -1487,7 +1576,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 writerm8(rm, res8);
                 break;
 
-            case 0x11:    /* 11 ADC Ev Gv */
+            case 0x11: /* 11 ADC Ev Gv */
                 modregrm();
 
                 oper1 = readrm16(rm);
@@ -1496,7 +1585,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 writerm16(rm, res16);
                 break;
 
-            case 0x12:    /* 12 ADC Gb Eb */
+            case 0x12: /* 12 ADC Gb Eb */
                 modregrm();
 
                 oper1b = getreg8(reg);
@@ -1505,7 +1594,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 putreg8(reg, res8);
                 break;
 
-            case 0x13:    /* 13 ADC Gv Ev */
+            case 0x13: /* 13 ADC Gv Ev */
                 modregrm();
 
                 oper1 = getreg16(reg);
@@ -1515,7 +1604,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x14:    /* 14 ADC CPU_AL Ib */
+            case 0x14: /* 14 ADC CPU_AL Ib */
                 oper1b = CPU_AL;
                 oper2b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
@@ -1523,7 +1612,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AL = res8;
                 break;
 
-            case 0x15:    /* 15 ADC eAX Iv */
+            case 0x15: /* 15 ADC eAX Iv */
                 oper1 = CPU_AX;
                 oper2 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
@@ -1531,15 +1620,15 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AX = res16;
                 break;
 
-            case 0x16:    /* 16 PUSH CPU_SS */
+            case 0x16: /* 16 PUSH CPU_SS */
                 push(CPU_SS);
                 break;
 
-            case 0x17:    /* 17 POP CPU_SS */
+            case 0x17: /* 17 POP CPU_SS */
                 CPU_SS = pop();
                 break;
 
-            case 0x18:    /* 18 SBB Eb Gb */
+            case 0x18: /* 18 SBB Eb Gb */
                 modregrm();
 
                 oper1b = readrm8(rm);
@@ -1548,7 +1637,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 writerm8(rm, res8);
                 break;
 
-            case 0x19:    /* 19 SBB Ev Gv */
+            case 0x19: /* 19 SBB Ev Gv */
                 modregrm();
 
                 oper1 = readrm16(rm);
@@ -1558,7 +1647,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x1A:    /* 1A SBB Gb Eb */
+            case 0x1A: /* 1A SBB Gb Eb */
                 modregrm();
 
                 oper1b = getreg8(reg);
@@ -1568,7 +1657,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x1B:    /* 1B SBB Gv Ev */
+            case 0x1B: /* 1B SBB Gv Ev */
                 modregrm();
 
                 oper1 = getreg16(reg);
@@ -1578,7 +1667,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x1C:    /* 1C SBB CPU_AL Ib */
+            case 0x1C: /* 1C SBB CPU_AL Ib */
                 oper1b = CPU_AL;
                 oper2b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
@@ -1586,7 +1675,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AL = res8;
                 break;
 
-            case 0x1D:    /* 1D SBB eAX Iv */
+            case 0x1D: /* 1D SBB eAX Iv */
                 oper1 = CPU_AX;
                 oper2 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
@@ -1594,15 +1683,15 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AX = res16;
                 break;
 
-            case 0x1E:    /* 1E PUSH CPU_DS */
+            case 0x1E: /* 1E PUSH CPU_DS */
                 push(CPU_DS);
                 break;
 
-            case 0x1F:    /* 1F POP CPU_DS */
+            case 0x1F: /* 1F POP CPU_DS */
                 CPU_DS = pop();
                 break;
 
-            case 0x20:    /* 20 AND Eb Gb */
+            case 0x20: /* 20 AND Eb Gb */
                 modregrm();
 
                 oper1b = readrm8(rm);
@@ -1611,7 +1700,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 writerm8(rm, res8);
                 break;
 
-            case 0x21:    /* 21 AND Ev Gv */
+            case 0x21: /* 21 AND Ev Gv */
                 modregrm();
 
                 oper1 = readrm16(rm);
@@ -1621,7 +1710,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x22:    /* 22 AND Gb Eb */
+            case 0x22: /* 22 AND Gb Eb */
                 modregrm();
 
                 oper1b = getreg8(reg);
@@ -1631,7 +1720,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x23:    /* 23 AND Gv Ev */
+            case 0x23: /* 23 AND Gv Ev */
                 modregrm();
 
                 oper1 = getreg16(reg);
@@ -1641,7 +1730,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x24:    /* 24 AND CPU_AL Ib */
+            case 0x24: /* 24 AND CPU_AL Ib */
                 oper1b = CPU_AL;
                 oper2b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
@@ -1649,7 +1738,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AL = res8;
                 break;
 
-            case 0x25:    /* 25 AND eAX Iv */
+            case 0x25: /* 25 AND eAX Iv */
                 oper1 = CPU_AX;
                 oper2 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
@@ -1657,7 +1746,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AX = res16;
                 break;
 
-            case 0x27:    /* 27 DAA */
+            case 0x27: /* 27 DAA */
             {
                 uint8_t old_al;
                 old_al = CPU_AL;
@@ -1681,7 +1770,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 break;
             }
 
-            case 0x28:    /* 28 SUB Eb Gb */
+            case 0x28: /* 28 SUB Eb Gb */
                 modregrm();
 
                 oper1b = readrm8(rm);
@@ -1691,7 +1780,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x29: {   /* 29 SUB Ev Gv */
+            case 0x29: {
+                /* 29 SUB Ev Gv */
                 modregrm();
                 register uint32_t oper1 = readrm16(rm);
                 register uint32_t oper2 = getreg16(reg);
@@ -1703,7 +1793,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 writerm16(rm, (uint16_t) dst);
                 break;
             }
-            case 0x2A:    /* 2A SUB Gb Eb */
+            case 0x2A: /* 2A SUB Gb Eb */
                 modregrm();
 
                 oper1b = getreg8(reg);
@@ -1713,7 +1803,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x2B:    /* 2B SUB Gv Ev */
+            case 0x2B: /* 2B SUB Gv Ev */
                 modregrm();
 
                 oper1 = getreg16(reg);
@@ -1723,7 +1813,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x2C:    /* 2C SUB CPU_AL Ib */
+            case 0x2C: /* 2C SUB CPU_AL Ib */
                 oper1b = CPU_AL;
                 oper2b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
@@ -1731,7 +1821,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AL = res8;
                 break;
 
-            case 0x2D:    /* 2D SUB eAX Iv */
+            case 0x2D: /* 2D SUB eAX Iv */
                 oper1 = CPU_AX;
                 oper2 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
@@ -1739,7 +1829,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AX = res16;
                 break;
 
-            case 0x2F:    /* 2F DAS */
+            case 0x2F: /* 2F DAS */
             {
                 uint8_t old_al;
                 old_al = CPU_AL;
@@ -1763,7 +1853,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 break;
             }
 
-            case 0x30:    /* 30 XOR Eb Gb */
+            case 0x30: /* 30 XOR Eb Gb */
                 modregrm();
 
                 oper1b = readrm8(rm);
@@ -1773,7 +1863,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x31:    /* 31 XOR Ev Gv */
+            case 0x31: /* 31 XOR Ev Gv */
                 modregrm();
 
                 oper1 = readrm16(rm);
@@ -1783,7 +1873,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x32:    /* 32 XOR Gb Eb */
+            case 0x32: /* 32 XOR Gb Eb */
                 modregrm();
 
                 oper1b = getreg8(reg);
@@ -1793,7 +1883,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x33:    /* 33 XOR Gv Ev */
+            case 0x33: /* 33 XOR Gv Ev */
                 modregrm();
 
                 oper1 = getreg16(reg);
@@ -1803,7 +1893,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x34:    /* 34 XOR CPU_AL Ib */
+            case 0x34: /* 34 XOR CPU_AL Ib */
                 oper1b = CPU_AL;
                 oper2b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
@@ -1811,7 +1901,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AL = res8;
                 break;
 
-            case 0x35:    /* 35 XOR eAX Iv */
+            case 0x35: /* 35 XOR eAX Iv */
                 oper1 = CPU_AX;
                 oper2 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
@@ -1819,7 +1909,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AX = res16;
                 break;
 
-            case 0x37:    /* 37 AAA ASCII */
+            case 0x37: /* 37 AAA ASCII */
                 if (((CPU_AL & 0xF) > 9) || (af == 1)) {
                     CPU_AX = CPU_AX + 0x106;
                     x86_flags.value |= FLAG_CF_AF_MASK;
@@ -1830,7 +1920,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AL = CPU_AL & 0xF;
                 break;
 
-            case 0x38:    /* 38 CMP Eb Gb */
+            case 0x38: /* 38 CMP Eb Gb */
                 modregrm();
 
                 oper1b = readrm8(rm);
@@ -1839,7 +1929,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x39:    /* 39 CMP Ev Gv */
+            case 0x39: /* 39 CMP Ev Gv */
                 modregrm();
 
                 oper1 = readrm16(rm);
@@ -1848,7 +1938,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x3A:    /* 3A CMP Gb Eb */
+            case 0x3A: /* 3A CMP Gb Eb */
                 modregrm();
 
                 oper1b = getreg8(reg);
@@ -1857,7 +1947,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x3B:    /* 3B CMP Gv Ev */
+            case 0x3B: /* 3B CMP Gv Ev */
                 modregrm();
 
                 oper1 = getreg16(reg);
@@ -1866,7 +1956,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x3C:    /* 3C CMP CPU_AL Ib */
+            case 0x3C: /* 3C CMP CPU_AL Ib */
                 oper1b = CPU_AL;
                 oper2b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
@@ -1874,7 +1964,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x3D:    /* 3D CMP eAX Iv */
+            case 0x3D: /* 3D CMP eAX Iv */
                 oper1 = CPU_AX;
                 oper2 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
@@ -1882,7 +1972,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x3F:    /* 3F AAS ASCII */
+            case 0x3F: /* 3F AAS ASCII */
                 if (((CPU_AL & 0xF) > 9) || (af == 1)) {
                     CPU_AX = CPU_AX - 6;
                     CPU_AH = CPU_AH - 1;
@@ -1894,79 +1984,87 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AL = CPU_AL & 0xF;
                 break;
 
-            case 0x40: {   /* 40 INC eAX */
+            case 0x40: {
+                /* 40 INC eAX */
                 register uint32_t oper1 = CPU_AX;
                 register uint32_t dst = oper1 + 1;
                 flag_szp16(dst);
                 of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
                 af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_AX = (uint16_t)dst;
+                CPU_AX = (uint16_t) dst;
                 break;
             }
-            case 0x41: {   /* 41 INC eCX */
+            case 0x41: {
+                /* 41 INC eCX */
                 register uint32_t oper1 = CPU_CX;
                 register uint32_t dst = oper1 + 1;
                 flag_szp16(dst);
                 of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
                 af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_CX = (uint16_t)dst;
+                CPU_CX = (uint16_t) dst;
                 break;
             }
-            case 0x42: {   /* 42 INC eDX */
+            case 0x42: {
+                /* 42 INC eDX */
                 register uint32_t oper1 = CPU_DX;
                 register uint32_t dst = oper1 + 1;
                 flag_szp16(dst);
                 of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
                 af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_DX = (uint16_t)dst;
+                CPU_DX = (uint16_t) dst;
                 break;
             }
-            case 0x43: {   /* 43 INC eBX */
+            case 0x43: {
+                /* 43 INC eBX */
                 register uint32_t oper1 = CPU_BX;
                 register uint32_t dst = oper1 + 1;
                 flag_szp16(dst);
                 of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
                 af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_BX = (uint16_t)dst;
+                CPU_BX = (uint16_t) dst;
                 break;
             }
-            case 0x44: {   /* 44 INC eSP */
+            case 0x44: {
+                /* 44 INC eSP */
                 register uint32_t oper1 = CPU_SP;
                 register uint32_t dst = oper1 + 1;
                 flag_szp16(dst);
                 of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
                 af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_SP = (uint16_t)dst;
+                CPU_SP = (uint16_t) dst;
                 break;
             }
-            case 0x45: {    /* 45 INC eBP */
+            case 0x45: {
+                /* 45 INC eBP */
                 register uint32_t oper1 = CPU_BP;
                 register uint32_t dst = oper1 + 1;
                 flag_szp16(dst);
                 of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
                 af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_BP = (uint16_t)dst;
+                CPU_BP = (uint16_t) dst;
                 break;
             }
-            case 0x46: {   /* 46 INC eSI */
+            case 0x46: {
+                /* 46 INC eSI */
                 register uint32_t oper1 = CPU_SI;
                 register uint32_t dst = oper1 + 1;
                 flag_szp16(dst);
                 of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
                 af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_SI = (uint16_t)dst;
+                CPU_SI = (uint16_t) dst;
                 break;
             }
-            case 0x47: {   /* 47 INC eDI */
+            case 0x47: {
+                /* 47 INC eDI */
                 register uint32_t oper1 = CPU_DI;
                 register uint32_t dst = oper1 + 1;
                 flag_szp16(dst);
                 of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
                 af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_DI = (uint16_t)dst;
+                CPU_DI = (uint16_t) dst;
                 break;
             }
-            case 0x48:    /* 48 DEC eAX */
+            case 0x48: /* 48 DEC eAX */
                 oldcf = cf;
                 oper1 = CPU_AX;
                 oper2 = 1;
@@ -1975,7 +2073,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AX = res16;
                 break;
 
-            case 0x49:    /* 49 DEC eCX */
+            case 0x49: /* 49 DEC eCX */
                 oldcf = cf;
                 oper1 = CPU_CX;
                 oper2 = 1;
@@ -1984,7 +2082,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_CX = res16;
                 break;
 
-            case 0x4A:    /* 4A DEC eDX */
+            case 0x4A: /* 4A DEC eDX */
                 oldcf = cf;
                 oper1 = CPU_DX;
                 oper2 = 1;
@@ -1993,7 +2091,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_DX = res16;
                 break;
 
-            case 0x4B:    /* 4B DEC eBX */
+            case 0x4B: /* 4B DEC eBX */
                 oldcf = cf;
                 oper1 = CPU_BX;
                 oper2 = 1;
@@ -2002,7 +2100,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_BX = res16;
                 break;
 
-            case 0x4C:    /* 4C DEC eSP */
+            case 0x4C: /* 4C DEC eSP */
                 oldcf = cf;
                 oper1 = CPU_SP;
                 oper2 = 1;
@@ -2011,7 +2109,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_SP = res16;
                 break;
 
-            case 0x4D:    /* 4D DEC eBP */
+            case 0x4D: /* 4D DEC eBP */
                 oldcf = cf;
                 oper1 = CPU_BP;
                 oper2 = 1;
@@ -2020,7 +2118,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_BP = res16;
                 break;
 
-            case 0x4E:    /* 4E DEC eSI */
+            case 0x4E: /* 4E DEC eSI */
                 oldcf = cf;
                 oper1 = CPU_SI;
                 oper2 = 1;
@@ -2029,7 +2127,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_SI = res16;
                 break;
 
-            case 0x4F:    /* 4F DEC eDI */
+            case 0x4F: /* 4F DEC eDI */
                 oldcf = cf;
                 oper1 = CPU_DI;
                 oper2 = 1;
@@ -2038,23 +2136,23 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_DI = res16;
                 break;
 
-            case 0x50:    /* 50 PUSH eAX */
+            case 0x50: /* 50 PUSH eAX */
                 push(CPU_AX);
                 break;
 
-            case 0x51:    /* 51 PUSH eCX */
+            case 0x51: /* 51 PUSH eCX */
                 push(CPU_CX);
                 break;
 
-            case 0x52:    /* 52 PUSH eDX */
+            case 0x52: /* 52 PUSH eDX */
                 push(CPU_DX);
                 break;
 
-            case 0x53:    /* 53 PUSH eBX */
+            case 0x53: /* 53 PUSH eBX */
                 push(CPU_BX);
                 break;
 
-            case 0x54:    /* 54 PUSH eSP */
+            case 0x54: /* 54 PUSH eSP */
 #ifdef CPU_286_STYLE_PUSH_SP
                 push(CPU_SP);
 #else
@@ -2062,52 +2160,52 @@ void __not_in_flash() exec86(uint32_t execloops) {
 #endif
                 break;
 
-            case 0x55:    /* 55 PUSH eBP */
+            case 0x55: /* 55 PUSH eBP */
                 push(CPU_BP);
                 break;
 
-            case 0x56:    /* 56 PUSH eSI */
+            case 0x56: /* 56 PUSH eSI */
                 push(CPU_SI);
                 break;
 
-            case 0x57:    /* 57 PUSH eDI */
+            case 0x57: /* 57 PUSH eDI */
                 push(CPU_DI);
                 break;
 
-            case 0x58:    /* 58 POP eAX */
+            case 0x58: /* 58 POP eAX */
                 CPU_AX = pop();
                 break;
 
-            case 0x59:    /* 59 POP eCX */
+            case 0x59: /* 59 POP eCX */
                 CPU_CX = pop();
                 break;
 
-            case 0x5A:    /* 5A POP eDX */
+            case 0x5A: /* 5A POP eDX */
                 CPU_DX = pop();
                 break;
 
-            case 0x5B:    /* 5B POP eBX */
+            case 0x5B: /* 5B POP eBX */
                 CPU_BX = pop();
                 break;
 
-            case 0x5C:    /* 5C POP eSP */
+            case 0x5C: /* 5C POP eSP */
                 CPU_SP = pop();
                 break;
 
-            case 0x5D:    /* 5D POP eBP */
+            case 0x5D: /* 5D POP eBP */
                 CPU_BP = pop();
                 break;
 
-            case 0x5E:    /* 5E POP eSI */
+            case 0x5E: /* 5E POP eSI */
                 CPU_SI = pop();
                 break;
 
-            case 0x5F:    /* 5F POP eDI */
+            case 0x5F: /* 5F POP eDI */
                 CPU_DI = pop();
                 break;
 
 #ifndef CPU_8086
-            case 0x60:    /* 60 PUSHA (80186+) */
+            case 0x60: /* 60 PUSHA (80186+) */
                 oldsp = CPU_SP;
                 push(CPU_AX);
                 push(CPU_CX);
@@ -2119,7 +2217,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 push(CPU_DI);
                 break;
 
-            case 0x61:    /* 61 POPA (80186+) */
+            case 0x61: /* 61 POPA (80186+) */
                 CPU_DI = pop();
                 CPU_SI = pop();
                 CPU_BP = pop();
@@ -2135,18 +2233,18 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
                 getea(rm);
                 if (
-                        signext32(getreg16(reg)
-                        ) <
-                        signext32(getmem16(ea >> 4, ea & 15)
-                        )) {
+                    signext32(getreg16(reg)
+                    ) <
+                    signext32(getmem16(ea >> 4, ea & 15)
+                    )) {
                     intcall86(5); //bounds check exception
                 } else {
                     ea += 2;
                     if (
-                            signext32(getreg16(reg)
-                            ) >
-                            signext32(getmem16(ea >> 4, ea & 15)
-                            )) {
+                        signext32(getreg16(reg)
+                        ) >
+                        signext32(getmem16(ea >> 4, ea & 15)
+                        )) {
                         intcall86(5); //bounds check exception
                     }
                 }
@@ -2159,13 +2257,14 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 addressSizeOverride = true;
                 break;
 #endif
-            case 0x68:    /* 68 PUSH Iv (80186+) */
+            case 0x68: /* 68 PUSH Iv (80186+) */
                 push(getmem16(CPU_CS, CPU_IP)
                 );
                 StepIP(2);
                 break;
 
-            case 0x69: {   /* 69 IMUL Gv Ev Iv (80186+) */
+            case 0x69: {
+                /* 69 IMUL Gv Ev Iv (80186+) */
                 modregrm();
 
                 register uint32_t temp1 = readrm16(rm);
@@ -2188,12 +2287,13 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
             }
-            case 0x6A:    /* 6A PUSH Ib (80186+) */
+            case 0x6A: /* 6A PUSH Ib (80186+) */
                 push((uint16_t) signext(getmem8(CPU_CS, CPU_IP)));
                 StepIP(1);
                 break;
 
-            case 0x6B: {   /* 6B IMUL Gv Eb Ib (80186+) */
+            case 0x6B: {
+                /* 6B IMUL Gv Eb Ib (80186+) */
                 modregrm();
 
                 register uint32_t temp1 = readrm16(rm);
@@ -2216,7 +2316,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
             }
-            case 0x6C:    /* 6E INSB */
+            case 0x6C: /* 6E INSB */
                 if (reptype && (CPU_CX == 0)) {
                     break;
                 }
@@ -2242,7 +2342,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0x6D:    /* 6F INSW */
+            case 0x6D: /* 6F INSW */
                 if (reptype && (CPU_CX == 0)) {
                     break;
                 }
@@ -2268,7 +2368,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0x6E:    /* 6E OUTSB */
+            case 0x6E: /* 6E OUTSB */
                 if (reptype && (CPU_CX == 0)) {
                     break;
                 }
@@ -2294,7 +2394,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0x6F:    /* 6F OUTSW */
+            case 0x6F: /* 6F OUTSW */
                 if (reptype && (CPU_CX == 0)) {
                     break;
                 }
@@ -2321,7 +2421,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 break;
 #endif
 
-            case 0x70:    /* 70 JO Jb */
+            case 0x70: /* 70 JO Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (of) {
@@ -2329,7 +2429,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x71:    /* 71 JNO Jb */
+            case 0x71: /* 71 JNO Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (!of) {
@@ -2337,7 +2437,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x72:    /* 72 JB Jb */
+            case 0x72: /* 72 JB Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (cf) {
@@ -2345,7 +2445,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x73:    /* 73 JNB Jb */
+            case 0x73: /* 73 JNB Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (!cf) {
@@ -2353,7 +2453,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x74:    /* 74 JZ Jb */
+            case 0x74: /* 74 JZ Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (zf) {
@@ -2361,7 +2461,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x75:    /* 75 JNZ Jb */
+            case 0x75: /* 75 JNZ Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (!zf) {
@@ -2369,7 +2469,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x76:    /* 76 JBE Jb */
+            case 0x76: /* 76 JBE Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (cf || zf) {
@@ -2377,7 +2477,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x77:    /* 77 JA Jb */
+            case 0x77: /* 77 JA Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (!cf && !zf) {
@@ -2385,7 +2485,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x78:    /* 78 JS Jb */
+            case 0x78: /* 78 JS Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (sf) {
@@ -2393,7 +2493,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x79:    /* 79 JNS Jb */
+            case 0x79: /* 79 JNS Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (!sf) {
@@ -2401,7 +2501,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x7A:    /* 7A JPE Jb */
+            case 0x7A: /* 7A JPE Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (pf) {
@@ -2409,7 +2509,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x7B:    /* 7B JPO Jb */
+            case 0x7B: /* 7B JPO Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (!pf) {
@@ -2417,7 +2517,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x7C:    /* 7C JL Jb */
+            case 0x7C: /* 7C JL Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (sf != of) {
@@ -2425,7 +2525,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x7D:    /* 7D JGE Jb */
+            case 0x7D: /* 7D JGE Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (sf == of) {
@@ -2433,7 +2533,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x7E:    /* 7E JLE Jb */
+            case 0x7E: /* 7E JLE Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if ((sf != of) || zf) {
@@ -2441,18 +2541,18 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x7F:    /* 7F JG Jb */
+            case 0x7F: /* 7F JG Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (!
-                            zf && (sf
-                                   == of)) {
+                    zf && (sf
+                           == of)) {
                     CPU_IP = CPU_IP + temp16;
                 }
                 break;
 
             case 0x80:
-            case 0x82:    /* 80/82 GRP1 Eb Ib */
+            case 0x82: /* 80/82 GRP1 Eb Ib */
                 modregrm();
 
                 oper1b = readrm8(rm);
@@ -2485,7 +2585,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                         );
                         break;
                     default:
-                        break;    /* to avoid compiler warnings */
+                        break; /* to avoid compiler warnings */
                 }
 
                 if (reg < 7) {
@@ -2494,8 +2594,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x81:    /* 81 GRP1 Ev Iv */
-            case 0x83:    /* 83 GRP1 Ev Ib */
+            case 0x81: /* 81 GRP1 Ev Iv */
+            case 0x83: /* 83 GRP1 Ev Ib */
                 modregrm();
 
                 oper1 = readrm16(rm);
@@ -2534,7 +2634,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                         );
                         break;
                     default:
-                        break;    /* to avoid compiler warnings */
+                        break; /* to avoid compiler warnings */
                 }
 
                 if (reg < 7) {
@@ -2543,7 +2643,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x84:    /* 84 TEST Gb Eb */
+            case 0x84: /* 84 TEST Gb Eb */
                 modregrm();
 
                 oper1b = getreg8(reg);
@@ -2552,7 +2652,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                           & oper2b);
                 break;
 
-            case 0x85:    /* 85 TEST Gv Ev */
+            case 0x85: /* 85 TEST Gv Ev */
                 modregrm();
 
                 oper1 = getreg16(reg);
@@ -2561,7 +2661,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                            & oper2);
                 break;
 
-            case 0x86:    /* 86 XCHG Gb Eb */
+            case 0x86: /* 86 XCHG Gb Eb */
                 modregrm();
 
                 oper1b = getreg8(reg);
@@ -2571,7 +2671,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x87:    /* 87 XCHG Gv Ev */
+            case 0x87: /* 87 XCHG Gv Ev */
                 modregrm();
 
                 oper1 = getreg16(reg);
@@ -2581,111 +2681,111 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0x88:    /* 88 MOV Eb Gb */
+            case 0x88: /* 88 MOV Eb Gb */
                 modregrm();
 
                 writerm8(rm, getreg8(reg)
                 );
                 break;
 
-            case 0x89:    /* 89 MOV Ev Gv */
+            case 0x89: /* 89 MOV Ev Gv */
                 modregrm();
 
                 writerm16(rm, getreg16(reg)
                 );
                 break;
 
-            case 0x8A:    /* 8A MOV Gb Eb */
+            case 0x8A: /* 8A MOV Gb Eb */
                 modregrm();
 
                 putreg8(reg, readrm8(rm)
                 );
                 break;
 
-            case 0x8B:    /* 8B MOV Gv Ev */
+            case 0x8B: /* 8B MOV Gv Ev */
                 modregrm();
 
                 putreg16(reg, readrm16(rm)
                 );
                 break;
 
-            case 0x8C:    /* 8C MOV Ew Sw */
+            case 0x8C: /* 8C MOV Ew Sw */
                 modregrm();
 
                 writerm16(rm, getsegreg(reg)
                 );
                 break;
 
-            case 0x8D:    /* 8D LEA Gv M */
+            case 0x8D: /* 8D LEA Gv M */
                 modregrm();
 
                 getea(rm);
                 putreg16(reg, ea
-                        -
-                                segbase(useseg)
+                         -
+                         segbase(useseg)
                 );
                 break;
 
-            case 0x8E:    /* 8E MOV Sw Ew */
+            case 0x8E: /* 8E MOV Sw Ew */
                 modregrm();
 
                 putsegreg(reg, readrm16(rm)
                 );
                 break;
 
-            case 0x8F:    /* 8F POP Ev */
+            case 0x8F: /* 8F POP Ev */
                 modregrm();
 
                 writerm16(rm, pop()
                 );
                 break;
 
-            case 0x90:    /* 90 NOP */
+            case 0x90: /* 90 NOP */
                 break;
 
-            case 0x91:    /* 91 XCHG eCX eAX */
+            case 0x91: /* 91 XCHG eCX eAX */
                 oper1 = CPU_CX;
                 CPU_CX = CPU_AX;
                 CPU_AX = oper1;
                 break;
 
-            case 0x92:    /* 92 XCHG eDX eAX */
+            case 0x92: /* 92 XCHG eDX eAX */
                 oper1 = CPU_DX;
                 CPU_DX = CPU_AX;
                 CPU_AX = oper1;
                 break;
 
-            case 0x93:    /* 93 XCHG eBX eAX */
+            case 0x93: /* 93 XCHG eBX eAX */
                 oper1 = CPU_BX;
                 CPU_BX = CPU_AX;
                 CPU_AX = oper1;
                 break;
 
-            case 0x94:    /* 94 XCHG eSP eAX */
+            case 0x94: /* 94 XCHG eSP eAX */
                 oper1 = CPU_SP;
                 CPU_SP = CPU_AX;
                 CPU_AX = oper1;
                 break;
 
-            case 0x95:    /* 95 XCHG eBP eAX */
+            case 0x95: /* 95 XCHG eBP eAX */
                 oper1 = CPU_BP;
                 CPU_BP = CPU_AX;
                 CPU_AX = oper1;
                 break;
 
-            case 0x96:    /* 96 XCHG eSI eAX */
+            case 0x96: /* 96 XCHG eSI eAX */
                 oper1 = CPU_SI;
                 CPU_SI = CPU_AX;
                 CPU_AX = oper1;
                 break;
 
-            case 0x97:    /* 97 XCHG eDI eAX */
+            case 0x97: /* 97 XCHG eDI eAX */
                 oper1 = CPU_DI;
                 CPU_DI = CPU_AX;
                 CPU_AX = oper1;
                 break;
 
-            case 0x98:    /* 98 CBW */
+            case 0x98: /* 98 CBW */
                 if ((CPU_AL & 0x80) == 0x80) {
                     CPU_AH = 0xFF;
                 } else {
@@ -2693,7 +2793,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x99:    /* 99 CWD */
+            case 0x99: /* 99 CWD */
                 if ((CPU_AH & 0x80) == 0x80) {
                     CPU_DX = 0xFFFF;
                 } else {
@@ -2701,7 +2801,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
 
-            case 0x9A:    /* 9A CALL Ap */
+            case 0x9A: /* 9A CALL Ap */
                 oper1 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 oper2 = getmem16(CPU_CS, CPU_IP);
@@ -2712,11 +2812,11 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_CS = oper2;
                 break;
 
-            case 0x9B:    /* 9B WAIT */
-            /// TODO:
+            case 0x9B: /* 9B WAIT */
+                /// TODO:
                 break;
 
-            case 0x9C:    /* 9C PUSHF */
+            case 0x9C: /* 9C PUSHF */
 #ifdef CPU_SET_HIGH_FLAGS
                 push(makeflagsword() | 0xF800);
 #else
@@ -2724,44 +2824,44 @@ void __not_in_flash() exec86(uint32_t execloops) {
 #endif
                 break;
 
-            case 0x9D:    /* 9D POPF */
+            case 0x9D: /* 9D POPF */
                 temp16 = pop();
                 decodeflagsword(temp16);
                 break;
 
-            case 0x9E:    /* 9E SAHF */
+            case 0x9E: /* 9E SAHF */
                 decodeflagsword((makeflagsword() & 0xFF00) | CPU_AH);
                 break;
 
-            case 0x9F:    /* 9F LAHF */
+            case 0x9F: /* 9F LAHF */
                 CPU_AH = makeflagsword() & 0xFF;
                 break;
 
-            case 0xA0:    /* A0 MOV CPU_AL Ob */
+            case 0xA0: /* A0 MOV CPU_AL Ob */
                 CPU_AL = getmem8(useseg, getmem16(CPU_CS, CPU_IP));
                 StepIP(2);
                 break;
 
-            case 0xA1:    /* A1 MOV eAX Ov */
+            case 0xA1: /* A1 MOV eAX Ov */
                 oper1 = getmem16(useseg, getmem16(CPU_CS, CPU_IP));
                 StepIP(2);
                 CPU_AX = oper1;
                 break;
 
-            case 0xA2:    /* A2 MOV Ob CPU_AL */
+            case 0xA2: /* A2 MOV Ob CPU_AL */
                 putmem8(useseg, getmem16(CPU_CS, CPU_IP), CPU_AL);
                 StepIP(2);
                 break;
 
-            case 0xA3:    /* A3 MOV Ov eAX */
+            case 0xA3: /* A3 MOV Ov eAX */
                 putmem16(useseg, getmem16(CPU_CS, CPU_IP), CPU_AX);
                 StepIP(2);
                 break;
 
-            case 0xA4:    /* A4 MOVSB */
+            case 0xA4: /* A4 MOVSB */
                 if (
-                        reptype && (CPU_CX
-                                    == 0)) {
+                    reptype && (CPU_CX
+                                == 0)) {
                     break;
                 }
 
@@ -2787,10 +2887,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0xA5:    /* A5 MOVSW */
+            case 0xA5: /* A5 MOVSW */
                 if (
-                        reptype && (CPU_CX
-                                    == 0)) {
+                    reptype && (CPU_CX
+                                == 0)) {
                     break;
                 }
 
@@ -2816,10 +2916,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0xA6:    /* A6 CMPSB */
+            case 0xA6: /* A6 CMPSB */
                 if (
-                        reptype && (CPU_CX
-                                    == 0)) {
+                    reptype && (CPU_CX
+                                == 0)) {
                     break;
                 }
 
@@ -2853,10 +2953,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0xA7:    /* A7 CMPSW */
+            case 0xA7: /* A7 CMPSW */
                 if (
-                        reptype && (CPU_CX
-                                    == 0)) {
+                    reptype && (CPU_CX
+                                == 0)) {
                     break;
                 }
 
@@ -2892,7 +2992,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0xA8:    /* A8 TEST CPU_AL Ib */
+            case 0xA8: /* A8 TEST CPU_AL Ib */
                 oper1b = CPU_AL;
                 oper2b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
@@ -2900,7 +3000,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                           & oper2b);
                 break;
 
-            case 0xA9:    /* A9 TEST eAX Iv */
+            case 0xA9: /* A9 TEST eAX Iv */
                 oper1 = CPU_AX;
                 oper2 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
@@ -2908,10 +3008,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
                            & oper2);
                 break;
 
-            case 0xAA:    /* AA STOSB */
+            case 0xAA: /* AA STOSB */
                 if (
-                        reptype && (CPU_CX
-                                    == 0)) {
+                    reptype && (CPU_CX
+                                == 0)) {
                     break;
                 }
 
@@ -2935,10 +3035,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0xAB:    /* AB STOSW */
+            case 0xAB: /* AB STOSW */
                 if (
-                        reptype && (CPU_CX
-                                    == 0)) {
+                    reptype && (CPU_CX
+                                == 0)) {
                     break;
                 }
 
@@ -2962,10 +3062,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0xAC:    /* AC LODSB */
+            case 0xAC: /* AC LODSB */
                 if (
-                        reptype && (CPU_CX
-                                    == 0)) {
+                    reptype && (CPU_CX
+                                == 0)) {
                     break;
                 }
 
@@ -2988,10 +3088,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0xAD:    /* AD LODSW */
+            case 0xAD: /* AD LODSW */
                 if (
-                        reptype && (CPU_CX
-                                    == 0)) {
+                    reptype && (CPU_CX
+                                == 0)) {
                     break;
                 }
 
@@ -3015,10 +3115,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0xAE:    /* AE SCASB */
+            case 0xAE: /* AE SCASB */
                 if (
-                        reptype && (CPU_CX
-                                    == 0)) {
+                    reptype && (CPU_CX
+                                == 0)) {
                     break;
                 }
 
@@ -3050,10 +3150,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0xAF:    /* AF SCASW */
+            case 0xAF: /* AF SCASW */
                 if (
-                        reptype && (CPU_CX
-                                    == 0)) {
+                    reptype && (CPU_CX
+                                == 0)) {
                     break;
                 }
 
@@ -3073,7 +3173,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
                 if ((reptype == 1) && !zf) {
                     break;
-                } else if ((reptype == 2) && (zf == 1)) { //did i fix a typo bug? this used to be & instead of &&
+                } else if ((reptype == 2) && (zf == 1)) {
+                    //did i fix a typo bug? this used to be & instead of &&
                     break;
                 }
 
@@ -3085,91 +3186,91 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_IP = firstip;
                 break;
 
-            case 0xB0:    /* B0 MOV CPU_AL Ib */
+            case 0xB0: /* B0 MOV CPU_AL Ib */
                 CPU_AL = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 break;
 
-            case 0xB1:    /* B1 MOV CPU_CL Ib */
+            case 0xB1: /* B1 MOV CPU_CL Ib */
                 CPU_CL = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 break;
 
-            case 0xB2:    /* B2 MOV CPU_DL Ib */
+            case 0xB2: /* B2 MOV CPU_DL Ib */
                 CPU_DL = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 break;
 
-            case 0xB3:    /* B3 MOV CPU_BL Ib */
+            case 0xB3: /* B3 MOV CPU_BL Ib */
                 CPU_BL = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 break;
 
-            case 0xB4:    /* B4 MOV CPU_AH Ib */
+            case 0xB4: /* B4 MOV CPU_AH Ib */
                 CPU_AH = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 break;
 
-            case 0xB5:    /* B5 MOV CPU_CH Ib */
+            case 0xB5: /* B5 MOV CPU_CH Ib */
                 CPU_CH = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 break;
 
-            case 0xB6:    /* B6 MOV CPU_DH Ib */
+            case 0xB6: /* B6 MOV CPU_DH Ib */
                 CPU_DH = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 break;
 
-            case 0xB7:    /* B7 MOV CPU_BH Ib */
+            case 0xB7: /* B7 MOV CPU_BH Ib */
                 CPU_BH = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 break;
 
-            case 0xB8:    /* B8 MOV eAX Iv */
+            case 0xB8: /* B8 MOV eAX Iv */
                 oper1 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 CPU_AX = oper1;
                 break;
 
-            case 0xB9:    /* B9 MOV eCX Iv */
+            case 0xB9: /* B9 MOV eCX Iv */
                 oper1 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 CPU_CX = oper1;
                 break;
 
-            case 0xBA:    /* BA MOV eDX Iv */
+            case 0xBA: /* BA MOV eDX Iv */
                 oper1 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 CPU_DX = oper1;
                 break;
 
-            case 0xBB:    /* BB MOV eBX Iv */
+            case 0xBB: /* BB MOV eBX Iv */
                 oper1 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 CPU_BX = oper1;
                 break;
 
-            case 0xBC:    /* BC MOV eSP Iv */
+            case 0xBC: /* BC MOV eSP Iv */
                 CPU_SP = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 break;
 
-            case 0xBD:    /* BD MOV eBP Iv */
+            case 0xBD: /* BD MOV eBP Iv */
                 CPU_BP = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 break;
 
-            case 0xBE:    /* BE MOV eSI Iv */
+            case 0xBE: /* BE MOV eSI Iv */
                 CPU_SI = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 break;
 
-            case 0xBF:    /* BF MOV eDI Iv */
+            case 0xBF: /* BF MOV eDI Iv */
                 CPU_DI = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 break;
 
-            case 0xC0:    /* C0 GRP2 byte imm8 (80186+) */
+            case 0xC0: /* C0 GRP2 byte imm8 (80186+) */
                 modregrm();
 
                 oper1b = readrm8(rm);
@@ -3178,7 +3279,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 writerm8(rm, op_grp2_8(oper2b, oper1b));
                 break;
 
-            case 0xC1:    /* C1 GRP2 word imm8 (80186+) */
+            case 0xC1: /* C1 GRP2 word imm8 (80186+) */
                 modregrm();
 
                 oper1 = readrm16(rm);
@@ -3188,17 +3289,17 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0xC2:    /* C2 RET Iw */
+            case 0xC2: /* C2 RET Iw */
                 oper1 = getmem16(CPU_CS, CPU_IP);
                 CPU_IP = pop();
                 CPU_SP = CPU_SP + oper1;
                 break;
 
-            case 0xC3:    /* C3 RET */
+            case 0xC3: /* C3 RET */
                 CPU_IP = pop();
                 break;
 
-            case 0xC4:    /* C4 LES Gv Mp */
+            case 0xC4: /* C4 LES Gv Mp */
                 modregrm();
 
                 getea(rm);
@@ -3206,7 +3307,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_ES = read86(ea + 2) + read86(ea + 3) * 256;
                 break;
 
-            case 0xC5:    /* C5 LDS Gv Mp */
+            case 0xC5: /* C5 LDS Gv Mp */
                 modregrm();
 
                 getea(rm);
@@ -3214,7 +3315,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_DS = read86(ea + 2) + read86(ea + 3) * 256;
                 break;
 
-            case 0xC6:    /* C6 MOV Eb Ib */
+            case 0xC6: /* C6 MOV Eb Ib */
                 modregrm();
 
                 writerm8(rm, getmem8(CPU_CS, CPU_IP)
@@ -3222,7 +3323,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 StepIP(1);
                 break;
 
-            case 0xC7:    /* C7 MOV Ev Iv */
+            case 0xC7: /* C7 MOV Ev Iv */
                 modregrm();
 
                 writerm16(rm, getmem16(CPU_CS, CPU_IP)
@@ -3230,7 +3331,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 StepIP(2);
                 break;
 
-            case 0xC8:    /* C8 ENTER (80186+) */
+            case 0xC8: /* C8 ENTER (80186+) */
                 stacksize = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 nestlev = getmem8(CPU_CS, CPU_IP);
@@ -3239,9 +3340,9 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 frametemp = CPU_SP;
                 if (nestlev) {
                     for (
-                            temp16 = 1;
-                            temp16 < nestlev;
-                            ++temp16) {
+                        temp16 = 1;
+                        temp16 < nestlev;
+                        ++temp16) {
                         CPU_BP = CPU_BP - 2;
                         push(CPU_BP);
                     }
@@ -3254,40 +3355,40 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
                 break;
 
-            case 0xC9:    /* C9 LEAVE (80186+) */
+            case 0xC9: /* C9 LEAVE (80186+) */
                 CPU_SP = CPU_BP;
                 CPU_BP = pop();
                 break;
 
-            case 0xCA:    /* CA RETF Iw */
+            case 0xCA: /* CA RETF Iw */
                 oper1 = getmem16(CPU_CS, CPU_IP);
                 CPU_IP = pop();
                 CPU_CS = pop();
                 CPU_SP = CPU_SP + oper1;
                 break;
 
-            case 0xCB:    /* CB RETF */
+            case 0xCB: /* CB RETF */
                 CPU_IP = pop();
                 CPU_CS = pop();
                 break;
 
-            case 0xCC:    /* CC INT 3 */
+            case 0xCC: /* CC INT 3 */
                 intcall86(3);
                 break;
 
-            case 0xCD:    /* CD INT Ib */
+            case 0xCD: /* CD INT Ib */
                 oper1b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 intcall86(oper1b);
                 break;
 
-            case 0xCE:    /* CE INTO */
+            case 0xCE: /* CE INTO */
                 if (of) {
                     intcall86(4);
                 }
                 break;
 
-            case 0xCF:    /* CF IRET */
+            case 0xCF: /* CF IRET */
                 CPU_IP = pop();
                 CPU_CS = pop();
 #ifdef CPU_SET_HIGH_FLAGS
@@ -3297,19 +3398,19 @@ void __not_in_flash() exec86(uint32_t execloops) {
 #endif
 
 
-/*
- * if (net.enabled) net.canrecv = 1;
- */
+                /*
+                 * if (net.enabled) net.canrecv = 1;
+                 */
                 break;
 
-            case 0xD0:    /* D0 GRP2 Eb 1 */
+            case 0xD0: /* D0 GRP2 Eb 1 */
                 modregrm();
 
                 oper1b = readrm8(rm);
                 writerm8(rm, op_grp2_8(1, oper1b));
                 break;
 
-            case 0xD1:    /* D1 GRP2 Ev 1 */
+            case 0xD1: /* D1 GRP2 Ev 1 */
                 modregrm();
 
                 oper1 = readrm16(rm);
@@ -3317,14 +3418,14 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0xD2:    /* D2 GRP2 Eb CPU_CL */
+            case 0xD2: /* D2 GRP2 Eb CPU_CL */
                 modregrm();
 
                 oper1b = readrm8(rm);
                 writerm8(rm, op_grp2_8(CPU_CL, oper1b));
                 break;
 
-            case 0xD3:    /* D3 GRP2 Ev CPU_CL */
+            case 0xD3: /* D3 GRP2 Ev CPU_CL */
                 modregrm();
 
                 oper1 = readrm16(rm);
@@ -3332,20 +3433,20 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 );
                 break;
 
-            case 0xD4:    /* D4 AAM I0 */
+            case 0xD4: /* D4 AAM I0 */
                 oper1 = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 if (!oper1) {
                     intcall86(0);
                     break;
-                }    /* division by zero */
+                } /* division by zero */
 
                 CPU_AH = (CPU_AL / oper1) & 255;
                 CPU_AL = (CPU_AL % oper1) & 255;
                 flag_szp16(CPU_AX);
                 break;
 
-            case 0xD5:    /* D5 AAD I0 */
+            case 0xD5: /* D5 AAD I0 */
                 oper1 = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 CPU_AL = (CPU_AH * oper1 + CPU_AL) & 255;
@@ -3355,13 +3456,13 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 sf = 0;
                 break;
 
-            case 0xD6:    /* D6 XLAT on V20/V30, SALC on 8086/8088 */
+            case 0xD6: /* D6 XLAT on V20/V30, SALC on 8086/8088 */
 #ifndef CPU_NO_SALC
                 CPU_AL = CPU_FL_CF ? 0xFF : 0x00;
-break;
+                break;
 #endif
 
-            case 0xD7:    /* D7 XLAT */
+            case 0xD7: /* D7 XLAT */
                 CPU_AL = read86(useseg * 16 + (CPU_BX) + CPU_AL);
                 break;
 
@@ -3372,12 +3473,12 @@ break;
             case 0xDC:
             case 0xDE:
             case 0xDD:
-            case 0xDF:    /* escape to x87 FPU (unsupported) */
+            case 0xDF: /* escape to x87 FPU (unsupported) */
                 modregrm();
 
                 break;
 
-            case 0xE0:    /* E0 LOOPNZ Jb */
+            case 0xE0: /* E0 LOOPNZ Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 CPU_CX = CPU_CX - 1;
@@ -3386,7 +3487,7 @@ break;
                 }
                 break;
 
-            case 0xE1:    /* E1 LOOPZ Jb */
+            case 0xE1: /* E1 LOOPZ Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 CPU_CX = CPU_CX - 1;
@@ -3395,7 +3496,7 @@ break;
                 }
                 break;
 
-            case 0xE2:    /* E2 LOOP Jb */
+            case 0xE2: /* E2 LOOP Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 CPU_CX = CPU_CX - 1;
@@ -3404,7 +3505,7 @@ break;
                 }
                 break;
 
-            case 0xE3:    /* E3 JCXZ Jb */
+            case 0xE3: /* E3 JCXZ Jb */
                 temp16 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 if (!CPU_CX) {
@@ -3412,46 +3513,46 @@ break;
                 }
                 break;
 
-            case 0xE4:    /* E4 IN CPU_AL Ib */
+            case 0xE4: /* E4 IN CPU_AL Ib */
                 oper1b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 CPU_AL = (uint8_t) portin(oper1b);
                 break;
 
-            case 0xE5:    /* E5 IN eAX Ib */
+            case 0xE5: /* E5 IN eAX Ib */
                 oper1b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 CPU_AX = portin16(oper1b);
                 break;
 
-            case 0xE6:    /* E6 OUT Ib CPU_AL */
+            case 0xE6: /* E6 OUT Ib CPU_AL */
                 oper1b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 portout(oper1b, CPU_AL
                 );
                 break;
 
-            case 0xE7:    /* E7 OUT Ib eAX */
+            case 0xE7: /* E7 OUT Ib eAX */
                 oper1b = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 portout16(oper1b, CPU_AX
                 );
                 break;
 
-            case 0xE8:    /* E8 CALL Jv */
+            case 0xE8: /* E8 CALL Jv */
                 oper1 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 push(CPU_IP);
                 CPU_IP = CPU_IP + oper1;
                 break;
 
-            case 0xE9:    /* E9 JMP Jv */
+            case 0xE9: /* E9 JMP Jv */
                 oper1 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 CPU_IP = CPU_IP + oper1;
                 break;
 
-            case 0xEA:    /* EA JMP Ap */
+            case 0xEA: /* EA JMP Ap */
                 oper1 = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
                 oper2 = getmem16(CPU_CS, CPU_IP);
@@ -3459,42 +3560,42 @@ break;
                 CPU_CS = oper2;
                 break;
 
-            case 0xEB:    /* EB JMP Jb */
+            case 0xEB: /* EB JMP Jb */
                 oper1 = signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
                 CPU_IP = CPU_IP + oper1;
                 break;
 
-            case 0xEC:    /* EC IN CPU_AL regdx */
+            case 0xEC: /* EC IN CPU_AL regdx */
                 oper1 = CPU_DX;
                 CPU_AL = (uint8_t) portin(oper1);
                 break;
 
-            case 0xED:    /* ED IN eAX regdx */
+            case 0xED: /* ED IN eAX regdx */
                 oper1 = CPU_DX;
                 CPU_AX = portin16(oper1);
                 break;
 
-            case 0xEE:    /* EE OUT regdx CPU_AL */
+            case 0xEE: /* EE OUT regdx CPU_AL */
                 oper1 = CPU_DX;
                 portout(oper1, CPU_AL
                 );
                 break;
 
-            case 0xEF:    /* EF OUT regdx eAX */
+            case 0xEF: /* EF OUT regdx eAX */
                 oper1 = CPU_DX;
                 portout16(oper1, CPU_AX);
                 break;
 
-            case 0xF0:    /* F0 LOCK */
+            case 0xF0: /* F0 LOCK */
                 break;
 
-            case 0xF4:    /* F4 HLT */
-            /// TODO:
+            case 0xF4: /* F4 HLT */
+                /// TODO:
                 //hltstate = 1;
                 break;
 
-            case 0xF5:    /* F5 CMC */
+            case 0xF5: /* F5 CMC */
                 if (!cf) {
                     cf = 1;
                 } else {
@@ -3502,7 +3603,7 @@ break;
                 }
                 break;
 
-            case 0xF6:    /* F6 GRP3a Eb */
+            case 0xF6: /* F6 GRP3a Eb */
                 modregrm();
                 oper1b = readrm8(rm);
                 oper1 = signext(oper1b);
@@ -3527,7 +3628,8 @@ break;
                         }
                         break;
 
-                    case 4: {/* MUL */
+                    case 4: {
+                        /* MUL */
                         register uint32_t temp1 = (uint32_t) oper1b * (uint32_t) CPU_AL;
                         CPU_AX = temp1 & 0xFFFF;
                         flag_szp8((uint8_t) temp1);
@@ -3536,12 +3638,13 @@ break;
                         } else {
                             x86_flags.value &= ~FLAG_CF_OF_MASK;
                         }
-                        #ifdef CPU_CLEAR_ZF_ON_MUL
+#ifdef CPU_CLEAR_ZF_ON_MUL
                         zf = 0;
-                        #endif
+#endif
                         break;
                     }
-                    case 5: { /* IMUL */
+                    case 5: {
+                        /* IMUL */
                         oper1 = signext(oper1b);
                         register uint32_t temp1 = signext(CPU_AL);
                         register uint32_t temp2 = oper1;
@@ -3559,9 +3662,9 @@ break;
                         } else {
                             x86_flags.value &= ~FLAG_CF_OF_MASK;
                         }
-                        #ifdef CPU_CLEAR_ZF_ON_MUL
+#ifdef CPU_CLEAR_ZF_ON_MUL
                         zf = 0;
-                        #endif
+#endif
                         break;
                     }
                     case 6: /* DIV */
@@ -3579,7 +3682,7 @@ break;
                 }
                 break;
 
-            case 0xF7:    /* F7 GRP3b Ev */
+            case 0xF7: /* F7 GRP3b Ev */
                 modregrm();
 
                 oper1 = readrm16(rm);
@@ -3590,31 +3693,31 @@ break;
                 }
                 break;
 
-            case 0xF8:    /* F8 CLC */
+            case 0xF8: /* F8 CLC */
                 cf = 0;
                 break;
 
-            case 0xF9:    /* F9 STC */
+            case 0xF9: /* F9 STC */
                 cf = 1;
                 break;
 
-            case 0xFA:    /* FA CLI */
+            case 0xFA: /* FA CLI */
                 ifl = 0;
                 break;
 
-            case 0xFB:    /* FB STI */
+            case 0xFB: /* FB STI */
                 ifl = 1;
                 break;
 
-            case 0xFC:    /* FC CLD */
+            case 0xFC: /* FC CLD */
                 df = 0;
                 break;
 
-            case 0xFD:    /* FD STD */
+            case 0xFD: /* FD STD */
                 df = 1;
                 break;
 
-            case 0xFE:    /* FE GRP4 Eb */
+            case 0xFE: /* FE GRP4 Eb */
                 modregrm();
                 oper1b = readrm8(rm);
                 oper2b = 1;
@@ -3632,7 +3735,7 @@ break;
                 }
                 break;
 
-            case 0xFF:    /* FF GRP5 Ev */
+            case 0xFF: /* FF GRP5 Ev */
                 modregrm();
 
                 oper1 = readrm16(rm);

@@ -244,7 +244,7 @@ uint8_t __not_in_flash() xms_handler() {
             printf("[XMS] Query free\r\n");
 #endif
             CPU_AX = XMS_MEMORY_SIZE >> 10;
-            CPU_DX = XMS_HANDLES;
+            CPU_DX = XMS_HANDLES - xms_handles;
             CPU_BL = 0;
             break;
         }
@@ -323,9 +323,10 @@ uint8_t __not_in_flash() xms_handler() {
                     uint16_t sz = 0;
                     const umb_t *umb_block = get_largest_free_umb_block(&sz);
                     if (umb_block != NULL) {
+                        CPU_AX = 1;
+                        CPU_BX = umb_block->segment;
                         CPU_DX = sz;
-                        CPU_BX = 0x00B0; // Success
-                        CPU_AX = 0x0000; // Success
+                        CPU_BL = 0;
                         break;
                     }
                 }
@@ -351,8 +352,10 @@ uint8_t __not_in_flash() xms_handler() {
                 }
             }
 
+            uint16_t sz = 0;
+            get_largest_free_umb_block(&sz);
             CPU_AX = 0x0000;
-            CPU_DX = 0x0000;
+            CPU_DX = sz;
             CPU_BL = umb_blocks_allocated >= UMB_BLOCKS_COUNT ? 0xB1 : 0xB0;
             break;
         }

@@ -118,6 +118,81 @@ The Pico-286 emulator is designed to run on Raspberry Pi Pico (RP2040) based har
 ### 🛠️ Development Platform
 *   This project primarily uses the [MURMULATOR dev board](https://murmulator.ru) as its hardware base. This board provides an RP2040, PSRAM, and various peripherals suitable for the emulator's development and testing. 🎯
 
+### 🔌 Default Pinout
+The emulator has a default GPIO pin configuration for its peripherals on the Raspberry Pi Pico. These are defined in `CMakeLists.txt` and can be modified there if needed.
+
+| Peripheral      | GPIO Pin(s)                     | Notes                               |
+|-----------------|---------------------------------|-------------------------------------|
+| **VGA Output**  | 6 (base pin)                    | Sequential pins used for RGB        |
+| **HDMI Output** | 6 (base pin)                    |                                     |
+| **TFT Display** | CS: 6, RST: 8, LED: 9, DC: 10, DATA: 12, CLK: 13 | ST7789 driver                       |
+| **SD Card**     | CS: 5, SCK: 2, MOSI: 3, MISO: 4 | SPI0                                |
+| **PSRAM**       | CS: 18, SCK: 19, MOSI: 20, MISO: 21 | Generic external PSRAM              |
+| **NES Gamepad** | CLK: 14, DATA: 16, LAT: 15      | Used for mouse emulation if needed  |
+| **I2S Audio**   | CLOCK: 17, PCM: 22              |                                     |
+| **PWM Audio**   | Beeper: 28, L: 26, R: 27        |                                     |
+
+### ⚙️ Platform-specific Details
+The emulator's resource allocation changes based on the target platform and build options.
+
+#### Conventional RAM (`RAM_SIZE`)
+This is the amount of memory available to the emulated PC as conventional memory (e.g., the classic 640KB).
+
+| Platform | Memory Configuration | Available RAM |
+|----------|----------------------|---------------|
+| **Host** | N/A                  | 640 KB        |
+| **RP2350**| PSRAM (default)      | 350 KB        |
+| **RP2350**| Virtual Memory       | 200 KB        |
+| **RP2040**| PSRAM (default)      | 116 KB        |
+| **RP2040**| Virtual Memory       | 72 KB         |
+
+#### Audio Sample Rate (`SOUND_FREQUENCY`)
+The audio quality depends on the platform and the chosen audio output method.
+
+| Platform | Audio Option         | Sample Rate |
+|----------|----------------------|-------------|
+| Any      | `HARDWARE_SOUND=ON`  | 44100 Hz    |
+| **Host** | Any other option     | 44100 Hz    |
+| **RP2350**| Any other option     | 44100 Hz    |
+| **RP2040**| Any other option     | 22050 Hz    |
+
+### Extended Memory (EMS/XMS)
+To run more advanced DOS applications and games, the emulator supports two types of extended memory systems, providing memory beyond the conventional 640KB limit. The active system is chosen at compile time.
+
+#### 1. PSRAM (Pseudo-Static RAM)
+This is the high-performance default method, used when a hardware PSRAM chip is available.
+*   **How it works:** It directly communicates with an external PSRAM chip over a high-speed SPI interface, managed by the Pico's PIO and DMA for maximum performance.
+*   **When to use:** This is the recommended option for all platforms that have a PSRAM chip (like the RP2350 or custom boards). It provides the best performance for applications requiring EMS or XMS memory.
+*   **Configuration:** Enabled by default. For RP2350, use the `ONBOARD_PSRAM=ON` option. For external PSRAM, ensure the pinout is correct.
+
+#### 2. Virtual Memory (Swap File)
+This is a fallback system for hardware that lacks a PSRAM chip, primarily intended for memory-constrained RP2040 boards.
+*   **How it works:** It implements a paging system using a swap file named `pagefile.sys` located in the `\\XT\\` directory on the SD card. The Pico's internal RAM is used as a cache for memory "pages". When the requested memory is not in the cache (a page fault), it is read from the SD card.
+*   **Performance:** This method is significantly slower than PSRAM due to the latency of SD card access. You may notice the Pico's LED flash when the system is "swapping" pages to and from the SD card.
+*   **When to use:** Use this option only on hardware without PSRAM. It provides compatibility for applications that require more memory than is physically available on the Pico, at the cost of performance.
+*   **Configuration:** Enabled by setting `TOTAL_VIRTUAL_MEMORY_KBS` to a non-zero value (e.g., `-DTOTAL_VIRTUAL_MEMORY_KBS=512`). This will automatically disable the PSRAM driver.
+
+## 🏛️ Platform Architecture
+The emulator uses different architectures depending on the target platform to best utilize the available resources.
+
+### Raspberry Pi Pico (Dual-Core)
+The Pico build takes full advantage of the RP2040/RP2350's dual-core processor.
+*   **Core 0:** Runs the main CPU emulation loop (`exec86`) and handles user input from the PS/2 keyboard and NES gamepad.
+*   **Core 1:** Dedicated to real-time, time-critical tasks. It runs an infinite loop that manages:
+    *   Video rendering (at ~60Hz).
+    *   Audio sample generation and output.
+    *   PIT timer interrupts for the emulator (at ~18.2Hz).
+
+This division of labor ensures that the demanding CPU emulation does not interfere with smooth video and audio output.
+
+### Windows & Linux (Multi-threaded)
+The host builds (for Windows and Linux) are multi-threaded to separate tasks.
+*   **Main Thread:** Runs the main CPU emulation loop (`exec86`) and handles the window and its events via the MiniFB library.
+*   **Ticks Thread:** A dedicated thread that acts as the system's clock. It uses high-resolution timers (`QueryPerformanceCounter` on Windows, `clock_gettime` on Linux) to trigger events like PIT timer interrupts, rendering updates, and audio sample generation at the correct frequencies.
+*   **Sound Thread:** A separate thread responsible for communicating with the host operating system's audio API (WaveOut on Windows, a custom backend on Linux) to play the generated sound without blocking the other threads.
+
+This architecture allows for accurate timing and responsive I/O on a non-real-time desktop operating system.
+
 ## 🔨 Building and Getting Started
 
 ### 📋 Prerequisites
@@ -159,7 +234,7 @@ The project uses CMake with platform-specific configurations. All builds require
     - `ONBOARD_PSRAM=ON` - Use onboard PSRAM (RP2350 only)
     - `ONBOARD_PSRAM_GPIO=19` - GPIO pin for onboard PSRAM
 *   **Virtual Memory:** 
-    - `TOTAL_VIRTUAL_MEMORY_KBS=512` - Enable virtual memory instead of PSRAM
+    - `TOTAL_VIRTUAL_MEMORY_KBS=512` - Enable virtual memory instead of PSRAM. **Note:** Setting this to any value greater than 0 will disable PSRAM support.
 *   **CPU Frequency:**
     - `CPU_FREQ_MHZ=378` - Set CPU frequency (default varies by platform)
 
@@ -255,15 +330,30 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 
 ### 📦 Build Outputs
 
-After successful compilation, you'll find:
-
-#### For Pico builds:
-*   `286-<platform>-<frequency>-<display>-<audio>.uf2` - Firmware file for flashing
-*   `286-<platform>-<frequency>-<display>-<audio>.elf` - ELF binary for debugging
-*   `286-<platform>-<frequency>-<display>-<audio>.bin` - Raw binary
+After successful compilation, build artifacts are placed in the `bin/<platform>/<build_type>/` directory.
 
 #### For host builds:
-*   `286` (Linux) or `286.exe` (Windows) - Executable for testing
+*   **Executable:** `286` (Linux) or `286.exe` (Windows).
+
+#### For Pico builds:
+The firmware filename is dynamically generated to reflect the build configuration, following this pattern:
+`286-<platform>-<frequency>-<display>-<audio>-<memory>.uf2`
+
+*   **`<platform>`**: `RP2040` or `RP2350`.
+*   **`<frequency>`**: The CPU frequency in MHz (e.g., `378MHz`).
+*   **`<display>`**: `TFT`, `VGA`, or `HDMI`.
+*   **`<audio>`**: `I2S`, `PWM`, or `HW` (Hardware).
+*   **`<memory>`**: Describes the extended memory configuration:
+    - `ONBOARD_PSRAM_PIN_<gpio>`: If using onboard PSRAM on RP2350.
+    - `SWAP<size>KB`: If using virtual memory (e.g., `SWAP512KB`).
+    - If using generic external PSRAM, no specific memory tag is added.
+
+**Example Filename:** `286-RP2350-378MHz-VGA-PWM-ONBOARD_PSRAM_PIN_19.uf2`
+
+The following files are generated:
+*   `.uf2`: The firmware file for flashing to the Pico.
+*   `.elf`: The executable file for debugging.
+*   `.bin`: The raw binary file.
 
 ### 🎯 Flashing to Pico
 
