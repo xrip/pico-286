@@ -136,7 +136,6 @@ static inline bool redirector_handler() {
     static uint32_t sda_addr = 0;
 
     char path[256];
-    char dos_path[128];
     static HANDLE find_handle = INVALID_HANDLE_VALUE;
 
     static sdbstruct *dta_ptr;
@@ -154,8 +153,7 @@ static inline bool redirector_handler() {
 
         case 0x1101: {
             // Remove Remote Directory
-            strcpy(dos_path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]); // SDA First filename buffer
-            get_full_path(path, dos_path);
+            get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
             if (RemoveDirectoryA(path)) {
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
@@ -175,8 +173,7 @@ static inline bool redirector_handler() {
 
         case 0x1103: {
             // Create Remote Directory
-            strcpy(dos_path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
-            get_full_path(path, dos_path);
+            get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
             if (CreateDirectoryA(path, NULL)) {
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
@@ -198,8 +195,7 @@ static inline bool redirector_handler() {
 
         case 0x1105: {
             // Change Directory
-
-            strcpy(dos_path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]); // SDA First filename buffer
+            const char *dos_path = &RAM[sda_addr + FIRST_FILENAME_OFFSET];
             debug_log("Change directory to: '%s'\n", dos_path);
 
             // Handle different path formats
@@ -255,9 +251,10 @@ static inline bool redirector_handler() {
         {
             sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             int8_t handle =  sftptr->file_handle; // We store our handle here
-            uint16_t bytes_to_read = CPU_CX;
-            debug_log("HANDLE COUNT %X %i (file_pos: %ld)\n", handle, bytes_to_read, sftptr->file_position);
             if (handle < MAX_FILES && open_files[handle]) {
+                uint16_t bytes_to_read = CPU_CX;
+                debug_log("HANDLE COUNT %X %i (file_pos: %ld)\n", handle, bytes_to_read, sftptr->file_position);
+
                 // Ensure file pointer is at the correct position
                 if (fseek(open_files[handle], sftptr->file_position, SEEK_SET) != 0) {
                     debug_log("Seek error to position %ld\n", sftptr->file_position);
@@ -286,9 +283,11 @@ static inline bool redirector_handler() {
         {
             sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
             int8_t handle =  sftptr->file_handle; // We store our handle here
-            uint16_t count = CPU_CX;
-            debug_log("WRITE HANDLE %X %i (file_pos: %ld)\n", handle, count, sftptr->file_position);
+
             if (handle < MAX_FILES && open_files[handle]) {
+                uint16_t bytes_to_write = CPU_CX;
+                debug_log("WRITE HANDLE %X %i (file_pos: %ld)\n", handle, bytes_to_write, sftptr->file_position);
+
                 // Ensure file pointer is at the correct position
                 if (fseek(open_files[handle], sftptr->file_position, SEEK_SET) != 0) {
                     debug_log("Write seek error to position %ld\n", sftptr->file_position);
@@ -298,7 +297,7 @@ static inline bool redirector_handler() {
                 }
 
                 const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *) &RAM[sda_addr + 12];
-                size_t bytes_written = fwrite(&RAM[dta_addr], 1, count, open_files[handle]);
+                size_t bytes_written = fwrite(&RAM[dta_addr], 1, bytes_to_write, open_files[handle]);
                 debug_log("bytes written %i at offset %ld\n", (int) bytes_written, sftptr->file_position);
 
                 // Update file position in SFT and force write to disk
@@ -319,8 +318,7 @@ static inline bool redirector_handler() {
 
         case 0x1113: {
             // Delete Remote File
-            strcpy(dos_path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]); // SDA First filename buffer
-            get_full_path(path, dos_path);
+            get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
             if (DeleteFileA(path)) {
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
@@ -340,7 +338,7 @@ static inline bool redirector_handler() {
 
         case 0x1116: // Open Existing File
         {
-            strcpy(dos_path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]); // SDA First filename buffer
+            const char *dos_path = &RAM[sda_addr + FIRST_FILENAME_OFFSET];
             get_full_path(path, dos_path);
             debug_log("Opening %s %s\n", dos_path, path);
 
@@ -403,10 +401,11 @@ static inline bool redirector_handler() {
 
         case 0x1117: // Create/Truncate File
         {
-            strcpy(dos_path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]); // SDA First filename buffer
-            get_full_path(path, dos_path);
             int8_t handle =  get_free_handle();
             if (handle != -1) {
+                const char *dos_path = &RAM[sda_addr + FIRST_FILENAME_OFFSET];
+                get_full_path(path, dos_path);
+
                 open_files[handle] = fopen(path, "wb+");
                 if (open_files[handle]) {
 
@@ -487,8 +486,7 @@ static inline bool redirector_handler() {
         break;
 
         case 0x110e: // Set File Attributes
-            strcpy(dos_path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]); // SDA First filename buffer
-            get_full_path(path, dos_path);
+            get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
 
             // Convert DOS attributes to Windows attributes
             DWORD attributes = 0;
@@ -515,8 +513,7 @@ static inline bool redirector_handler() {
 
         case 0x110F: // Get Remote File's Attributes and Size
         {
-            strcpy(dos_path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]); // SDA First filename buffer
-            get_full_path(path, dos_path);
+            get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
 
             // Get file attributes
             DWORD win_attributes = GetFileAttributesA(path);
@@ -563,9 +560,7 @@ static inline bool redirector_handler() {
         case 0x111B: // Find First File
         {
             WIN32_FIND_DATA find_data;
-            strcpy(dos_path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]); // SDA First filename buffer
-            get_full_path(path, dos_path);
-            debug_log("dospath %s\n", dos_path);
+            get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
 
             if (find_handle != INVALID_HANDLE_VALUE) {
                 FindClose(find_handle);
