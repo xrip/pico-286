@@ -1,16 +1,22 @@
 #pragma once
+
 #include "emulator.h"
+
 int hdcount = 0, fdcount = 0;
 
 static uint8_t sectorbuffer[512];
 typedef struct _IO_FILE FILE;
+typedef unsigned long DWORD;
+
 extern FILE *fopen(const char *pathname, const char *mode);
 extern int fclose(FILE *stream);
 extern size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
 extern size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);
+extern int	fflush (FILE *);
 extern int fseek(FILE *stream, long offset, int whence);
 extern long ftell(FILE *stream);
 extern void rewind(FILE *stream);
+
 
 #define SEEK_CUR    1
 #define SEEK_END    2
@@ -371,3 +377,5 @@ static INLINE void diskhandler() {
         RAM[0x474] = CPU_AH;
     }
 }
+
+
