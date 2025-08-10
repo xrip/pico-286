@@ -166,7 +166,10 @@ typedef struct __attribute__((packed)) {
 #define FIRST_FILENAME_OFFSET 0x9e
 
 static inline bool redirector_handler() {
-    char path[256];
+    char path_buffer[768];
+    char* path = path_buffer;
+    char* guest_path = path_buffer + 256;
+    char* new_path = path_buffer + 512;
     /*
  * Pointers to SDA fields. Layout:
  *                             DOS4+   DOS 3, DR-DOS
@@ -197,7 +200,6 @@ static inline bool redirector_handler() {
 
         case 0x1101: {
             // Remove Remote Directory
-            char guest_path[256];
             read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
             get_full_path(path, guest_path);
             debug_log("Removing directory %s\n", path);
@@ -210,7 +212,6 @@ static inline bool redirector_handler() {
 
         case 0x1103: {
             // Create Remote Directory
-            char guest_path[256];
             read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
             get_full_path(path, guest_path);
             debug_log("Creating directory %s\n", path);
@@ -222,20 +223,19 @@ static inline bool redirector_handler() {
 
         case 0x1105: {
             // Change Directory
-            char dos_path[256];
-            read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, dos_path, 255);
-            debug_log("Change directory to: '%s'\n", dos_path);
+            read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
+            debug_log("Change directory to: '%s'\n", guest_path);
 
             // Handle different path formats
-            if (dos_path[0] == '\\' && dos_path[1] == '\0') {
+            if (guest_path[0] == '\\' && guest_path[1] == '\0') {
                 // Root directory "\"
                 strcpy(current_remote_dir, "");
-            } else if (dos_path[0] == '\\') {
+            } else if (guest_path[0] == '\\') {
                 // Absolute path from root, remove leading backslash
-                strcpy(current_remote_dir, dos_path + 1);
+                strcpy(current_remote_dir, guest_path + 1);
             } else {
                 // Relative path
-                strcpy(current_remote_dir, dos_path);
+                strcpy(current_remote_dir, guest_path);
             }
 
             debug_log("Current remote dir set to: '%s'\n", current_remote_dir);
@@ -359,17 +359,15 @@ static inline bool redirector_handler() {
 
         case 0x1111: // Rename Remote File
         {
-            char old_path[256], new_path[256], guest_path[256];
-
             read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
-            get_full_path(old_path, guest_path);
+            get_full_path(path, guest_path);
 
             read_string_from_ram(sda_addr + 0x16A, guest_path, 255);
             get_full_path(new_path, guest_path);
 
-            debug_log("Renaming '%s' to '%s'\n", old_path, new_path);
+            debug_log("Renaming '%s' to '%s'\n", path, new_path);
 
-            CPU_AX = f_rename(old_path, new_path);
+            CPU_AX = f_rename(path, new_path);
             CPU_FL_CF = 0;
 
         }
@@ -377,7 +375,6 @@ static inline bool redirector_handler() {
 
         case 0x1113: {
             // Delete Remote File
-            char guest_path[256];
             read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
             get_full_path(path, guest_path);
             CPU_AX = f_unlink(path);
@@ -387,10 +384,9 @@ static inline bool redirector_handler() {
 
         case 0x1116: // Open Existing File
         {
-            char dos_path[256];
-            read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, dos_path, 255);
-            get_full_path(path, dos_path);
-            debug_log("Opening %s %s\n", dos_path, path);
+            read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
+            get_full_path(path, guest_path);
+            debug_log("Opening %s %s\n", guest_path, path);
 
             const int8_t file_handle = get_free_handle();
             if (file_handle != -1) {
@@ -406,8 +402,8 @@ static inline bool redirector_handler() {
                 }
                 if (res == FR_OK) {
                     sftstruct sft;
-                    const char *filename = strrchr(dos_path, '\\');
-                    if (filename) filename++; else filename = dos_path;
+                    const char *filename = strrchr(guest_path, '\\');
+                    if (filename) filename++; else filename = guest_path;
 
                     to_dos_name(filename, sft.file_name);
                     sft.open_mode = (readw86(((uint32_t) CPU_ES << 4) + CPU_DI + offsetof(sftstruct, open_mode)) & 0xff00) | 0xff02;
@@ -446,9 +442,8 @@ static inline bool redirector_handler() {
         {
             const int8_t file_handle = get_free_handle();
             if (file_handle != -1) {
-                char dos_path[256];
-                read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, dos_path, 255);
-                get_full_path(path, dos_path);
+                read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
+                get_full_path(path, guest_path);
 
                 open_files[file_handle] = malloc(sizeof(FIL));
                 if (!open_files[file_handle]) {
@@ -459,8 +454,8 @@ static inline bool redirector_handler() {
 
                 if (f_open(open_files[file_handle], path, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK) {
                     sftstruct sft;
-                    const char *filename = strrchr(dos_path, '\\');
-                    if (filename) filename++; else filename = dos_path;
+                    const char *filename = strrchr(guest_path, '\\');
+                    if (filename) filename++; else filename = guest_path;
 
                     to_dos_name(filename, sft.file_name);
                     sft.open_mode = (readw86(((uint32_t) CPU_ES << 4) + CPU_DI + offsetof(sftstruct, open_mode)) & 0xff00) | 0x0002;
@@ -516,7 +511,6 @@ static inline bool redirector_handler() {
             break;
 
         case 0x110F: {
-            char guest_path[256];
             read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
             get_full_path(path, guest_path);
 
@@ -544,34 +538,30 @@ static inline bool redirector_handler() {
         // https://fd.lod.bz/rbil/interrup/network/2f111b.html#4376
         case 0x111B: // Find First File
         {
-            char full_path_str[256], guest_path[256];
             read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
-            get_full_path(full_path_str, guest_path);
-            debug_log("find first file: '%s'\n", full_path_str);
+            get_full_path(path, guest_path);
+            debug_log("find first file: '%s'\n", path);
 
-            char dir_path[256];
-            char pattern[256];
-            char* last_slash = strrchr(full_path_str, '/');
+            char* pattern = new_path; // reuse buffer
+            char* last_slash = strrchr(path, '/');
 
             if (last_slash) {
-                size_t dir_len = last_slash - full_path_str;
-                if (dir_len > 0) {
-                    strncpy(dir_path, full_path_str, dir_len);
-                    dir_path[dir_len] = '\0';
-                } else {
-                    strcpy(dir_path, "/");
-                }
                 strcpy(pattern, last_slash + 1);
+                if (last_slash == path) { // root directory
+                    *(last_slash + 1) = '\0';
+                } else {
+                    *last_slash = '\0';
+                }
             } else {
-                strcpy(dir_path, ".");
-                strcpy(pattern, full_path_str);
+                strcpy(pattern, path);
+                strcpy(path, ".");
             }
 
             if (strlen(pattern) == 0) {
                 strcpy(pattern, "*");
             }
 
-            if (f_findfirst(&find_handle, &find_fileinfo, dir_path, pattern) == FR_OK && find_fileinfo.fname[0]) {
+            if (f_findfirst(&find_handle, &find_fileinfo, path, pattern) == FR_OK && find_fileinfo.fname[0]) {
                 uint32_t dta_addr = (readw86(sda_addr + 14) << 4) + readw86(sda_addr + 12);
                 sdbstruct sdb;
                 read_block_from_ram(dta_addr, (uint8_t*)&sdb, sizeof(sdb));
@@ -586,7 +576,7 @@ static inline bool redirector_handler() {
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
             } else {
-                debug_log("error finding file: '%s' in '%s'\n", pattern, dir_path);
+                debug_log("error finding file: '%s' in '%s'\n", pattern, path);
                 CPU_AX = 18; // No more files
                 CPU_FL_CF = 1;
             }
