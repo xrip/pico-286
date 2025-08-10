@@ -4,7 +4,6 @@
 #include <ctype.h>
 #include <sys/stat.h>
 
-#include "io.h"
 #if defined(DEBUG_2F)
 #define debug_log(...) printf(__VA_ARGS__)
 #else
@@ -13,7 +12,6 @@
 
 // Host filesystem passthrough base directory
 #define HOST_BASE_DIR "C:\\FASM"
-#define INVALID_HANDLE_VALUE ((HANDLE) -1)
 
 // Maximum number of open files
 #define MAX_FILES 32
