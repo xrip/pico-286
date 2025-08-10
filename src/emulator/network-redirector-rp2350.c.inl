@@ -14,7 +14,7 @@
 #endif
 
 // Host filesystem passthrough base directory
-#define HOST_BASE_DIR ""
+#define HOST_BASE_DIR "\\XT\\"
 
 // Maximum number of open files
 #define MAX_FILES 32
@@ -45,13 +45,13 @@ static void read_string_from_ram(uint32_t address, char* buffer, int max_len) {
     buffer[max_len] = '\0'; // ensure null termination
 }
 
-static void read_block_from_ram(uint32_t address, uint8_t* buffer, size_t size) {
+static inline void read_block_from_ram(uint32_t address, uint8_t* buffer, size_t size) {
     for (size_t i = 0; i < size; i++) {
         buffer[i] = read86(address + i);
     }
 }
 
-static void write_block_to_ram(uint32_t address, const uint8_t* buffer, size_t size) {
+static inline void write_block_to_ram(uint32_t address, const uint8_t* buffer, size_t size) {
     for (size_t i = 0; i < size; i++) {
         write86(address + i, buffer[i]);
     }
@@ -600,7 +600,7 @@ static inline bool redirector_handler() {
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
             } else {
-                debug_log("no more files for: '%s'\n", path);
+                debug_log("no more files for\n");
                 CPU_AX = 18; // No more files
                 CPU_FL_CF = 1;
             }
