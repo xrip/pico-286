@@ -1,8 +1,5 @@
 #pragma once
 
-#include <fileapi.h>
-#include <errhandlingapi.h>
-
 #include "emulator.h"
 
 int hdcount = 0, fdcount = 0;
@@ -19,58 +16,6 @@ extern int	fflush (FILE *);
 extern int fseek(FILE *stream, long offset, int whence);
 extern long ftell(FILE *stream);
 extern void rewind(FILE *stream);
-extern int MoveFileA(const char* lpExistingFileName, const char* lpNewFileName);
-// Windows API declarations (provided by fileapi.h)
-// extern declarations removed to avoid conflicts with fileapi.h
-
-// Windows error constants (if not already defined)
-#ifndef ERROR_FILE_NOT_FOUND
-#define ERROR_FILE_NOT_FOUND 2
-#endif
-#ifndef ERROR_PATH_NOT_FOUND
-#define ERROR_PATH_NOT_FOUND 3
-#endif
-#ifndef ERROR_ACCESS_DENIED
-#define ERROR_ACCESS_DENIED 5
-#endif
-#ifndef ERROR_ALREADY_EXISTS
-#define ERROR_ALREADY_EXISTS 183
-#endif
-#ifndef ERROR_DIR_NOT_EMPTY
-#define ERROR_DIR_NOT_EMPTY 145
-#endif
-
-// File access constants (if not already defined)
-#ifndef GENERIC_READ
-#define GENERIC_READ 0x80000000
-#endif
-#ifndef FILE_SHARE_READ
-#define FILE_SHARE_READ 0x1
-#endif
-#ifndef OPEN_EXISTING
-#define OPEN_EXISTING 3
-#endif
-#ifndef FILE_ATTRIBUTE_READONLY
-#define FILE_ATTRIBUTE_READONLY 0x1
-#endif
-#ifndef FILE_ATTRIBUTE_HIDDEN
-#define FILE_ATTRIBUTE_HIDDEN 0x2
-#endif
-#ifndef FILE_ATTRIBUTE_SYSTEM
-#define FILE_ATTRIBUTE_SYSTEM 0x4
-#endif
-#ifndef FILE_ATTRIBUTE_DIRECTORY
-#define FILE_ATTRIBUTE_DIRECTORY 0x10
-#endif
-#ifndef FILE_ATTRIBUTE_ARCHIVE
-#define FILE_ATTRIBUTE_ARCHIVE 0x20
-#endif
-#ifndef FILE_ATTRIBUTE_NORMAL
-#define FILE_ATTRIBUTE_NORMAL 0x80
-#endif
-#ifndef INVALID_FILE_ATTRIBUTES
-#define INVALID_FILE_ATTRIBUTES 0xFFFFFFFF
-#endif
 
 
 #define SEEK_CUR    1
