@@ -33,6 +33,30 @@ static inline int8_t get_free_handle() {
     return -1; // No free handles
 }
 
+static uint8_t transfer_buffer[4096];
+
+static void read_string_from_ram(uint32_t address, char* buffer, int max_len) {
+    for (int i = 0; i < max_len; i++) {
+        buffer[i] = read86(address + i);
+        if (buffer[i] == '\0') {
+            break;
+        }
+    }
+    buffer[max_len] = '\0'; // ensure null termination
+}
+
+static void read_block_from_ram(uint32_t address, uint8_t* buffer, size_t size) {
+    for (size_t i = 0; i < size; i++) {
+        buffer[i] = read86(address + i);
+    }
+}
+
+static void write_block_to_ram(uint32_t address, const uint8_t* buffer, size_t size) {
+    for (size_t i = 0; i < size; i++) {
+        write86(address + i, buffer[i]);
+    }
+}
+
 // Helper to get full path from guest path
 static void get_full_path(char *dest, const char *guest_path) {
     if (guest_path[1] == ':') {
@@ -173,7 +197,9 @@ static inline bool redirector_handler() {
 
         case 0x1101: {
             // Remove Remote Directory
-            get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
+            char guest_path[256];
+            read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
+            get_full_path(path, guest_path);
             debug_log("Removing directory %s\n", path);
 
             FRESULT result = f_unlink(path);
@@ -184,7 +210,9 @@ static inline bool redirector_handler() {
 
         case 0x1103: {
             // Create Remote Directory
-            get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
+            char guest_path[256];
+            read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
+            get_full_path(path, guest_path);
             debug_log("Creating directory %s\n", path);
             FRESULT result = f_mkdir(path);
             CPU_AX = result;
@@ -194,7 +222,8 @@ static inline bool redirector_handler() {
 
         case 0x1105: {
             // Change Directory
-            const char *dos_path = &RAM[sda_addr + FIRST_FILENAME_OFFSET];
+            char dos_path[256];
+            read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, dos_path, 255);
             debug_log("Change directory to: '%s'\n", dos_path);
 
             // Handle different path formats
@@ -217,8 +246,8 @@ static inline bool redirector_handler() {
 
         case 0x1106: // Close Remote File
         {
-            const sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
-            const uint16_t file_handle = sftptr->file_handle;
+            uint32_t sft_addr = ((uint32_t) CPU_ES << 4) + CPU_DI;
+            uint16_t file_handle = readw86(sft_addr + offsetof(sftstruct, file_handle));
             if (file_handle < MAX_FILES && open_files[file_handle]) {
                 f_close(open_files[file_handle]);
                 free(open_files[file_handle]);
@@ -234,8 +263,8 @@ static inline bool redirector_handler() {
 
         case 0x1107: // Commit Remote File
         {
-            const sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
-            const uint16_t file_handle = sftptr->file_handle; // We store our handle here
+            uint32_t sft_addr = ((uint32_t) CPU_ES << 4) + CPU_DI;
+            uint16_t file_handle = readw86(sft_addr + offsetof(sftstruct, file_handle));
             if (file_handle < MAX_FILES && open_files[file_handle]) {
                 f_sync(open_files[file_handle]);
                 CPU_AX = 0;
@@ -249,29 +278,36 @@ static inline bool redirector_handler() {
 
         case 0x1108: // Read Remote File
         {
-            sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
-            const uint16_t file_handle = sftptr->file_handle; // We store our handle here
+            uint32_t sft_addr = ((uint32_t) CPU_ES << 4) + CPU_DI;
+            uint16_t file_handle = readw86(sft_addr + offsetof(sftstruct, file_handle));
             if (file_handle < MAX_FILES && open_files[file_handle]) {
+                uint32_t file_pos = readdw86(sft_addr + offsetof(sftstruct, file_position));
                 uint16_t bytes_to_read = CPU_CX;
-                debug_log("HANDLE COUNT %X %i (file_pos: %ld)\n", file_handle, bytes_to_read, sftptr->file_position);
+                debug_log("HANDLE COUNT %X %i (file_pos: %ld)\n", file_handle, bytes_to_read, file_pos);
 
-                // Ensure file pointer is at the correct position
-                if (f_lseek(open_files[file_handle], sftptr->file_position) != FR_OK) {
-                    debug_log("Seek error to position %ld\n", sftptr->file_position);
-                    CPU_AX = 6; // Invalid handle or seek error
+                if (f_lseek(open_files[file_handle], file_pos) != FR_OK) {
+                    debug_log("Seek error to position %ld\n", file_pos);
+                    CPU_AX = 6;
                     CPU_FL_CF = 1;
                     break;
                 }
 
-                const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *) &RAM[sda_addr + 12];
-                UINT bytes_read;
-                f_read(open_files[file_handle], &RAM[dta_addr], bytes_to_read, &bytes_read);
-                debug_log("bytes read %i at offset %ld -> %x\n", (int) bytes_read, sftptr->file_position, dta_addr);
+                const uint32_t dta_addr = (readw86(sda_addr + 14) << 4) + readw86(sda_addr + 12);
+                UINT total_bytes_read = 0;
+                while(total_bytes_read < bytes_to_read) {
+                    UINT bytes_read_now = 0;
+                    UINT chunk_size = bytes_to_read - total_bytes_read > sizeof(transfer_buffer) ? sizeof(transfer_buffer) : bytes_to_read - total_bytes_read;
+                    FRESULT res = f_read(open_files[file_handle], transfer_buffer, chunk_size, &bytes_read_now);
+                    if(res != FR_OK || bytes_read_now == 0) break;
+                    write_block_to_ram(dta_addr + total_bytes_read, transfer_buffer, bytes_read_now);
+                    total_bytes_read += bytes_read_now;
+                }
 
-                // Update file position in SFT
-                sftptr->file_position += bytes_read;
+                debug_log("bytes read %i at offset %ld -> %x\n", (int) total_bytes_read, file_pos, dta_addr);
+
+                writedw86(sft_addr + offsetof(sftstruct, file_position), file_pos + total_bytes_read);
                 CPU_AX = 0;
-                CPU_CX = bytes_read;
+                CPU_CX = total_bytes_read;
                 CPU_FL_CF = 0;
             } else {
                 CPU_AX = 6; // Invalid handle
@@ -282,30 +318,37 @@ static inline bool redirector_handler() {
 
         case 0x1109: // Write Remote File
         {
-            sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
-            uint16_t file_handle = sftptr->file_handle; // We store our handle here
+            uint32_t sft_addr = ((uint32_t) CPU_ES << 4) + CPU_DI;
+            uint16_t file_handle = readw86(sft_addr + offsetof(sftstruct, file_handle));
 
             if (file_handle < MAX_FILES && open_files[file_handle]) {
+                uint32_t file_pos = readdw86(sft_addr + offsetof(sftstruct, file_position));
                 uint16_t bytes_to_write = CPU_CX;
-                debug_log("WRITE HANDLE %X %i (file_pos: %ld)\n", file_handle, bytes_to_write, sftptr->file_position);
+                debug_log("WRITE HANDLE %X %i (file_pos: %ld)\n", file_handle, bytes_to_write, file_pos);
 
-                // Ensure file pointer is at the correct position
-                if (f_lseek(open_files[file_handle], sftptr->file_position) != FR_OK) {
-                    debug_log("Write seek error to position %ld\n", sftptr->file_position);
-                    CPU_AX = 6; // Invalid handle or seek error
+                if (f_lseek(open_files[file_handle], file_pos) != FR_OK) {
+                    debug_log("Write seek error to position %ld\n", file_pos);
+                    CPU_AX = 6;
                     CPU_FL_CF = 1;
                     break;
                 }
 
-                const uint32_t dta_addr = (*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *) &RAM[sda_addr + 12];
-                UINT bytes_written;
-                f_write(open_files[file_handle], &RAM[dta_addr], bytes_to_write, &bytes_written);
-                debug_log("bytes written %i at offset %ld\n", (int) bytes_written, sftptr->file_position);
+                const uint32_t dta_addr = (readw86(sda_addr + 14) << 4) + readw86(sda_addr + 12);
+                UINT total_bytes_written = 0;
+                while(total_bytes_written < bytes_to_write) {
+                    UINT bytes_written_now = 0;
+                    UINT chunk_size = bytes_to_write - total_bytes_written > sizeof(transfer_buffer) ? sizeof(transfer_buffer) : bytes_to_write - total_bytes_written;
+                    read_block_from_ram(dta_addr + total_bytes_written, transfer_buffer, chunk_size);
+                    FRESULT res = f_write(open_files[file_handle], transfer_buffer, chunk_size, &bytes_written_now);
+                    if(res != FR_OK || bytes_written_now == 0) break;
+                    total_bytes_written += bytes_written_now;
+                }
 
-                // Update file position in SFT and force write to disk
-                sftptr->file_position += bytes_written;
-                f_sync(open_files[file_handle]); // Ensure data is written to disk
-                CPU_AX = bytes_written;
+                debug_log("bytes written %i at offset %ld\n", (int) total_bytes_written, file_pos);
+
+                writedw86(sft_addr + offsetof(sftstruct, file_position), file_pos + total_bytes_written);
+                f_sync(open_files[file_handle]);
+                CPU_AX = total_bytes_written;
                 CPU_FL_CF = 0;
             } else {
                 CPU_AX = 6; // Invalid handle
@@ -316,14 +359,13 @@ static inline bool redirector_handler() {
 
         case 0x1111: // Rename Remote File
         {
-            char old_path[256], new_path[256];
+            char old_path[256], new_path[256], guest_path[256];
 
-            // Get old filename from first filename buffer in SDA
-            get_full_path(old_path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
+            read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
+            get_full_path(old_path, guest_path);
 
-            // Get new filename from second filename buffer in SDA (offset 0x16A for DOS 4+)
-            // For DOS 3.x it's at offset 0x15E, but we'll use DOS 4+ layout
-            get_full_path(new_path, &RAM[sda_addr + 0x16A]);
+            read_string_from_ram(sda_addr + 0x16A, guest_path, 255);
+            get_full_path(new_path, guest_path);
 
             debug_log("Renaming '%s' to '%s'\n", old_path, new_path);
 
@@ -335,7 +377,9 @@ static inline bool redirector_handler() {
 
         case 0x1113: {
             // Delete Remote File
-            get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
+            char guest_path[256];
+            read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
+            get_full_path(path, guest_path);
             CPU_AX = f_unlink(path);
             CPU_FL_CF = 0;
         }
@@ -343,7 +387,8 @@ static inline bool redirector_handler() {
 
         case 0x1116: // Open Existing File
         {
-            const char *dos_path = &RAM[sda_addr + FIRST_FILENAME_OFFSET];
+            char dos_path[256];
+            read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, dos_path, 255);
             get_full_path(path, dos_path);
             debug_log("Opening %s %s\n", dos_path, path);
 
@@ -357,53 +402,40 @@ static inline bool redirector_handler() {
                 }
                 FRESULT res = f_open(open_files[file_handle], path, FA_READ | FA_WRITE);
                 if (res != FR_OK) {
-                    // Try read-only mode if read-write fails
                     res = f_open(open_files[file_handle], path, FA_READ);
-                    debug_log("Tried rb+ failed, trying rb: %s\n", res == FR_OK ? "SUCCESS" : "FAILED");
                 }
                 if (res == FR_OK) {
-                    // Get file size
-                    const size_t file_size = f_size(open_files[file_handle]);
-
-                    sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
-
-                    // Extract just the filename from the path for SFT
+                    sftstruct sft;
                     const char *filename = strrchr(dos_path, '\\');
-                    if (filename) {
-                        filename++; // Skip the backslash
-                    } else {
-                        filename = dos_path; // No backslash found, use whole string
-                    }
+                    if (filename) filename++; else filename = dos_path;
 
-                    // Convert to DOS 8.3 format
-                    to_dos_name(filename, sftptr->file_name);
-                    sftptr->open_mode &= 0xff00;
-                    sftptr->open_mode |= 0xff02;
+                    to_dos_name(filename, sft.file_name);
+                    sft.open_mode = (readw86(((uint32_t) CPU_ES << 4) + CPU_DI + offsetof(sftstruct, open_mode)) & 0xff00) | 0xff02;
+                    sft.attribute = 0x8;
+                    sft.device_info = 0x8040 | 'H';
+                    sft.file_handle = file_handle;
+                    sft.file_size = f_size(open_files[file_handle]);
+                    sft.file_time = 0x1000;
+                    sft.file_date = 0x1000;
+                    sft.file_position = 0;
+                    sft.unk0 = 0;
+                    sft.unk1 = 0xFFFF;
+                    sft.unk2 = 0xFFFF;
+                    sft.unk3 = 0;
+                    sft.unk4 = 0xFF;
 
-                    sftptr->attribute = 0x8;
-                    sftptr->device_info = 0x8040 | 'H';
-                    sftptr->file_handle = file_handle; // Store our handle here
-                    sftptr->file_size = file_size;
-                    sftptr->file_time = 0x1000;
-                    sftptr->file_date = 0x1000;
-                    sftptr->file_position = 0;
-                    sftptr->unk0 = 0;
-                    sftptr->unk1 = 0xffFF;
-                    sftptr->unk2 = 0xffff;
-                    sftptr->unk3 = 0;
-                    sftptr->unk4 = 0xff;
+                    uint32_t sft_addr = ((uint32_t) CPU_ES << 4) + CPU_DI;
+                    for(int i=0; i<sizeof(sft); i++) write86(sft_addr + i, ((uint8_t*)&sft)[i]);
 
                     CPU_AX = 0;
                     CPU_FL_CF = 0;
                 } else {
-                    debug_log("not found\n");
                     free(open_files[file_handle]);
                     open_files[file_handle] = NULL;
                     CPU_AX = 2; // File not found
                     CPU_FL_CF = 1;
                 }
             } else {
-                debug_log("too many open files\n");
                 CPU_AX = 4; // Too many open files
                 CPU_FL_CF = 1;
             }
@@ -414,7 +446,8 @@ static inline bool redirector_handler() {
         {
             const int8_t file_handle = get_free_handle();
             if (file_handle != -1) {
-                const char *dos_path = &RAM[sda_addr + FIRST_FILENAME_OFFSET];
+                char dos_path[256];
+                read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, dos_path, 255);
                 get_full_path(path, dos_path);
 
                 open_files[file_handle] = malloc(sizeof(FIL));
@@ -425,33 +458,27 @@ static inline bool redirector_handler() {
                 }
 
                 if (f_open(open_files[file_handle], path, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK) {
-                    // Initialize SFT structure
-                    sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
-
-                    // Extract just the filename from the path for SFT
+                    sftstruct sft;
                     const char *filename = strrchr(dos_path, '\\');
-                    if (filename) {
-                        filename++; // Skip the backslash
-                    } else {
-                        filename = dos_path; // No backslash found, use whole string
-                    }
+                    if (filename) filename++; else filename = dos_path;
 
-                    // Convert to DOS 8.3 format
-                    to_dos_name(filename, sftptr->file_name);
-                    sftptr->open_mode &= 0xff00;
-                    sftptr->open_mode |= 0x0002; // Create/truncate file
-                    sftptr->attribute = 0x08;
-                    sftptr->device_info = 0x8040 | 'H';
-                    sftptr->file_handle = file_handle; // Store our handle here
-                    sftptr->file_size = 0; // New file
-                    sftptr->file_time = 0x1000;
-                    sftptr->file_date = 0x1000;
-                    sftptr->file_position = 0;
-                    sftptr->unk0 = 0;
-                    sftptr->unk1 = 0xffFF;
-                    sftptr->unk2 = 0xffff;
-                    sftptr->unk3 = 0;
-                    sftptr->unk4 = 0xff;
+                    to_dos_name(filename, sft.file_name);
+                    sft.open_mode = (readw86(((uint32_t) CPU_ES << 4) + CPU_DI + offsetof(sftstruct, open_mode)) & 0xff00) | 0x0002;
+                    sft.attribute = 0x08;
+                    sft.device_info = 0x8040 | 'H';
+                    sft.file_handle = file_handle;
+                    sft.file_size = 0;
+                    sft.file_time = 0x1000;
+                    sft.file_date = 0x1000;
+                    sft.file_position = 0;
+                    sft.unk0 = 0;
+                    sft.unk1 = 0xFFFF;
+                    sft.unk2 = 0xFFFF;
+                    sft.unk3 = 0;
+                    sft.unk4 = 0xFF;
+
+                    uint32_t sft_addr = ((uint32_t) CPU_ES << 4) + CPU_DI;
+                    for(int i=0; i<sizeof(sft); i++) write86(sft_addr + i, ((uint8_t*)&sft)[i]);
 
                     CPU_AX = 0;
                     CPU_FL_CF = 0;
@@ -489,16 +516,15 @@ static inline bool redirector_handler() {
             break;
 
         case 0x110F: {
-            // Get Remote File's Attributes and Size
-            get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
+            char guest_path[256];
+            read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
+            get_full_path(path, guest_path);
 
-            // Get file attributes
             FILINFO file_info;
             if (f_stat(path, &file_info) != FR_OK) {
                 CPU_AX = 2; // Not found
                 CPU_FL_CF = 1;
             } else {
-                // Convert FATFS file attributes to DOS attributes
                 uint16_t dos_attributes = 0;
                 if (file_info.fattrib & AM_RDO) dos_attributes |= 0x01;
                 if (file_info.fattrib & AM_HID) dos_attributes |= 0x02;
@@ -506,12 +532,11 @@ static inline bool redirector_handler() {
                 if (file_info.fattrib & AM_DIR) dos_attributes |= 0x10;
                 if (file_info.fattrib & AM_ARC) dos_attributes |= 0x20;
 
-
                 CPU_AX = dos_attributes;
                 CPU_BX = (file_info.fsize >> 16) & 0xFFFF; // High word
                 CPU_DI = file_info.fsize & 0xFFFF; // Low word
-                CPU_CX = file_info.ftime; // Default time stamp
-                CPU_DX = file_info.fdate; // Default date stamp
+                CPU_CX = file_info.ftime;
+                CPU_DX = file_info.fdate;
                 CPU_FL_CF = 0;
             }
         }
@@ -519,8 +544,9 @@ static inline bool redirector_handler() {
         // https://fd.lod.bz/rbil/interrup/network/2f111b.html#4376
         case 0x111B: // Find First File
         {
-            char full_path_str[256];
-            get_full_path(full_path_str, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
+            char full_path_str[256], guest_path[256];
+            read_string_from_ram(sda_addr + FIRST_FILENAME_OFFSET, guest_path, 255);
+            get_full_path(full_path_str, guest_path);
             debug_log("find first file: '%s'\n", full_path_str);
 
             char dir_path[256];
@@ -528,7 +554,6 @@ static inline bool redirector_handler() {
             char* last_slash = strrchr(full_path_str, '/');
 
             if (last_slash) {
-                // Path has a directory part
                 size_t dir_len = last_slash - full_path_str;
                 if (dir_len > 0) {
                     strncpy(dir_path, full_path_str, dir_len);
@@ -538,27 +563,26 @@ static inline bool redirector_handler() {
                 }
                 strcpy(pattern, last_slash + 1);
             } else {
-                // Path is just a pattern in the current directory
                 strcpy(dir_path, ".");
                 strcpy(pattern, full_path_str);
             }
 
-            // If pattern is empty (e.g. path ends with /), search for all files
             if (strlen(pattern) == 0) {
                 strcpy(pattern, "*");
             }
 
             if (f_findfirst(&find_handle, &find_fileinfo, dir_path, pattern) == FR_OK && find_fileinfo.fname[0]) {
-                // Set actual DTA pointer
+                uint32_t dta_addr = (readw86(sda_addr + 14) << 4) + readw86(sda_addr + 12);
+                sdbstruct sdb;
+                read_block_from_ram(dta_addr, (uint8_t*)&sdb, sizeof(sdb));
 
-                dta_ptr = (sdbstruct *) &RAM[(*(uint16_t *) &RAM[sda_addr + 14] << 4) + *(uint16_t *) &RAM[sda_addr + 12]];
-                dta_ptr->drv_lett = 'H' | 128; /* bit 7 set means 'network drive' */
+                sdb.drv_lett = 'H' | 128;
+                to_dos_name(find_fileinfo.fname, sdb.foundfile.fname);
+                sdb.foundfile.fsize = find_fileinfo.fsize;
+                sdb.foundfile.fattr = find_fileinfo.fattrib;
 
-                to_dos_name(find_fileinfo.fname, dta_ptr->foundfile.fname);
-                dta_ptr->foundfile.fsize = find_fileinfo.fsize;
-                dta_ptr->foundfile.fattr = find_fileinfo.fattrib;
+                for(int i=0; i<sizeof(sdb); i++) write86(dta_addr + i, ((uint8_t*)&sdb)[i]);
 
-                // Other attributes can be set here if needed
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
             } else {
@@ -572,11 +596,16 @@ static inline bool redirector_handler() {
         case 0x111C: // Find Next File
         {
             if (f_findnext(&find_handle, &find_fileinfo) == FR_OK && find_fileinfo.fname[0]) {
-                to_dos_name(find_fileinfo.fname, dta_ptr->foundfile.fname);
-                // Set file size
-                dta_ptr->foundfile.fattr = find_fileinfo.fattrib; // mark as system to hidee
-                dta_ptr->foundfile.fsize = find_fileinfo.fsize;
-                dta_ptr->foundfile.start_clstr = 0;
+                uint32_t dta_addr = (readw86(sda_addr + 14) << 4) + readw86(sda_addr + 12);
+                sdbstruct sdb;
+                read_block_from_ram(dta_addr, (uint8_t*)&sdb, sizeof(sdb));
+
+                to_dos_name(find_fileinfo.fname, sdb.foundfile.fname);
+                sdb.foundfile.fattr = find_fileinfo.fattrib;
+                sdb.foundfile.fsize = find_fileinfo.fsize;
+                sdb.foundfile.start_clstr = 0;
+
+                for(int i=0; i<sizeof(sdb); i++) write86(dta_addr + i, ((uint8_t*)&sdb)[i]);
 
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
@@ -600,41 +629,30 @@ static inline bool redirector_handler() {
 
         case 0x1121: // Seek from File End
         {
-            sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
-            const uint16_t file_handle = sftptr->file_handle;
+            uint32_t sft_addr = ((uint32_t) CPU_ES << 4) + CPU_DI;
+            uint16_t file_handle = readw86(sft_addr + offsetof(sftstruct, file_handle));
 
             if (file_handle < MAX_FILES && open_files[file_handle]) {
-                // CX:DX contains offset from end (signed 32-bit)
                 int32_t offset_from_end = ((int32_t)CPU_CX << 16) | CPU_DX;
-
                 debug_log("Seek from end: handle %d, offset %ld\n", file_handle, offset_from_end);
 
-                // Get current file size
                 long file_size = f_size(open_files[file_handle]);
-
-                // Calculate new position: file_size + offset_from_end
                 long new_position = file_size + offset_from_end;
 
-                // Ensure new position is not negative
-                if (new_position < 0) {
-                    new_position = 0;
-                }
+                if (new_position < 0) new_position = 0;
 
-                // Seek to new position
                 if (f_lseek(open_files[file_handle], new_position) != FR_OK) {
-                    CPU_AX = 6; // Invalid handle
+                    CPU_AX = 6;
                     CPU_FL_CF = 1;
                     break;
                 }
 
-                // Update SFT position and return new position in DX:AX
-                sftptr->file_position = new_position;
-                CPU_DX = (new_position >> 16) & 0xFFFF; // High word
-                CPU_AX = new_position & 0xFFFF; // Low word
+                writedw86(sft_addr + offsetof(sftstruct, file_position), new_position);
+                CPU_DX = (new_position >> 16) & 0xFFFF;
+                CPU_AX = new_position & 0xFFFF;
                 CPU_FL_CF = 0;
 
-                debug_log("Seek result: new position %ld (DX:AX = %04X:%04X)\n",
-                         new_position, CPU_DX, CPU_AX);
+                debug_log("Seek result: new position %ld (DX:AX = %04X:%04X)\n", new_position, CPU_DX, CPU_AX);
             } else {
                 CPU_AX = 6; // Invalid handle
                 CPU_FL_CF = 1;
