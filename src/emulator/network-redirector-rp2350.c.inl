@@ -300,7 +300,7 @@ static inline bool redirector_handler() {
             CPU_FL_CF = 0;
         }
         break;
-
+        case 0x1107: // Commit Remote File
         case 0x1106: // Close Remote File
         {
             uint32_t sft_addr = ((uint32_t) CPU_ES << 4) + CPU_DI;
@@ -308,7 +308,7 @@ static inline bool redirector_handler() {
             if (file_handle < MAX_FILES && open_files[file_handle]) {
                 f_close(open_files[file_handle]);
                 free(open_files[file_handle]);
-                writew86(sft_addr + offsetof(sftstruct, file_handle), 0xffff);
+                writew86(sft_addr + offsetof(sftstruct, total_handles), 0xffff);
                 open_files[file_handle] = NULL;
                 CPU_AX = 0;
                 CPU_FL_CF = 0;
@@ -319,20 +319,6 @@ static inline bool redirector_handler() {
         }
         break;
 
-        case 0x1107: // Commit Remote File
-        {
-            uint32_t sft_addr = ((uint32_t) CPU_ES << 4) + CPU_DI;
-            uint16_t file_handle = readw86(sft_addr + offsetof(sftstruct, file_handle));
-            if (file_handle < MAX_FILES && open_files[file_handle]) {
-                f_sync(open_files[file_handle]);
-                CPU_AX = 0;
-                CPU_FL_CF = 0;
-            } else {
-                CPU_AX = 6; // Invalid handle
-                CPU_FL_CF = 1;
-            }
-        }
-        break;
 
         case 0x1108: // Read Remote File
         {

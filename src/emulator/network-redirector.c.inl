@@ -218,6 +218,8 @@ static inline bool redirector_handler() {
         }
         break;
 
+        // Commit Remote File
+        case 0x1107:
         // Close Remote File
         case 0x1106: {
             sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
@@ -235,20 +237,6 @@ static inline bool redirector_handler() {
         }
         break;
 
-        // Commit Remote File
-        case 0x1107: {
-            const sftstruct *sftptr = (sftstruct *) &RAM[((uint32_t) CPU_ES << 4) + CPU_DI];
-            const uint16_t file_handle = sftptr->file_handle; // We store our handle here
-            if (file_handle < MAX_FILES && open_files[file_handle]) {
-                fflush(open_files[file_handle]);
-                CPU_AX = 0;
-                CPU_FL_CF = 0;
-            } else {
-                CPU_AX = 6; // Invalid handle
-                CPU_FL_CF = 1;
-            }
-        }
-        break;
 
         // Read Remote File
         case 0x1108: {
