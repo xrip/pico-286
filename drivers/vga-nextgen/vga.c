@@ -13,7 +13,7 @@
 #include "pico/stdlib.h"
 #include "stdlib.h"
 #include "emulator/emulator.h"
-
+extern uint8_t vga_graphics_control[9];
 uint16_t pio_program_VGA_instructions[] = {
         //     .wrap_target
         0x6008, //  0: out    pins, 8
