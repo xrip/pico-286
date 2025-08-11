@@ -379,7 +379,7 @@ void __time_critical_func() dma_handler_VGA() {
             }
             break;
         case VGA_320x200x256:
-            if (vga_planar_mode == 0b110) { // Chain4 + Odd/Even mode
+            if (vga_planar_mode) {
                 register uint32_t line_offset =
                     (horizontal_pixel_panning + vram_offset + __fast_mul((y & 3), 80) + __fast_mul((y >> 2), 320)) & 0xFFFF;
                 // Для каждого плана берём указатель сразу на нужную строку

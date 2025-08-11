@@ -1,7 +1,7 @@
 // For linux build use https://github.com/MathieuTurcotte/findfirst
 // Forward declaration for the network redirector handler
 #pragma once
-#define DEBUG_2F
+//#define DEBUG_2F
 #include <ctype.h>
 #include "ff.h"
 #include <stdlib.h>

@@ -6,8 +6,22 @@
 static uint8_t color_index = 0, read_color_index = 0, vga_register, sequencer_register = 0, graphics_control_register = 0;
 volatile uint32_t vga_plane_offset = 0;
 volatile uint8_t vga_planar_mode = 0;
+static uint8_t vga_rotate = 0;
+static uint8_t vga_logicop = 0;
+uint8_t vga_crtci, vga_misc = 0, vga_crtcd[0x19];
+
 uint8_t vga_sequencer[5];
-uint8_t vga_graphics_control[0xF] = { 0 };
+uint8_t vga_graphics_control[0xF] = {
+    0x00, // 00h - Set/Reset
+    0x00, // 01h - Enable Set/Reset
+    0x00, // 02h - Color Compare
+    0x00, // 03h - Data Rotate
+    0x00, // 04h - Read Map Select
+    0x00, // 05h - Graphics Mode
+    0x00, // 06h - Miscellaneous
+    0x0F, // 07h - Color Don't Care
+    0xFF  // 08h - Bit Mask
+};
 volatile uint8_t horizontal_pixel_panning = 0;
 
 // https://wiki.osdev.org/VGA_Hardware
@@ -50,12 +64,42 @@ uint32_t vga_palette[256] = {
 bool ega_vga_enabled = true;
 #endif
 
+inline static uint8_t vga_readcrtci() {
+	return vga_crtci;
+}
+
+inline static uint8_t vga_readcrtcd() {
+	if (vga_crtci < 0x19) {
+		return vga_crtcd[vga_crtci];
+	}
+	return 0xFF;
+}
+
+inline static void vga_writecrtci(uint8_t value) {
+	vga_crtci = value & 0x1F;
+}
+
+inline static void vga_writecrtcd(uint8_t value) {
+	if (vga_crtci > 0x18) return;
+	vga_crtcd[vga_crtci] = value;
+}
+
 void vga_portout(uint16_t portnum, uint16_t value) {
 //    http://www.techhelpmanual.com/900-video_graphics_array_i_o_ports.html
 //    if (portnum != 0x3c8 && portnum != 0x3c9)
 //        printf("vga_portout %x %x\n", portnum, value);
 
     switch (portnum) {
+        case 0x3B4:
+            if ((vga_misc & 1) == 0) {
+                vga_writecrtci(value);
+            }
+            break;
+        case 0x3B5:
+            if ((vga_misc & 1) == 0) {
+                vga_writecrtcd(value);
+            }
+            break;
         /* Attribute Address Register */
         case 0x3C0:  {
             static uint8_t data_mode = 0; // 0 -- address, 1 -- data
@@ -91,18 +135,22 @@ void vga_portout(uint16_t portnum, uint16_t value) {
 // https://vtda.org/books/Computing/Programming/EGA-VGA-ProgrammersReferenceGuide2ndEd_BradleyDyckKliewer.pdf
         case 0x3C4:
 //            printf("3C4 %x\n", value);
-            sequencer_register = value & 0xff;
+            sequencer_register = value & 0xf;
             break;
         case 0x3C5: {
             if (sequencer_register == 2) {
                 VIDEORAM_write_mask = value & 0b1111;
-                printf("vga write_mask %x\n", VIDEORAM_write_mask);
+            //    printf("vga write_mask %x\n", VIDEORAM_write_mask);
+            } else if (sequencer_register == 3) {
+   				vga_rotate = value & 7;
+				vga_logicop = (value >> 3) & 3;
+                printf("vga_rotate: %d; vga_logicop: %d\n", vga_rotate, vga_logicop);
             } else if (sequencer_register == 4) {
-                vga_planar_mode = value & 6;
-                printf("vga planar %i\n", vga_planar_mode);
+                vga_planar_mode = !(value & 8);
             }
             //printf("sequencer %x %x\n", sequencer_register, value);
-            vga_sequencer[sequencer_register] = value & 0xff;
+            if (sequencer_register < sizeof(vga_sequencer))
+                vga_sequencer[sequencer_register] = value & 0xff;
             break;
         }
         case 0x3C7:
@@ -150,17 +198,49 @@ void vga_portout(uint16_t portnum, uint16_t value) {
         case 0x3CF: { // Graphics 1 and 2 Address Register
             // printf("3CF %x\n", value);
             vga_graphics_control[graphics_control_register] = value & 0xff;
+            if (graphics_control_register == 8) {
+                printf("mask: %x\n", value);
+            }
             break;
         }
+    	case 0x3C2:
+	    	vga_misc = value;
+		    break;
+        case 0x3D4:
+            if ((vga_misc & 1) == 1) {
+                vga_writecrtci(value);
+            }
+            break;
+        case 0x3D5:
+            if ((vga_misc & 1) == 1) {
+                vga_writecrtcd(value);
+            }
+            break;
     }
-
+    if (((vga_sequencer[4] & 0xC) == 4) && ((vga_graphics_control[5] & 0xB) == 0) &&
+        ((vga_graphics_control[6] & 0x2) == 0) && ((vga_crtcd[20] & 0x40) == 0) && (vga_crtcd[23] & 0x40)
+    ) {
+        printf("vga_modeY: 1");
+    }
 }
 
 uint16_t vga_portin(uint16_t portnum) {
     //printf("vga_portin %x\n", portnum);
 
     switch (portnum) {
-        case 0x3C8:
+        case 0x3B4:
+            if ((vga_misc & 1) == 0) {
+                return vga_readcrtci();
+            }
+            break;
+        case 0x3D4:
+            if ((vga_misc & 1) == 1) {
+                return vga_readcrtci();
+            }
+            break;
+        case 0x3CC:
+            return vga_misc;
+       case 0x3C8:
             return read_color_index;
         case 0x3C9: {
             static uint8_t rgb_index = 0;
