@@ -1,25 +1,26 @@
-# Conditionally include Pico SDK for non-host builds
-if (NOT (DEFINED PICO_PLATFORM AND PICO_PLATFORM STREQUAL "host"))
-    # == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
-    if (WIN32)
-        set(USERHOME $ENV{USERPROFILE})
-    else ()
-        set(USERHOME $ENV{HOME})
-    endif ()
-    set(sdkVersion 2.1.1)
-    set(toolchainVersion 14_2_Rel1)
-    set(picotoolVersion 2.1.1)
-    set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
-    if (EXISTS ${picoVscode})
-        include(${picoVscode})
-    endif ()
-    # ====================================================================================
+# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+if (WIN32)
+    set(USERHOME $ENV{USERPROFILE})
+else ()
+    set(USERHOME $ENV{HOME})
+endif ()
+set(sdkVersion 2.1.1)
+set(toolchainVersion 14_2_Rel1)
+set(picotoolVersion 2.1.1)
+set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+if (EXISTS ${picoVscode})
+    include(${picoVscode})
+endif ()
+# ====================================================================================
+set(PICO_BOARD pico2 CACHE STRING "Board type")
+set(PICO_PLATFORM rp2350-arm-s)
+set(ENABLE_VGA ON)
+set(ENABLE_PWM_SOUND ON)
+#set(TOTAL_VIRTUAL_MEMORY_KBS 2048)
+set(ONBOARD_PSRAM OFF)
 
-    cmake_minimum_required(VERSION 3.22)
-    include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
-else()
-    cmake_minimum_required(VERSION 3.22)
-endif()
+cmake_minimum_required(VERSION 3.22)
+include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(286 C CXX ASM)
 set(CMAKE_C_STANDARD 17)
@@ -67,6 +68,11 @@ else ()
     set(PICO_BOARD pico2 CACHE STRING "Board type")
     pico_sdk_init()
 
+   # set(TOTAL_VIRTUAL_MEMORY_KBS 2048)
+    set(ENABLE_PWM_SOUND ON)
+    set(ENABLE_VGA ON)
+    set(ONBOARD_PSRAM_GPIO "47" CACHE STRING "GPIO pin for onboard PSRAM")
+
     # =========================
     # BUILD OPTIONS
     # =========================
@@ -93,11 +99,11 @@ else ()
     # PSRAM Configuration (onboard only available for RP2350)
     if (NOT PICO_PLATFORM STREQUAL "rp2040")
         option(ONBOARD_PSRAM "Enable onboard PSRAM support" ON)
-        set(ONBOARD_PSRAM_GPIO "19" CACHE STRING "GPIO pin for onboard PSRAM")
+        set(ONBOARD_PSRAM_GPIO "47" CACHE STRING "GPIO pin for onboard PSRAM")
     endif ()
 
     # CPU Configuration
-    set(CPU_FREQ_MHZ "378" CACHE STRING "CPU frequency in MHz")
+    set(CPU_FREQ_MHZ "424" CACHE STRING "CPU frequency in MHz")
     
     if (USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
         message(STATUS "TOTAL_VIRTUAL_MEMORY_KBS = ${TOTAL_VIRTUAL_MEMORY_KBS}KB. Virtual Memory enabled, PSRAM will be disabled.")

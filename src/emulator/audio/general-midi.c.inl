@@ -13,6 +13,7 @@
 #define MAX_MIDI_VOICES 32
 #define MIDI_CHANNELS 16
 
+#undef MIN
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 
 #define RELEASE_DURATION (SOUND_FREQUENCY / 8) // Duration for note release

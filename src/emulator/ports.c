@@ -20,7 +20,7 @@ OPL *emu8950_opl;
 uint8_t crt_controller_idx, crt_controller[32];
 uint8_t port60, port61, port64;
 uint8_t cursor_start = 12, cursor_end = 13;
-uint32_t vram_offset = 0x0;
+volatile  uint32_t vram_offset = 0x0;
 
 int sound_chips_clock = 0;
 
@@ -341,9 +341,9 @@ if (sound_chips_clock) {
                 case 0x0C: // Start address (MSB)
                     vram_offset = value;
                     break;
-                case 0x0D: // Start address (LSB)
-                    vram_offset = (uint32_t) vram_offset << 8 | (uint32_t) value;
-                    //printf("vram offset %04X\n", vram_offset);
+                case 0x0D: // Start address (LSB) in 16-bit WORDS!
+                    vram_offset = (uint32_t) vram_offset << 9 | (uint32_t) value << 1;
+                  //  printf("vram offset %04X\n", vram_offset);
                     break;
             }
 
