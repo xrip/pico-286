@@ -55,8 +55,9 @@ if (PICO_PLATFORM STREQUAL "host")
         target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
     else()
         # Linux build
-        add_executable(${PROJECT_NAME} ${SRC} src/linux-main.cpp src/LinuxMiniFB.c src/linux-audio.c src/printf/printf.c)
+        add_executable(${PROJECT_NAME} ${SRC} src/linux-main.cpp src/LinuxMiniFB.c src/linux-audio.c src/printf/printf.c findfirst/findfirst.c findfirst/spec.c)
         target_link_libraries(${PROJECT_NAME} PRIVATE X11 pthread)
+        target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf findfirst/)
     endif()
     
     target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)
