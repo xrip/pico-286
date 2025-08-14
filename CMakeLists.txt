@@ -1,3 +1,4 @@
+    cmake_minimum_required(VERSION 3.22)
 # Conditionally include Pico SDK for non-host builds
 if (NOT (DEFINED PICO_PLATFORM AND PICO_PLATFORM STREQUAL "host"))
     # == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
@@ -15,10 +16,7 @@ if (NOT (DEFINED PICO_PLATFORM AND PICO_PLATFORM STREQUAL "host"))
     endif ()
     # ====================================================================================
 
-    cmake_minimum_required(VERSION 3.22)
     include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
-else()
-    cmake_minimum_required(VERSION 3.22)
 endif()
 
 project(286 C CXX ASM)
@@ -210,6 +208,7 @@ else ()
     # =========================
     # EXECUTABLE SETUP
     # =========================
+    add_link_options(-flto -fwhole-program)
     add_compile_options(-flto -fwhole-program -ffast-math -ffunction-sections -fdata-sections -fms-extensions -O2)
 
     add_executable(${PROJECT_NAME} ${SRC} src/pico-main.c src/printf/printf.c src/74hc595/74hc595.c)
@@ -270,8 +269,9 @@ else ()
             pico_runtime pico_stdlib pico_multicore
             hardware_dma hardware_pio hardware_i2c hardware_exception
             hardware_interp hardware_timer hardware_clocks hardware_pwm hardware_flash
+            -Wl,--wrap=atexit # size optimizations
     )
-
+    pico_set_printf_implementation(${PROJECT_NAME} none)
     # =========================
     # COMPILE DEFINITIONS
     # =========================
