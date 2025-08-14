@@ -209,7 +209,7 @@ else ()
     # EXECUTABLE SETUP
     # =========================
     add_link_options(-flto -fwhole-program)
-    add_compile_options(-flto -fwhole-program -ffast-math -ffunction-sections -fdata-sections -fms-extensions -O2)
+    add_compile_options(-flto=auto -fwhole-program -ffreestanding -ffast-math -ffunction-sections -fdata-sections -fms-extensions -O2)
 
     add_executable(${PROJECT_NAME} ${SRC} src/pico-main.c src/printf/printf.c src/74hc595/74hc595.c)
     target_include_directories(${PROJECT_NAME} PRIVATE src/74hc595 src src/emu8950 src/printf)
@@ -269,7 +269,7 @@ else ()
             pico_runtime pico_stdlib pico_multicore
             hardware_dma hardware_pio hardware_i2c hardware_exception
             hardware_interp hardware_timer hardware_clocks hardware_pwm hardware_flash
-            -Wl,--wrap=atexit # size optimizations
+            -Wl,--wrap=atexit,--gc-sections # size optimizations
     )
     pico_set_printf_implementation(${PROJECT_NAME} none)
     # =========================
