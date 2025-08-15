@@ -196,8 +196,7 @@ typedef struct __attribute__((packed)) {
 static inline bool redirector_handler() {
     char path[256];
     char guest_path[256];
-    char new_path[256];
-    static char find_pattern[12];
+    static char new_path[256];
     /*
  * Pointers to SDA fields. Layout:
  *                             DOS4+   DOS 3, DR-DOS
@@ -555,22 +554,22 @@ static inline bool redirector_handler() {
             char* last_slash = strrchr(path, '/');
 
             if (last_slash) {
-                strcpy(find_pattern, last_slash + 1);
+                strcpy(new_path, last_slash + 1);
                 if (last_slash == path) { // root directory
                     *(last_slash + 1) = '\0';
                 } else {
                     *last_slash = '\0';
                 }
             } else {
-                strcpy(find_pattern, path);
+                strcpy(new_path, path);
                 strcpy(path, ".");
             }
 
-            if (find_pattern[0] == '\0' || strcmp(find_pattern, "????????.???") == 0) {
-                strcpy(find_pattern, "*");
+            if (new_path[0] == '\0' || strcmp(new_path, "????????.???") == 0) {
+                strcpy(new_path, "*");
             }
 
-            FRESULT find_result = f_findfirst(&find_handle, &find_fileinfo, path, find_pattern);
+            FRESULT find_result = f_findfirst(&find_handle, &find_fileinfo, path, new_path);
             if (find_result == FR_OK && find_fileinfo.fname[0]) {
                 uint32_t dta_addr = ((uint32_t) readw86(sda_addr + 14) << 4) + readw86(sda_addr + 12);
                 sdbstruct sdb;
