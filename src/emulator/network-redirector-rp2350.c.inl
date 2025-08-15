@@ -584,7 +584,7 @@ static inline bool redirector_handler() {
 
                 CPU_FL_CF = 0;
             } else {
-                debug_log("no files found for '%s' in '%s': %i\n", find_pattern, path, find_result);
+                debug_log("no files found for '%s' in '%s': %i\n", new_path, path, find_result);
 
                 if (FR_OK == find_result) {
                     CPU_AX = 18; // No more files
