@@ -65,6 +65,13 @@ static void get_full_path(char *dest, const char *guest_path) {
             sprintf(dest, HOST_BASE_DIR "\\%s", guest_path);
         }
     }
+#ifndef WIN32
+    for (char *p = dest; *p; p++) {
+        if (*p == '\\') {
+            *p = '/';
+        }
+    }
+#endif
     // printf("Path conversion: guest='%s', current_dir='%s' -> host='%s'\n", guest_path, current_remote_dir, dest);
 }
 
