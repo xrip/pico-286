@@ -19,7 +19,6 @@
 #endif
 
 
-
 // Maximum number of open files
 #define MAX_FILES 32
 FILE *open_files[MAX_FILES] = {0};
@@ -70,6 +69,11 @@ static void get_full_path(char *dest, const char *guest_path) {
         if (*p == '\\') {
             *p = '/';
         }
+    }
+    char *p = strstr(dest, "????????.???");
+    if (p) {
+        p[0] = '*';
+        p[1] = '\0';
     }
 #endif
     // printf("Path conversion: guest='%s', current_dir='%s' -> host='%s'\n", guest_path, current_remote_dir, dest);
