@@ -4,19 +4,28 @@
 // #define DEBUG_2F
 #include <ctype.h>
 #include <sys/stat.h>
-
+#if WIN32
+// Host filesystem passthrough base directory
+#define HOST_BASE_DIR "C:\\FASM"
+#else
+// Host filesystem passthrough base directory
+#define HOST_BASE_DIR "/tmp/"
+#include "findfirst.h"
+#endif
 #if defined(DEBUG_2F)
 #define debug_log(...) printf(__VA_ARGS__)
 #else
 #define debug_log(...)
 #endif
 
-// Host filesystem passthrough base directory
-#define HOST_BASE_DIR "C:\\FASM"
 
 // Maximum number of open files
 #define MAX_FILES 32
 FILE *open_files[MAX_FILES] = {0};
+
+#ifdef WIN32
+#define mkdir(path, mode) mkdir(path)
+#endif
 
 // Current working directory for the remote drive (relative to HOST_BASE_DIR)
 char current_remote_dir[256] = "";
@@ -55,6 +64,18 @@ static void get_full_path(char *dest, const char *guest_path) {
             sprintf(dest, HOST_BASE_DIR "\\%s", guest_path);
         }
     }
+#ifndef WIN32
+    for (char *p = dest; *p; p++) {
+        if (*p == '\\') {
+            *p = '/';
+        }
+    }
+    char *p = strstr(dest, "????????.???");
+    if (p) {
+        p[0] = '*';
+        p[1] = '\0';
+    }
+#endif
     // printf("Path conversion: guest='%s', current_dir='%s' -> host='%s'\n", guest_path, current_remote_dir, dest);
 }
 
@@ -184,7 +205,7 @@ static inline bool redirector_handler() {
         case 0x1103: {
             get_full_path(path, &RAM[sda_addr + FIRST_FILENAME_OFFSET]);
             debug_log("Creating directory %s\n", path);
-            const int result = mkdir(path);
+            const int result = mkdir(path, 0777);
             if (result == 0) {
                 CPU_AX = 0;
                 CPU_FL_CF = 0;

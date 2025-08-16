@@ -1,3 +1,4 @@
+    cmake_minimum_required(VERSION 3.22)
 # Conditionally include Pico SDK for non-host builds
 if (NOT (DEFINED PICO_PLATFORM AND PICO_PLATFORM STREQUAL "host"))
     # == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
@@ -15,10 +16,7 @@ if (NOT (DEFINED PICO_PLATFORM AND PICO_PLATFORM STREQUAL "host"))
     endif ()
     # ====================================================================================
 
-    cmake_minimum_required(VERSION 3.22)
     include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
-else()
-    cmake_minimum_required(VERSION 3.22)
 endif()
 
 project(286 C CXX ASM)
@@ -55,8 +53,9 @@ if (PICO_PLATFORM STREQUAL "host")
         target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
     else()
         # Linux build
-        add_executable(${PROJECT_NAME} ${SRC} src/linux-main.cpp src/LinuxMiniFB.c src/linux-audio.c src/printf/printf.c)
+        add_executable(${PROJECT_NAME} ${SRC} src/linux-main.cpp src/LinuxMiniFB.c src/linux-audio.c src/printf/printf.c findfirst/findfirst.c findfirst/spec.c)
         target_link_libraries(${PROJECT_NAME} PRIVATE X11 pthread)
+        target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf findfirst/)
     endif()
     
     target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)
@@ -209,7 +208,9 @@ else ()
     # =========================
     # EXECUTABLE SETUP
     # =========================
-    add_compile_options(-flto -fwhole-program -ffast-math -ffunction-sections -fdata-sections -fms-extensions -O2)
+    add_link_options(-flto -fwhole-program)
+    # -frename-registers -fno-tree-vectorize
+    add_compile_options(-flto=auto -fomit-frame-pointer -fwhole-program -ffreestanding -ffast-math -ffunction-sections -fdata-sections -fms-extensions -O2)
 
     add_executable(${PROJECT_NAME} ${SRC} src/pico-main.c src/printf/printf.c src/74hc595/74hc595.c)
     target_include_directories(${PROJECT_NAME} PRIVATE src/74hc595 src src/emu8950 src/printf)
@@ -269,8 +270,9 @@ else ()
             pico_runtime pico_stdlib pico_multicore
             hardware_dma hardware_pio hardware_i2c hardware_exception
             hardware_interp hardware_timer hardware_clocks hardware_pwm hardware_flash
+            -Wl,--wrap=atexit,--wrap=abort,--strip-all,--gc-sections # size optimizations
     )
-
+    pico_set_printf_implementation(${PROJECT_NAME} none)
     # =========================
     # COMPILE DEFINITIONS
     # =========================

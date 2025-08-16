@@ -96,6 +96,20 @@ The emulator expects the following file paths and names for the disk images:
 *   The disk type (floppy or hard disk) is determined by the drive number it is assigned to in the emulator, not by the filename itself.
 *   The emulator automatically determines the disk geometry (cylinders, heads, sectors) based on the size of the image file. Ensure your disk images have standard sizes for floppy disks (e.g., 360KB, 720KB, 1.2MB, 1.44MB) for proper detection. For hard disks, the geometry is calculated based on a standard CHS (Cylinder/Head/Sector) layout.
 
+## 🌐 Host Filesystem Access (Network Redirector)
+
+In addition to standard disk images, the emulator provides direct access to a directory on the host filesystem, which is presented to the DOS environment as a network drive. This feature is implemented through the **DOS network redirector interface (INT 2Fh, Function 11h)**.
+
+This allows for easy file exchange between the host and the emulated system without needing to modify disk images.
+
+### How It Works
+The emulator intercepts calls to `INT 2Fh` and translates DOS file operations (e.g., open, read, write, find file) into commands for the host's filesystem.
+
+-   **On host builds (Windows/Linux):** The redirector maps to the `C:\\FASM` directory by default.
+-   **On Pico builds (RP2040/RP2350):** The redirector maps to the `\\XT\\` directory on the SD card.
+
+This feature is particularly useful for development, testing, and running software that resides on the host machine.
+
 ## 🔧 Hardware Configuration
 
 The Pico-286 emulator is designed to run on Raspberry Pi Pico (RP2040) based hardware. 🍓
@@ -431,6 +445,9 @@ cd build
 ## 🤝 Contributing
 
 Contributions to the Pico-286 project are welcome! Please refer to the `CONTRIBUTING.md` file (to be created) for guidelines. 💪
+
+## Stargazers over time
+[![Stargazers over time](https://starchart.cc/xrip/pico-286.svg?variant=adaptive)](https://starchart.cc/xrip/pico-286)
 
 ## 📄 License
 
