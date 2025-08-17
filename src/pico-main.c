@@ -438,7 +438,6 @@ int main(void) {
 #else
     memcpy_wrapper_replace(NULL);
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
-    sleep_ms(33);
     set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, true);
 #endif
 

@@ -60,6 +60,7 @@ if (PICO_PLATFORM STREQUAL "host")
     
     target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)
 else ()
+    set(CMAKE_BUILD_TYPE "MinSizeRel")
     # =========================
     # PICO BUILD CONFIGURATION
     # =========================
@@ -210,7 +211,7 @@ else ()
     # =========================
     add_link_options(-flto -fwhole-program)
     # -frename-registers -fno-tree-vectorize
-    add_compile_options(-flto=auto -fomit-frame-pointer -fwhole-program -ffreestanding -ffast-math -ffunction-sections -fdata-sections -fms-extensions -O2)
+    add_compile_options(-flto=auto -frename-registers -fomit-frame-pointer -fwhole-program -ffreestanding -ffast-math -ffunction-sections -fdata-sections -fms-extensions -O2)
 
     add_executable(${PROJECT_NAME} ${SRC} src/pico-main.c src/printf/printf.c src/74hc595/74hc595.c)
     target_include_directories(${PROJECT_NAME} PRIVATE src/74hc595 src src/emu8950 src/printf)
