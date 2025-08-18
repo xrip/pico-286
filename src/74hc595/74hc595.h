@@ -7,11 +7,12 @@
 #define PIO_74HC595 pio0
 #define PIO_CLOCK pio0
 
-#define CLK_LATCH_595_BASE_PIN (26)
-#define DATA_595_PIN (28)
+#define CLK_LATCH_595_BASE_PIN (PWM_LEFT_CHANNEL)
+#define DATA_595_PIN (PWM_BEEPER)
 
-
+#ifndef CLOCK_PIN
 #define CLOCK_PIN 17
+#endif
 #define CLOCK_FREQUENCY (3579545)
 
 //(14'318'180)

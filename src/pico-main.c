@@ -496,10 +496,11 @@ int main(void) {
     nespad_read();
 
     // Check for mouse availability
+#ifndef MURM2
     const uint8_t mouse_available = nespad_state;
-    if (mouse_available) {
+    if (mouse_available)
+#endif
         mouse_init();
-    }
 
     // Initialize semaphore and launch second core
     sem_init(&vga_start_semaphore, 0, 1);
@@ -535,7 +536,9 @@ int main(void) {
         if (delay) sleep_us(delay);
 #endif
         // Handle gamepad input for mouse emulation
+#ifndef MURM2
         if (!mouse_available) {
+#endif
             nespad_read();
 
             // Increase mouse speed when holding direction
@@ -558,8 +561,9 @@ int main(void) {
             sermouseevent(nespad_state & DPAD_B | ((nespad_state & DPAD_A) != 0) << 1,
                          left ? -mouse_throttle : right ? mouse_throttle : 0,
                          down ? mouse_throttle : up ? -mouse_throttle : 0);
+#ifndef MURM2
         }
-
+#endif
         tight_loop_contents();
     }
     __unreachable();

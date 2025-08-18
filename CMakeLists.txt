@@ -27,7 +27,8 @@ include(pico_sdk_import.cmake)
 project(286 C CXX ASM)
 
 ### -D options
-set(m1p2launcher ON)
+#set(m1p2launcher ON)
+set(MURM20 ON)
 set(ENABLE_VGA ON)
 set(ENABLE_PWM_SOUND ON)
 set(TOTAL_VIRTUAL_MEMORY_KBS 4096)
@@ -109,7 +110,7 @@ else ()
     endif ()
 
     # CPU Configuration
-    set(CPU_FREQ_MHZ "378" CACHE STRING "CPU frequency in MHz")
+    set(CPU_FREQ_MHZ "366" CACHE STRING "CPU frequency in MHz")
 
     if (USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
         message(STATUS "TOTAL_VIRTUAL_MEMORY_KBS = ${TOTAL_VIRTUAL_MEMORY_KBS}KB. Virtual Memory enabled, PSRAM will be disabled.")
@@ -171,9 +172,17 @@ else ()
 
     # Add platform
     if (PICO_PLATFORM STREQUAL "rp2040")
-        set(BUILD_NAME "m1p1-${BUILD_NAME}")
+        if (MURM20)
+            set(BUILD_NAME "m2p1-${BUILD_NAME}")
+        else()
+            set(BUILD_NAME "m1p1-${BUILD_NAME}")
+        endif()
     else ()
-        set(BUILD_NAME "m1p2-${BUILD_NAME}")
+        if (MURM20)
+            set(BUILD_NAME "m2p2-${BUILD_NAME}")
+        else()
+            set(BUILD_NAME "m1p2-${BUILD_NAME}")
+        endif()
     endif ()
 
     # Add frequency
@@ -252,7 +261,11 @@ else ()
     else ()
         target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=3)
         if (m1p2launcher)
-            set(BUILD_NAME "${BUILD_NAME}.m1p2")
+            if (MURM20)
+                set(BUILD_NAME "${BUILD_NAME}.m2p2")
+            else()
+                set(BUILD_NAME "${BUILD_NAME}.m1p2")
+            endif()
             pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap12.ld")
         else()
             pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap.ld")
@@ -329,22 +342,35 @@ else ()
             # PSRAM related definitions (only if NOT using virtual memory)
             $<$<NOT:$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>>:PSRAM>
             $<$<NOT:$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>>:$<$<AND:$<NOT:$<STREQUAL:${PICO_PLATFORM},rp2040>>,$<BOOL:${ONBOARD_PSRAM}>>:ONBOARD_PSRAM_GPIO=${ONBOARD_PSRAM_GPIO}>>
-
+    )
+    if (MURM20)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE
+            MURM2=1
             # Pin configurations
-            VGA_BASE_PIN=6 HDMI_BASE_PIN=6
-
-            TFT_CS_PIN=6 TFT_RST_PIN=8 TFT_LED_PIN=9 TFT_DC_PIN=10 TFT_DATA_PIN=12 TFT_CLK_PIN=13
-
-            SDCARD_PIN_SPI0_CS=5 SDCARD_PIN_SPI0_SCK=2 SDCARD_PIN_SPI0_MOSI=3 SDCARD_PIN_SPI0_MISO=4
-
+            MOUSE_CLOCK_PIN=0 MOUSE_DATA_PIN=1
+            KBD_CLOCK_PIN=2 KBD_DATA_PIN=3
+            VGA_BASE_PIN=12 HDMI_BASE_PIN=12
+            TFT_CS_PIN=12 TFT_RST_PIN=14 TFT_LED_PIN=15 TFT_DC_PIN=16 TFT_DATA_PIN=18 TFT_CLK_PIN=19
+            SDCARD_PIN_SPI0_CS=5 SDCARD_PIN_SPI0_SCK=6 SDCARD_PIN_SPI0_MOSI=7 SDCARD_PIN_SPI0_MISO=4
             PSRAM_SPINLOCK=1 PSRAM_ASYNC=1 PSRAM_PIN_CS=18 PSRAM_PIN_SCK=19 PSRAM_PIN_MOSI=20 PSRAM_PIN_MISO=21
-
+            USE_NESPAD NES_GPIO_CLK=20 NES_GPIO_DATA=21 NES_GPIO_LAT=26
+            CLOCK_PIN=27 PCM_PIN=22
+            PWM_BEEPER=9 PWM_LEFT_CHANNEL=10 PWM_RIGHT_CHANNEL=11
+        )
+    else ()
+        target_compile_definitions(${PROJECT_NAME} PRIVATE
+            # Pin configurations
+            MOUSE_CLOCK_PIN=14 MOUSE_DATA_PIN=15
+            KBD_CLOCK_PIN=0 KBD_DATA_PIN=1
+            VGA_BASE_PIN=6 HDMI_BASE_PIN=6
+            TFT_CS_PIN=6 TFT_RST_PIN=8 TFT_LED_PIN=9 TFT_DC_PIN=10 TFT_DATA_PIN=12 TFT_CLK_PIN=13
+            SDCARD_PIN_SPI0_CS=5 SDCARD_PIN_SPI0_SCK=2 SDCARD_PIN_SPI0_MOSI=3 SDCARD_PIN_SPI0_MISO=4
+            PSRAM_SPINLOCK=1 PSRAM_ASYNC=1 PSRAM_PIN_CS=18 PSRAM_PIN_SCK=19 PSRAM_PIN_MOSI=20 PSRAM_PIN_MISO=21
             USE_NESPAD NES_GPIO_CLK=14 NES_GPIO_DATA=16 NES_GPIO_LAT=15
-
             CLOCK_PIN=17 PCM_PIN=22
             PWM_BEEPER=28 PWM_LEFT_CHANNEL=26 PWM_RIGHT_CHANNEL=27
-    )
-
+        )
+    endif ()
     pico_add_extra_outputs(${PROJECT_NAME})
 endif()
 
