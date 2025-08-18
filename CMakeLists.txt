@@ -28,10 +28,14 @@ project(286 C CXX ASM)
 
 ### -D options
 #set(m1p2launcher ON)
-set(MURM20 ON)
+set(PIMO ON) # Pimoroni Pico Plus 2 (PSRAM on GP47)
+set(MURM20 ON) # Murmulator 2.0 support
+
 set(ENABLE_VGA ON)
 set(ENABLE_PWM_SOUND ON)
-set(TOTAL_VIRTUAL_MEMORY_KBS 4096)
+
+set(TOTAL_VIRTUAL_MEMORY_KBS 0) # do not remove it! chant 0->some val, abd back to 0
+#set(TOTAL_VIRTUAL_MEMORY_KBS 4096)
 
 SET(PROJECT_NAME 286)
 set(FLASH_SIZE 4096)
@@ -106,7 +110,13 @@ else ()
     # PSRAM Configuration (onboard only available for RP2350)
     if (NOT PICO_PLATFORM STREQUAL "rp2040")
         option(ONBOARD_PSRAM "Enable onboard PSRAM support" ON)
-        set(ONBOARD_PSRAM_GPIO "19" CACHE STRING "GPIO pin for onboard PSRAM")
+        if (PIMO)
+            set(ONBOARD_PSRAM_GPIO "47" CACHE STRING "GPIO pin for onboard PSRAM")
+        elseif (MURM20)
+            set(ONBOARD_PSRAM_GPIO "8" CACHE STRING "GPIO pin for onboard PSRAM")
+        else ()
+            set(ONBOARD_PSRAM_GPIO "19" CACHE STRING "GPIO pin for onboard PSRAM")
+        endif()
     endif ()
 
     # CPU Configuration

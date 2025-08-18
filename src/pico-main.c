@@ -455,7 +455,7 @@ int main(void) {
     vreg_set_voltage(VREG_VOLTAGE_1_60);
     sleep_ms(10);
     *qmi_m0_timing = 0x60007204;
-    set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, 0);
+    if (!set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, 0) ) set_sys_clock_hz(352 * MHZ, 1);
     *qmi_m0_timing = 0x60007303;
 #else
     memcpy_wrapper_replace(NULL);
