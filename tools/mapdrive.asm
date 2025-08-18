@@ -1,4 +1,16 @@
-    ; Mapdrive programm. Maps drive H: as network redirector. Compile it with Flat Assembler
+; MapDrive - A utility to map a host drive in the Pico-286 emulator.
+;
+; This program interfaces with the emulator's built-in network redirector
+; (INT 2Fh, Function 11h) to make a host directory available as a DOS drive.
+; By default, it maps drive H: to the host's shared directory.
+;
+; This allows for seamless file access between the DOS environment and the
+; host system, simplifying file transfers and development workflows.
+;
+; To assemble this file, use the Flat Assembler (FASM):
+;   fasm mapdrive.asm mapdrive.com
+;
+
     org 100h
     use16
 
@@ -30,17 +42,15 @@
         jne .cds_ok
         mov ax, es          ; move ES to a GP register first
         cmp ax, 0FFFFh
-        jne .cds_ok
-        jmp .error_cds
+        je .error_cds
 
     .cds_ok:
         ; Check drive <= lastdrive
         mov al, DRIVE_NUMBER
         cmp al, dl
-        jbe .drive_ok_1
-        jmp .error_cds
+        jg .error_lastdrive
 
-    .drive_ok_1:
+    .drive_ok:
         ; DI = CDS entry = BX + drive * 58h (use MUL instead of many SHLs)
         mov di, bx                 ; DI = CDS base offset
         xor ax, ax
@@ -79,20 +89,21 @@
         mov ah, 09h
         int 21h
 
-        mov ax, 4C00h
-        int 21h
+        jmp exit
 
     .error_cds:
         mov dx, err_cds_fail
         mov ah, 09h
         int 21h
+        jmp exit
+
+    .error_lastdrive:
         mov dx, err_lastdrive
         mov ah, 09h
         int 21h
-        jmp exit_fail
 
-    exit_fail:
-        mov ax, 4C01h
+    exit:
+        mov ax, 4C00h
         int 21h
 
     ; Data
