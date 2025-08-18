@@ -97,7 +97,7 @@ else ()
     endif ()
 
     # CPU Configuration
-    set(CPU_FREQ_MHZ "378" CACHE STRING "CPU frequency in MHz")
+    set(CPU_FREQ_MHZ "416" CACHE STRING "CPU frequency in MHz")
     
     if (USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
         message(STATUS "TOTAL_VIRTUAL_MEMORY_KBS = ${TOTAL_VIRTUAL_MEMORY_KBS}KB. Virtual Memory enabled, PSRAM will be disabled.")
