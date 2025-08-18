@@ -240,9 +240,6 @@ else ()
     target_include_directories(${PROJECT_NAME} PRIVATE src/74hc595 src src/emu8950 src/printf)
     target_sources(${PROJECT_NAME} PRIVATE src/emu8950/slot_render_pico.S)
 
-    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${BUILD_NAME}")
-    target_link_options(${PROJECT_NAME} PRIVATE -Xlinker --print-memory-usage --data-sections --function-sections)
-
     # =========================
     # BOOT STAGE 2 CONFIGURATION
     # =========================
@@ -261,6 +258,9 @@ else ()
             pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap.ld")
         endif ()
     endif ()
+
+    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${BUILD_NAME}")
+    target_link_options(${PROJECT_NAME} PRIVATE -Xlinker --print-memory-usage --data-sections --function-sections)
 
     pico_set_program_name(286 "PC 8086/8088/186/286 emulator")
     pico_set_program_version(${PROJECT_NAME} "1.1.0")
