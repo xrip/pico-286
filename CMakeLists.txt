@@ -28,7 +28,7 @@ project(286 C CXX ASM)
 
 ### -D options
 #set(m1p2launcher ON)
-set(PIMO ON) # Pimoroni Pico Plus 2 (PSRAM on GP47)
+#set(PIMO ON) # Pimoroni Pico Plus 2 (PSRAM on GP47)
 set(MURM20 ON) # Murmulator 2.0 support
 
 set(ENABLE_VGA ON)
