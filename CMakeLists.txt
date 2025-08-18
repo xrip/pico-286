@@ -1,27 +1,40 @@
-    cmake_minimum_required(VERSION 3.22)
-# Conditionally include Pico SDK for non-host builds
 if (NOT (DEFINED PICO_PLATFORM AND PICO_PLATFORM STREQUAL "host"))
-    # == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
-    if (WIN32)
-        set(USERHOME $ENV{USERPROFILE})
-    else ()
-        set(USERHOME $ENV{HOME})
-    endif ()
-    set(sdkVersion 2.1.1)
-    set(toolchainVersion 14_2_Rel1)
-    set(picotoolVersion 2.1.1)
-    set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
-    if (EXISTS ${picoVscode})
-        include(${picoVscode})
-    endif ()
-    # ====================================================================================
-
-    include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
+# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+if(WIN32)
+    set(USERHOME $ENV{USERPROFILE})
+else()
+    set(USERHOME $ENV{HOME})
 endif()
+set(sdkVersion 2.2.0)
+set(toolchainVersion 14_2_Rel1)
+set(picotoolVersion 2.2.0)
+set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+if (EXISTS ${picoVscode})
+    include(${picoVscode})
+endif()
+# ====================================================================================
+endif()
+cmake_minimum_required(VERSION 3.13)
+set(PICO_BOARD pico2 CACHE STRING "Board type")
 
-project(286 C CXX ASM)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Pull in Raspberry Pi Pico SDK (must be before project, but after PICO_BOARD)
+include(pico_sdk_import.cmake)
+
+project(286 C CXX ASM)
+
+### -D options
+#set(m1p2launcher ON)
+set(ENABLE_VGA ON)
+set(ENABLE_PWM_SOUND ON)
+set(TOTAL_VIRTUAL_MEMORY_KBS 4096)
+
+SET(PROJECT_NAME 286)
+set(FLASH_SIZE 4096)
+SET(BUILD_NAME "${PROJECT_NAME}")
 
 # =========================
 # OUTPUT DIRECTORIES
@@ -60,11 +73,11 @@ if (PICO_PLATFORM STREQUAL "host")
     
     target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)
 else ()
-    set(CMAKE_BUILD_TYPE "MinSizeRel")
+    #set(CMAKE_BUILD_TYPE "MinSizeRel") /// outside!
     # =========================
     # PICO BUILD CONFIGURATION
     # =========================
-    set(PICO_BOARD pico2 CACHE STRING "Board type")
+    #set(PICO_BOARD pico2 CACHE STRING "Board type") // should be early
     pico_sdk_init()
 
     # =========================
@@ -81,8 +94,7 @@ else ()
     option(ENABLE_PWM_SOUND "Enable PWM audio output" OFF)
     option(ENABLE_HARDWARE_SOUND "Enable hardware audio output" OFF)
 
-    # Virtual Memory Configuration
-    set(TOTAL_VIRTUAL_MEMORY_KBS "0" CACHE STRING "Total virtual memory in KBS. Set to 0 to use PSRAM instead (if PSRAM is otherwise enabled). Set to >0 to use virtual memory and disable all PSRAM.")
+#    set(TOTAL_VIRTUAL_MEMORY_KBS "0" CACHE STRING "Total virtual memory in KBS. Set to 0 to use PSRAM instead (if PSRAM is otherwise enabled). Set to >0 to use virtual memory and disable all PSRAM.")
     # Determine if Virtual Memory is used instead of PSRAM
     if (TOTAL_VIRTUAL_MEMORY_KBS GREATER 0)
         set(USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM TRUE)
@@ -97,8 +109,8 @@ else ()
     endif ()
 
     # CPU Configuration
-    set(CPU_FREQ_MHZ "416" CACHE STRING "CPU frequency in MHz")
-    
+    set(CPU_FREQ_MHZ "378" CACHE STRING "CPU frequency in MHz")
+
     if (USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
         message(STATUS "TOTAL_VIRTUAL_MEMORY_KBS = ${TOTAL_VIRTUAL_MEMORY_KBS}KB. Virtual Memory enabled, PSRAM will be disabled.")
         if (NOT PICO_PLATFORM STREQUAL "rp2040")
@@ -159,9 +171,9 @@ else ()
 
     # Add platform
     if (PICO_PLATFORM STREQUAL "rp2040")
-        set(BUILD_NAME "${BUILD_NAME}-RP2040")
+        set(BUILD_NAME "m1p1-${BUILD_NAME}")
     else ()
-        set(BUILD_NAME "${BUILD_NAME}-RP2350")
+        set(BUILD_NAME "m1p2-${BUILD_NAME}")
     endif ()
 
     # Add frequency
@@ -211,7 +223,18 @@ else ()
     # =========================
     add_link_options(-flto -fwhole-program)
     # -frename-registers -fno-tree-vectorize
-    add_compile_options(-flto=auto -frename-registers -fomit-frame-pointer -fwhole-program -ffreestanding -ffast-math -ffunction-sections -fdata-sections -fms-extensions -O2)
+    add_compile_options(
+        -flto=auto
+        -frename-registers 
+        -fomit-frame-pointer 
+        -fwhole-program 
+    #    -ffreestanding // build issues with std::malloc/std::free in SDK 2.1+
+        -ffast-math 
+        -ffunction-sections 
+        -fdata-sections 
+        -fms-extensions 
+        -O2
+    )
 
     add_executable(${PROJECT_NAME} ${SRC} src/pico-main.c src/printf/printf.c src/74hc595/74hc595.c)
     target_include_directories(${PROJECT_NAME} PRIVATE src/74hc595 src src/emu8950 src/printf)
@@ -231,11 +254,16 @@ else ()
         target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=4)
     else ()
         target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=3)
+        if (m1p2launcher)
+            pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap12.ld")
+        else()
+            pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap.ld")
+        endif ()
     endif ()
 
+    pico_set_program_name(286 "PC 8086/8088/186/286 emulator")
+    pico_set_program_version(${PROJECT_NAME} "1.1.0")
     pico_set_boot_stage2(${PROJECT_NAME} slower_boot2)
-    pico_set_program_name(${PROJECT_NAME} "PC 8086/8088/186/286 emulator")
-    pico_set_program_version(${PROJECT_NAME} "wip")
 
     # =========================
     # SUBDIRECTORIES
@@ -274,6 +302,7 @@ else ()
             -Wl,--wrap=atexit,--wrap=abort,--strip-all,--gc-sections # size optimizations
     )
     pico_set_printf_implementation(${PROJECT_NAME} none)
+
     # =========================
     # COMPILE DEFINITIONS
     # =========================
@@ -316,7 +345,7 @@ else ()
     )
 
     pico_add_extra_outputs(${PROJECT_NAME})
-endif ()
+endif()
 
 # =========================
 # COMMON DEFINITIONS (HOST + PICO)
@@ -337,3 +366,4 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
         EMU8950_NO_PERCUSSION_MODE=1
         EMU8950_LINEAR=1
 )
+
