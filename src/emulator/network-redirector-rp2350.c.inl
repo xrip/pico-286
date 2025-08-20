@@ -1,6 +1,6 @@
 // Forward declaration for the network redirector handler
 #pragma once
-#define DEBUG_2F
+// #define DEBUG_2F
 #include <ctype.h>
 #include "ff.h"
 #include <stdlib.h>
@@ -196,7 +196,7 @@ typedef struct __attribute__((packed)) {
 static inline bool redirector_handler() {
     char path[256];
     char guest_path[256];
-    char new_path[256];
+    static char new_path[256];
     /*
  * Pointers to SDA fields. Layout:
  *                             DOS4+   DOS 3, DR-DOS
@@ -551,26 +551,25 @@ static inline bool redirector_handler() {
             get_full_path(path, guest_path);
             debug_log("find first file: '%s'\n", path);
 
-            char* pattern = new_path; // reuse buffer
             char* last_slash = strrchr(path, '/');
 
             if (last_slash) {
-                strcpy(pattern, last_slash + 1);
+                strcpy(new_path, last_slash + 1);
                 if (last_slash == path) { // root directory
                     *(last_slash + 1) = '\0';
                 } else {
                     *last_slash = '\0';
                 }
             } else {
-                strcpy(pattern, path);
+                strcpy(new_path, path);
                 strcpy(path, ".");
             }
 
-            if (pattern[0] == '\0' || strcmp(pattern, "????????.???") == 0) {
-                strcpy(pattern, "*");
+            if (new_path[0] == '\0' || strcmp(new_path, "????????.???") == 0) {
+                strcpy(new_path, "*");
             }
 
-            FRESULT find_result = f_findfirst(&find_handle, &find_fileinfo, path, pattern);
+            FRESULT find_result = f_findfirst(&find_handle, &find_fileinfo, path, new_path);
             if (find_result == FR_OK && find_fileinfo.fname[0]) {
                 uint32_t dta_addr = ((uint32_t) readw86(sda_addr + 14) << 4) + readw86(sda_addr + 12);
                 sdbstruct sdb;
@@ -585,7 +584,7 @@ static inline bool redirector_handler() {
 
                 CPU_FL_CF = 0;
             } else {
-                debug_log("no files found for '%s' in '%s': %i\n", pattern, path, find_result);
+                debug_log("no files found for '%s' in '%s': %i\n", new_path, path, find_result);
 
                 if (FR_OK == find_result) {
                     CPU_AX = 18; // No more files

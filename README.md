@@ -80,7 +80,11 @@ The VGA emulation provides comprehensive Video Graphics Array support with multi
 *   **📺 720×480×16 Colors:** Extended VGA mode
 *   **📝 Text modes:** 80×25 and 80×50 with enhanced character sets
 
-## 💾 Floppy and Hard Disks
+## 💾 Storage: Disk Images and Host Access
+
+The emulator supports two primary types of storage: virtual disk images for standard DOS drives (A:, B:, C:, D:) and direct access to the host filesystem via a mapped network drive (H:).
+
+### Virtual Floppy and Hard Disks (Drives A:, B:, C:, D:)
 
 The emulator supports up to two floppy disk drives (A: and B:) and up to two hard disk drives (C: and D:). Disk images are stored on the SD card.
 
@@ -96,19 +100,35 @@ The emulator expects the following file paths and names for the disk images:
 *   The disk type (floppy or hard disk) is determined by the drive number it is assigned to in the emulator, not by the filename itself.
 *   The emulator automatically determines the disk geometry (cylinders, heads, sectors) based on the size of the image file. Ensure your disk images have standard sizes for floppy disks (e.g., 360KB, 720KB, 1.2MB, 1.44MB) for proper detection. For hard disks, the geometry is calculated based on a standard CHS (Cylinder/Head/Sector) layout.
 
-## 🌐 Host Filesystem Access (Network Redirector)
+### Host Filesystem Access (Drive H:)
 
-In addition to standard disk images, the emulator provides direct access to a directory on the host filesystem, which is presented to the DOS environment as a network drive. This feature is implemented through the **DOS network redirector interface (INT 2Fh, Function 11h)**.
+For seamless file exchange, the emulator can map a directory from the host filesystem and present it as drive **H:** in the DOS environment. This feature is implemented through the standard **DOS network redirector interface (INT 2Fh, Function 11h)**.
 
-This allows for easy file exchange between the host and the emulated system without needing to modify disk images.
+This is ideal for development, allowing you to edit files on your host machine and access them instantly within the emulator without modifying disk images.
 
-### How It Works
-The emulator intercepts calls to `INT 2Fh` and translates DOS file operations (e.g., open, read, write, find file) into commands for the host's filesystem.
+#### How It Works
 
--   **On host builds (Windows/Linux):** The redirector maps to the `C:\\FASM` directory by default.
--   **On Pico builds (RP2040/RP2350):** The redirector maps to the `\\XT\\` directory on the SD card.
+The emulator intercepts file operations for drive H: and translates them into commands for the host's filesystem. To enable this drive, you must run the `MAPDRIVE.COM` utility within the emulator.
 
-This feature is particularly useful for development, testing, and running software that resides on the host machine.
+The mapped directory depends on the platform:
+
+-   **On Windows builds:** Drive H: maps to the `C:\\FASM` directory by default.
+-   **On Linux builds:** Drive H: maps to the `/tmp` directory by default.
+-   **On Pico builds (RP2040/RP2350):** Drive H: maps to the `//XT//` directory on the SD card.
+
+#### `MAPDRIVE.COM` Utility
+
+The `tools/mapdrive.asm` source file can be assembled into `MAPDRIVE.COM` using FASM. This utility registers drive H: with the DOS kernel as a network drive.
+
+**Prerequisite:** Before using `MAPDRIVE.COM`, ensure your `CONFIG.SYS` file contains the line `LASTDRIVE=H` (or higher, e.g., `LASTDRIVE=Z`). This tells DOS to allocate space for drive letters up to H:, allowing `MAPDRIVE.COM` to successfully create the new drive.
+
+To use it:
+
+1.  Assemble `mapdrive.asm` to `mapdrive.com`.
+2.  Copy `mapdrive.com` to your boot disk image (e.g., `fdd0.img` or `hdd.img`).
+3.  Run `MAPDRIVE.COM` from the DOS command line.
+4.  Add `MAPDRIVE.COM` to your `AUTOEXEC.BAT` to automatically map the drive on boot.
+
 
 ## 🔧 Hardware Configuration
 
@@ -451,4 +471,4 @@ Contributions to the Pico-286 project are welcome! Please refer to the `CONTRIBU
 
 ## 📄 License
 
-The Pico-286 project is typically released under an open-source license (e.g., MIT, GPL). The specific license details will be found in a `LICENSE` file in the repository. (To be confirmed by checking repository) ⚖️
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
