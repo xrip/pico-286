@@ -866,6 +866,7 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
 #define op_sbb32() { res32 = oper1 - (oper2 + cf); flag_sbb32(oper1, oper2, cf); }
 
 static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
+    if (cnt == 0) return oper1b;
     uint16_t s = oper1b;
 #ifdef CPU_LIMIT_SHIFT_COUNT
     cnt &= 0x1F;
@@ -986,6 +987,7 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
 }
 
 static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
+    if (cnt == 0) return oper1;
     register uint32_t s = oper1;
 #ifdef CPU_LIMIT_SHIFT_COUNT
     cnt &= 0x1F;
