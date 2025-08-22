@@ -37,7 +37,7 @@
 
 #define CHECK_BIT(var, pos) (((var)>>(pos)) & 1)
 
-static uint sm = 0;
+static uint sm_video_output = 0;
 static PIO pio = pio0;
 static uint st7789_chan;
 
@@ -46,10 +46,10 @@ uint16_t palette[256];
 uint8_t *text_buffer = NULL;
 static uint8_t *graphics_framebuffer = NULL;
 
-static uint graphics_buffer_width = 0;
-static uint graphics_buffer_height = 0;
-static int graphics_buffer_shift_x = 0;
-static int graphics_buffer_shift_y = 0;
+static uint framebuffer_width = 0;
+static uint framebuffer_height = 0;
+static int framebuffer_offset_x = 0;
+static int framebuffer_offset_y = 0;
 
 enum graphics_mode_t graphics_mode = TEXTMODE_80x25_COLOR;
 
@@ -81,16 +81,16 @@ static inline void lcd_set_dc_cs(const bool dc, const bool cs) {
 }
 
 static inline void lcd_write_cmd(const uint8_t *cmd, size_t count) {
-    st7789_lcd_wait_idle(pio, sm);
+    st7789_lcd_wait_idle(pio, sm_video_output);
     lcd_set_dc_cs(0, 0);
-    st7789_lcd_put(pio, sm, *cmd++);
+    st7789_lcd_put(pio, sm_video_output, *cmd++);
     if (count >= 2) {
-        st7789_lcd_wait_idle(pio, sm);
+        st7789_lcd_wait_idle(pio, sm_video_output);
         lcd_set_dc_cs(1, 0);
         for (size_t i = 0; i < count - 1; ++i)
-            st7789_lcd_put(pio, sm, *cmd++);
+            st7789_lcd_put(pio, sm_video_output, *cmd++);
     }
-    st7789_lcd_wait_idle(pio, sm);
+    st7789_lcd_wait_idle(pio, sm_video_output);
     lcd_set_dc_cs(1, 1);
 }
 
@@ -110,27 +110,26 @@ static inline void lcd_set_window(const uint16_t x,
 }
 
 static inline void lcd_init(const uint8_t *init_seq) {
-    const uint8_t *cmd = init_seq;
-    while (*cmd) {
-        lcd_write_cmd(cmd + 2, *cmd);
-        sleep_ms(*(cmd + 1) * 5);
-        cmd += *cmd + 2;
+    while (*init_seq) {
+        lcd_write_cmd(init_seq + 2, *init_seq);
+        sleep_ms(init_seq[1] * 5);
+        init_seq += *init_seq + 2;
     }
 }
 
 static inline void start_pixels() {
     const uint8_t cmd = 0x2c; // RAMWR
-    st7789_lcd_wait_idle(pio, sm);
-    st7789_set_pixel_mode(pio, sm, false);
+    st7789_lcd_wait_idle(pio, sm_video_output);
+    st7789_set_pixel_mode(pio, sm_video_output, false);
     lcd_write_cmd(&cmd, 1);
-    st7789_set_pixel_mode(pio, sm, true);
+    st7789_set_pixel_mode(pio, sm_video_output, true);
     lcd_set_dc_cs(1, 0);
 }
 
 void stop_pixels() {
-    st7789_lcd_wait_idle(pio, sm);
+    st7789_lcd_wait_idle(pio, sm_video_output);
     lcd_set_dc_cs(1, 1);
-    st7789_set_pixel_mode(pio, sm, false);
+    st7789_set_pixel_mode(pio, sm_video_output, false);
 }
 
 void create_dma_channel() {
@@ -138,14 +137,14 @@ void create_dma_channel() {
 
     dma_channel_config c = dma_channel_get_default_config(st7789_chan);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_16);
-    channel_config_set_dreq(&c, pio_get_dreq(pio, sm, true));
+    channel_config_set_dreq(&c, pio_get_dreq(pio, sm_video_output, true));
     channel_config_set_read_increment(&c, true);
     channel_config_set_write_increment(&c, false);
 
     dma_channel_configure(
         st7789_chan, // Channel to be configured
         &c, // The configuration we just created
-        &pio->txf[sm], // The write address
+        &pio->txf[sm_video_output], // The write address
         NULL, // The initial read address - set later
         0, // Number of transfers - set later
         false // Don't start yet
@@ -159,8 +158,8 @@ void graphics_init() {
     gpio_init(TFT_LED_PIN);
 
     const uint offset = pio_add_program(pio, &st7789_lcd_program);
-    sm = pio_claim_unused_sm(pio, true);
-    st7789_lcd_program_init(pio, sm, offset, TFT_DATA_PIN, TFT_CLK_PIN, SERIAL_CLK_DIV);
+    sm_video_output = pio_claim_unused_sm(pio, true);
+    st7789_lcd_program_init(pio, sm_video_output, offset, TFT_DATA_PIN, TFT_CLK_PIN, SERIAL_CLK_DIV);
 
 
     gpio_set_dir(TFT_CS_PIN, GPIO_OUT);
@@ -178,13 +177,15 @@ void graphics_init() {
     }
 
     create_dma_channel();
-    // lcd_set_window(graphics_buffer_shift_x, graphics_buffer_shift_y, SCREEN_WIDTH, SCREEN_HEIGHT);
-    uint32_t i = SCREEN_WIDTH * SCREEN_HEIGHT;
-    while (i--)
-        st7789_lcd_put_pixel(pio, sm, 0x0);
 
-    lcd_set_window(graphics_buffer_shift_x, graphics_buffer_shift_y, graphics_buffer_width,
-                   graphics_buffer_height);
+    uint32_t pixel_count = SCREEN_WIDTH * SCREEN_HEIGHT;
+    while (pixel_count--) {
+        st7789_lcd_put_pixel(pio, sm_video_output, 0x0);
+    }
+
+
+    lcd_set_window(framebuffer_offset_x, framebuffer_offset_y, framebuffer_width,
+                   framebuffer_height);
 }
 
 void inline graphics_set_mode(const enum graphics_mode_t mode) {
@@ -193,8 +194,8 @@ void inline graphics_set_mode(const enum graphics_mode_t mode) {
 
 void graphics_set_buffer(uint8_t *buffer, const uint16_t width, const uint16_t height) {
     graphics_framebuffer = buffer;
-    graphics_buffer_width = width;
-    graphics_buffer_height = height;
+    framebuffer_width = width;
+    framebuffer_height = height;
 }
 
 void graphics_set_textbuffer(uint8_t *buffer) {
@@ -202,8 +203,8 @@ void graphics_set_textbuffer(uint8_t *buffer) {
 }
 
 void graphics_set_offset(const int x, const int y) {
-    graphics_buffer_shift_x = x;
-    graphics_buffer_shift_y = y;
+    framebuffer_offset_x = x;
+    framebuffer_offset_y = y;
 }
 
 static INLINE void st7789_dma_pixels(const uint16_t *pixels, const uint num_pixels) {
@@ -217,7 +218,6 @@ static INLINE void st7789_dma_pixels(const uint16_t *pixels, const uint num_pixe
 }
 
 INLINE void __time_critical_func() refresh_lcd() {
-    uint16_t line_buffer[320];
     const uint8_t *input_buffer_8bit = graphics_framebuffer;
 
     // start_pixels();
@@ -232,7 +232,7 @@ INLINE void __time_critical_func() refresh_lcd() {
                     const uint8_t glyph_row = font_8x8[c * 8 + y % 8];
 
                     for (uint8_t bit = 0; bit < 8; bit++) {
-                        st7789_lcd_put_pixel(pio, sm, textmode_palette[(c && CHECK_BIT(glyph_row, bit))
+                        st7789_lcd_put_pixel(pio, sm_video_output, textmode_palette[(c && CHECK_BIT(glyph_row, bit))
                                                                            ? colorIndex & 0x0F
                                                                            : colorIndex >> 4 & 0x0F]);
 
@@ -250,13 +250,13 @@ INLINE void __time_critical_func() refresh_lcd() {
                     const uint8_t cga_byte = *input_buffer_8bit++;
 
                     uint8_t color = cga_byte >> 6 & 3;
-                    st7789_lcd_put_pixel(pio, sm, palette[color ? color : cga_foreground_color]);
+                    st7789_lcd_put_pixel(pio, sm_video_output, palette[color ? color : cga_foreground_color]);
                     color = cga_byte >> 4 & 3;
-                    st7789_lcd_put_pixel(pio, sm, palette[color ? color : cga_foreground_color]);
+                    st7789_lcd_put_pixel(pio, sm_video_output, palette[color ? color : cga_foreground_color]);
                     color = cga_byte >> 2 & 3;
-                    st7789_lcd_put_pixel(pio, sm, palette[color ? color : cga_foreground_color]);
+                    st7789_lcd_put_pixel(pio, sm_video_output, palette[color ? color : cga_foreground_color]);
                     color = cga_byte >> 0 & 3;
-                    st7789_lcd_put_pixel(pio, sm, palette[color ? color : cga_foreground_color]);
+                    st7789_lcd_put_pixel(pio, sm_video_output, palette[color ? color : cga_foreground_color]);
                 }
             }
             break;
@@ -276,21 +276,21 @@ INLINE void __time_critical_func() refresh_lcd() {
                         if (!color2) color2 = cga_foreground_color;
                     }
 
-                    st7789_lcd_put_pixel(pio, sm, palette[color1]);
-                    st7789_lcd_put_pixel(pio, sm, palette[color1]);
-                    st7789_lcd_put_pixel(pio, sm, palette[color2]);
-                    st7789_lcd_put_pixel(pio, sm, palette[color2]);
+                    st7789_lcd_put_pixel(pio, sm_video_output, palette[color1]);
+                    st7789_lcd_put_pixel(pio, sm_video_output, palette[color1]);
+                    st7789_lcd_put_pixel(pio, sm_video_output, palette[color2]);
+                    st7789_lcd_put_pixel(pio, sm_video_output, palette[color2]);
                 }
             }
             break;
         case TGA_320x200x16: {
             //4bit buf
             //+ (y & 3) * 8192 + __fast_mul(y >> 2, 160);
-            for (int y = 0; y < graphics_buffer_height; y++) {
+            for (int y = 0; y < framebuffer_height; y++) {
                 input_buffer_8bit = tga_offset + graphics_framebuffer + (y & 3) * 8192 + __fast_mul(y >> 2, 160);
                 for (int x = 320 / 2; x--;) {
-                    st7789_lcd_put_pixel(pio, sm, palette[*input_buffer_8bit >> 4 & 15]);
-                    st7789_lcd_put_pixel(pio, sm, palette[*input_buffer_8bit & 15]);
+                    st7789_lcd_put_pixel(pio, sm_video_output, palette[*input_buffer_8bit >> 4 & 15]);
+                    st7789_lcd_put_pixel(pio, sm_video_output, palette[*input_buffer_8bit & 15]);
                     input_buffer_8bit++;
                 }
             }
@@ -300,7 +300,7 @@ INLINE void __time_critical_func() refresh_lcd() {
         case VGA_320x200x256: {
             uint32_t i = 320 * 200;
             while (i--)
-                st7789_lcd_put_pixel(pio, sm, palette[*input_buffer_8bit++]);
+                st7789_lcd_put_pixel(pio, sm_video_output, palette[*input_buffer_8bit++]);
             break;
         }
     }

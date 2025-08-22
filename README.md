@@ -471,4 +471,4 @@ Contributions to the Pico-286 project are welcome! Please refer to the `CONTRIBU
 
 ## 📄 License
 
-The Pico-286 project is typically released under an open-source license (e.g., MIT, GPL). The specific license details will be found in a `LICENSE` file in the repository. (To be confirmed by checking repository) ⚖️
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

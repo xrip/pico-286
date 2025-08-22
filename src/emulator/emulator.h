@@ -6,6 +6,7 @@
 
 #endif
 #include <stdint.h>
+#include "windows.h"
 #include "cpu.h"
 
 #ifdef __cplusplus

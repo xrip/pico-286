@@ -46,10 +46,10 @@ static int dma_channel_data;
 
 static uint8_t *graphics_framebuffer;
 uint8_t *text_buffer = NULL;
-static uint graphics_buffer_width = 0;
-static uint graphics_buffer_height = 0;
+static uint framebuffer_width = 0;
+static uint framebuffer_height = 0;
 static int framebuffer_offset_x = 0;
-static int graphics_buffer_shift_y = 0;
+static int framebuffer_offset_y = 0;
 
 static bool is_flash_line = false;
 static bool is_flash_frame = false;
@@ -557,14 +557,14 @@ void graphics_set_mode(enum graphics_mode_t mode) {
 
 void graphics_set_buffer(uint8_t *buffer, const uint16_t width, const uint16_t height) {
     graphics_framebuffer = buffer;
-    graphics_buffer_width = width;
-    graphics_buffer_height = height;
+    framebuffer_width = width;
+    framebuffer_height = height;
 }
 
 
 void graphics_set_offset(const int x, const int y) {
     framebuffer_offset_x = x;
-    graphics_buffer_shift_y = y;
+    framebuffer_offset_y = y;
 }
 
 void graphics_set_flashmode(const bool flash_line, const bool flash_frame) {

@@ -299,10 +299,10 @@ static INLINE void parse_midi(const midi_command_t *message) {
                         );
 
                         const uint8_t ch_volume = midi_channels[channel].volume;
-                        if (channel == 9) {
+                        /*if (channel == 9) {
                             // Boost velocity for drums to make them punchier
                             voice->velocity = MIN(127, (message->velocity * 3) >> 1);
-                        } else {
+                        } else*/ {
                             voice->velocity = __builtin_expect(ch_volume != 0, 1) ?
                                 (ch_volume * message->velocity) >> 7 : message->velocity;
                         }
