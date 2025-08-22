@@ -2146,9 +2146,9 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x54: /* 54 PUSH eSP */
 #ifdef CPU_286_STYLE_PUSH_SP
-                push(CPU_SP);
-#else
                 push(CPU_SP - 2);
+#else
+                push(CPU_SP);
 #endif
                 break;
 
@@ -2227,15 +2227,14 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 if (
                     signext32(getreg16(reg)
                     ) <
-                    signext32(getmem16(ea >> 4, ea & 15)
+                    signext32(readw86(ea)
                     )) {
                     intcall86(5); //bounds check exception
                 } else {
-                    ea += 2;
                     if (
                         signext32(getreg16(reg)
                         ) >
-                        signext32(getmem16(ea >> 4, ea & 15)
+                        signext32(readw86(ea+2)
                         )) {
                         intcall86(5); //bounds check exception
                     }
