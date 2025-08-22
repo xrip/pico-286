@@ -752,28 +752,28 @@ static inline void flag_log16(uint16_t value) {
 
 static inline void flag_adc8(uint8_t v1, uint8_t v2, uint8_t v3) {
     /* v1 = destination operand, v2 = source operand, v3 = carry flag */
-    uint16_t dst = (uint16_t) v1 + (uint16_t) v2 + (uint16_t) v3;
+    uint32_t dst = (uint32_t) v1 + (uint32_t) v2 + (uint32_t) v3;
     flag_szp8((uint8_t) dst);
-    of = ((dst ^ v1) & (dst ^ v2) & 0x80) != 0;
+    of = ((dst ^ (uint32_t)v1) & (dst ^ (uint32_t)v2) & 0x80) != 0;
     cf = (dst & 0xFF00) != 0;
-    af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
+    af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
 }
 
 static inline void flag_adc16(uint16_t v1, uint16_t v2, uint16_t v3) {
     register uint32_t dst = (uint32_t) v1 + (uint32_t) v2 + (uint32_t) v3;
     flag_szp16((uint16_t) dst);
-    of = (((dst ^ v1) & (dst ^ v2)) & 0x8000) != 0;
+    of = (((dst ^ (uint32_t)v1) & (dst ^ (uint32_t)v2)) & 0x8000) != 0;
     cf = (dst & 0xFFFF0000) != 0;
-    af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
+    af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
 }
 
 static inline void flag_add8(uint8_t v1, uint8_t v2) {
     /* v1 = destination operand, v2 = source operand */
-    register uint32_t dst = (uint16_t) ((uint16_t) v1 + (uint16_t) v2);
+    register uint32_t dst = (uint32_t) v1 + (uint32_t) v2;
     flag_szp8((uint8_t) dst);
     cf = (dst & 0xFF00) != 0;
-    of = ((dst ^ v1) & (dst ^ v2) & 0x80) != 0;
-    af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
+    of = ((dst ^ (uint32_t)v1) & (dst ^ (uint32_t)v2) & 0x80) != 0;
+    af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
 }
 
 static inline void flag_add32(uint32_t v1, uint32_t v2, uint32_t res32) {
@@ -787,11 +787,11 @@ static inline void flag_add32(uint32_t v1, uint32_t v2, uint32_t res32) {
 static inline void flag_sbb8(uint8_t v1, uint8_t v2, uint8_t v3) {
     /* v1 = destination operand, v2 = source operand, v3 = carry flag */
     v2 += v3;
-    uint16_t dst = (uint16_t) v1 - (uint16_t) v2;
+    uint32_t dst = (uint32_t) v1 - (uint32_t) v2;
     flag_szp8((uint8_t) dst);
     cf = (dst & 0xFF00) != 0;
-    of = ((dst ^ v1) & (v1 ^ v2) & 0x80) != 0;
-    af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
+    of = ((dst ^ (uint32_t)v1) & (v1 ^ (uint32_t)v2) & 0x80) != 0;
+    af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
 }
 
 static inline void flag_sbb16(uint16_t v1, uint16_t v2, uint16_t v3) {
@@ -800,16 +800,16 @@ static inline void flag_sbb16(uint16_t v1, uint16_t v2, uint16_t v3) {
     register uint32_t dst = (uint32_t) v1 - (uint32_t) v2;
     flag_szp16((uint16_t) dst);
     cf = (dst & 0xFFFF0000) != 0;
-    of = ((dst ^ v1) & (v1 ^ v2) & 0x8000) != 0;
-    af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
+    of = ((dst ^ (uint32_t)v1) & (v1 ^ (uint32_t)v2) & 0x8000) != 0;
+    af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
 }
 
 static inline void flag_sub8(uint8_t v1, uint8_t v2) {
     /* v1 = destination operand, v2 = source operand */
-    uint16_t dst = (uint16_t) v1 - (uint16_t) v2;
+    uint32_t dst = (uint32_t) v1 - (uint32_t) v2;
     flag_szp8((uint8_t) dst);
     cf = (dst & 0xFF00) != 0;
-    of = ((dst ^ v1) & (v1 ^ v2) & 0x80) != 0;
+    of = ((dst ^ (uint32_t)v1) & (v1 ^ v2) & 0x80) != 0;
     af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
 }
 
@@ -818,19 +818,19 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
     register uint32_t dst = (uint32_t) v1 - (uint32_t) v2;
     flag_szp16((uint16_t) dst);
     cf = (dst & 0xFFFF0000) != 0;
-    of = ((dst ^ v1) & (v1 ^ v2) & 0x8000) != 0;
-    af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
+    of = ((dst ^ (uint32_t)v1) & ((uint32_t)v1 ^ (uint32_t)v2) & 0x8000) != 0;
+    af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
 }
 
 #define op_adc8() { res8 = oper1b + oper2b + cf; flag_adc8(oper1b, oper2b, cf); }
 #define op_adc16() { res16 = oper1 + oper2 + cf; flag_adc16(oper1, oper2, cf); }
 #define op_adc32() { res32 = oper1 + oper2 + cf; flag_adc32(oper1, oper2, cf); }
 #define op_add8() { \
-    register uint32_t dst = (uint16_t)((uint16_t)oper1b + (uint16_t)oper2b); \
+    register uint32_t dst = (uint32_t)oper1b + (uint32_t)oper2b; \
     res8 = dst; \
     flag_szp8(res8); \
     cf = (dst & 0xFF00) != 0; \
-    of = ((dst ^ oper1b) & (dst ^ oper2b) & 0x80) != 0; \
+    of = ((dst ^ (uint32_t)oper1b) & (dst ^ (uint32_t)oper2b) & 0x80) != 0; \
     af = ((oper1b ^ oper2b ^ dst) & 0x10) != 0; \
 }
 #define op_add16() { \
@@ -838,7 +838,7 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
     res16 = dst; \
     flag_szp16(dst); \
     cf = (dst & 0xFFFF0000) != 0; \
-    of = (((dst ^ oper1) & (dst ^ oper2) & 0x8000) != 0); \
+    of = (((dst ^ (uint32_t)oper1) & (dst ^ (uint32_t)oper2) & 0x8000) != 0); \
     af = (((oper1 ^ oper2 ^ dst) & 0x10) != 0); \
 }
 #define op_add32() { res32 = oper1 + oper2; flag_add32(oper1, oper2, res32); }
@@ -856,7 +856,7 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
     register uint32_t dst = (uint32_t) oper1 - (uint32_t) oper2; \
     flag_szp16((uint16_t) dst); \
     cf = (dst & 0xFFFF0000) != 0; \
-    of = ((dst ^ oper1) & (oper1 ^ oper2) & 0x8000) != 0; \
+    of = ((dst ^ (uint32_t)oper1) & (oper1 ^ oper2) & 0x8000) != 0; \
     af = ((oper1 ^ oper2 ^ dst) & 0x10) != 0; \
     res16 = (uint16_t) dst; \
 }

@@ -3,10 +3,9 @@
 #include "printf/printf.h"
 #include <pico.h>
 #else
-
+#include "windows.h"
 #endif
 #include <stdint.h>
-#include "windows.h"
 #include "cpu.h"
 
 #ifdef __cplusplus
