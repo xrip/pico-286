@@ -779,8 +779,8 @@ static inline void flag_add8(uint8_t v1, uint8_t v2) {
 static inline void flag_add32(uint32_t v1, uint32_t v2, uint32_t res32) {
     /* v1 = destination operand, v2 = source operand */
     flag_szp32(res32);
-    cf = (((uint64_t) v1 + (uint64_t) v2) & 0xF00000000) != 0;
-    of = ((res32 ^ v1) & (res32 ^ v2) & 0x8000) != 0;
+    cf = (((uint64_t) v1 + (uint64_t) v2) & 0x100000000) != 0;
+    of = ((res32 ^ v1) & (res32 ^ v2) & 0x80000000) != 0;
     af = ((v1 ^ v2 ^ res32) & 0x10) != 0;
 }
 
@@ -884,11 +884,7 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
             }
 
             if (cnt == 1) {
-                // of = cf ^ ( (s >> 7) & 1);
-                if ((s & 0x80) && cf)
-                    of = 1;
-                else
-                    of = 0;
+                of = cf ^ ( (s >> 7) & 1);
             } else
                 of = 0;
             break;
@@ -946,10 +942,8 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
                 s = (s << 1) & 0xFF;
             }
 
-            if ((cnt == 1) && (cf == (s >> 7))) {
-                of = 0;
-            } else {
-                of = 1;
+            if (cnt == 1) {
+                of = cf ^ ((s >> 7) & 1);
             }
 
             flag_szp8((uint8_t) s);
@@ -1061,10 +1055,8 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
                 s = (s << 1) & 0xFFFF;
             }
 
-            if ((cnt == 1) && (cf == (s >> 15))) {
-                of = 0;
-            } else {
-                of = 1;
+            if (cnt == 1) {
+                of = cf ^ ((s >> 15) & 1);
             }
 
             flag_szp16((uint16_t) s);
@@ -1748,23 +1740,18 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x27: /* 27 DAA */
             {
-                uint8_t old_al;
-                old_al = CPU_AL;
-                if (((CPU_AL & 0x0F) > 9) || af) {
-                    oper1 = (uint16_t) CPU_AL + 0x06;
-                    CPU_AL = oper1 & 0xFF;
-                    if (oper1 & 0xFF00)
-                        cf = 1;
-                    if ((oper1 & 0x000F) < (old_al & 0x0F))
-                        af = 1;
+                uint8_t old_al = CPU_AL;
+                uint8_t old_cf = cf;
+                cf = 0;
+                if (((old_al & 0x0F) > 9) || af) {
+                    CPU_AL += 0x06;
+                    af = 1;
+                } else {
+                    af = 0;
                 }
-                if (((CPU_AL & 0xF0) > 0x90) || cf) {
-                    oper1 = (uint16_t) CPU_AL + 0x60;
-                    CPU_AL = oper1 & 0xFF;
-                    if (oper1 & 0xFF00)
-                        cf = 1;
-                    else
-                        cf = 0;
+                if ((old_al > 0x99) || old_cf) {
+                    CPU_AL += 0x60;
+                    cf = 1;
                 }
                 flag_szp8(CPU_AL);
                 break;
@@ -1831,23 +1818,18 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x2F: /* 2F DAS */
             {
-                uint8_t old_al;
-                old_al = CPU_AL;
-                if (((CPU_AL & 0x0F) > 9) || af) {
-                    oper1 = (uint16_t) CPU_AL - 0x06;
-                    CPU_AL = oper1 & 0xFF;
-                    if (oper1 & 0xFF00)
-                        cf = 1;
-                    if ((oper1 & 0x000F) >= (old_al & 0x0F))
-                        af = 1;
+                uint8_t old_al = CPU_AL;
+                uint8_t old_cf = cf;
+                cf = 0;
+                if (((old_al & 0x0F) > 9) || af) {
+                    CPU_AL -= 0x06;
+                    af = 1;
+                } else {
+                    af = 0;
                 }
-                if (((CPU_AL & 0xF0) > 0x90) || cf) {
-                    oper1 = (uint16_t) CPU_AL - 0x60;
-                    CPU_AL = oper1 & 0xFF;
-                    if (oper1 & 0xFF00)
-                        cf = 1;
-                    else
-                        cf = 0;
+                if ((old_al > 0x99) || old_cf) {
+                    CPU_AL -= 0x60;
+                    cf = 1;
                 }
                 flag_szp8(CPU_AL);
                 break;
