@@ -1126,7 +1126,7 @@ static inline void op_idiv8(uint16_t valdiv, uint8_t divisor) {
     quotient = dividend / divisor;
     remainder = dividend % divisor;
 
-    if (quotient & 0xFF00) {
+    if ((sign && quotient > 128) || (!sign && quotient > 127)) {
         intcall86(0);
         return;
     }
@@ -1166,7 +1166,7 @@ static inline void op_idiv16(uint32_t valdiv, uint16_t divisor) {
     uint32_t quotient = dividend / divisor_signed;
     uint32_t remainder = dividend % divisor_signed;
 
-    if (quotient & 0xFFFF0000) {
+    if ((sign && quotient > 32768) || (!sign && quotient > 32767)) {
         intcall86(0);
         return;
     }
@@ -3441,9 +3441,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 StepIP(1);
                 CPU_AL = (CPU_AH * oper1 + CPU_AL) & 255;
                 CPU_AH = 0;
-                flag_szp16(CPU_AH
-                           * oper1 + CPU_AL);
-                sf = 0;
+                flag_szp8(CPU_AL);
                 break;
 
             case 0xD6: /* D6 XLAT on V20/V30, SALC on 8086/8088 */
