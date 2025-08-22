@@ -779,8 +779,8 @@ static inline void flag_add8(uint8_t v1, uint8_t v2) {
 static inline void flag_add32(uint32_t v1, uint32_t v2, uint32_t res32) {
     /* v1 = destination operand, v2 = source operand */
     flag_szp32(res32);
-    cf = (((uint64_t) v1 + (uint64_t) v2) & 0x100000000) != 0;
-    of = ((res32 ^ v1) & (res32 ^ v2) & 0x80000000) != 0;
+    cf = (((uint64_t) v1 + (uint64_t) v2) & 0xF00000000) != 0;
+    of = ((res32 ^ v1) & (res32 ^ v2) & 0x8000) != 0;
     af = ((v1 ^ v2 ^ res32) & 0x10) != 0;
 }
 
@@ -884,7 +884,11 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
             }
 
             if (cnt == 1) {
-                of = cf ^ ( (s >> 7) & 1);
+                // of = cf ^ ( (s >> 7) & 1);
+                if ((s & 0x80) && cf)
+                    of = 1;
+                else
+                    of = 0;
             } else
                 of = 0;
             break;
@@ -942,8 +946,10 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
                 s = (s << 1) & 0xFF;
             }
 
-            if (cnt == 1) {
-                of = cf ^ ((s >> 7) & 1);
+            if ((cnt == 1) && (cf == (s >> 7))) {
+                of = 0;
+            } else {
+                of = 1;
             }
 
             flag_szp8((uint8_t) s);
@@ -1055,8 +1061,10 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
                 s = (s << 1) & 0xFFFF;
             }
 
-            if (cnt == 1) {
-                of = cf ^ ((s >> 15) & 1);
+            if ((cnt == 1) && (cf == (s >> 15))) {
+                of = 0;
+            } else {
+                of = 1;
             }
 
             flag_szp16((uint16_t) s);
@@ -1212,23 +1220,13 @@ static __not_in_flash() void op_grp3_16() {
         }
         case 5: {
             /* IMUL */
-            register uint32_t temp1 = CPU_AX;
-            register uint32_t temp2 = oper1;
-            if (temp1 & 0x8000) {
-                temp1 |= 0xFFFF0000;
-            }
-
-            if (temp2 & 0x8000) {
-                temp2 |= 0xFFFF0000;
-            }
-
-            temp1 *= temp2;
-            CPU_AX = temp1 & 0xFFFF; /* into register ax */
-            CPU_DX = temp1 >> 16; /* into register dx */
-            if (CPU_DX) {
-                x86_flags.value |= FLAG_CF_OF_MASK;
-            } else {
+            int32_t res32 = (int16_t)oper1 * (int16_t)CPU_AX;
+            CPU_AX = res32 & 0xFFFF;
+            CPU_DX = res32 >> 16;
+            if (res32 == (int16_t)CPU_AX) {
                 x86_flags.value &= ~FLAG_CF_OF_MASK;
+            } else {
+                x86_flags.value |= FLAG_CF_OF_MASK;
             }
 #ifdef CPU_CLEAR_ZF_ON_MUL
             zf = 0;
@@ -1740,18 +1738,23 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x27: /* 27 DAA */
             {
-                uint8_t old_al = CPU_AL;
-                uint8_t old_cf = cf;
-                cf = 0;
-                if (((old_al & 0x0F) > 9) || af) {
-                    CPU_AL += 0x06;
-                    af = 1;
-                } else {
-                    af = 0;
+                uint8_t old_al;
+                old_al = CPU_AL;
+                if (((CPU_AL & 0x0F) > 9) || af) {
+                    oper1 = (uint16_t) CPU_AL + 0x06;
+                    CPU_AL = oper1 & 0xFF;
+                    if (oper1 & 0xFF00)
+                        cf = 1;
+                    if ((oper1 & 0x000F) < (old_al & 0x0F))
+                        af = 1;
                 }
-                if ((old_al > 0x99) || old_cf) {
-                    CPU_AL += 0x60;
-                    cf = 1;
+                if (((CPU_AL & 0xF0) > 0x90) || cf) {
+                    oper1 = (uint16_t) CPU_AL + 0x60;
+                    CPU_AL = oper1 & 0xFF;
+                    if (oper1 & 0xFF00)
+                        cf = 1;
+                    else
+                        cf = 0;
                 }
                 flag_szp8(CPU_AL);
                 break;
@@ -1818,18 +1821,23 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x2F: /* 2F DAS */
             {
-                uint8_t old_al = CPU_AL;
-                uint8_t old_cf = cf;
-                cf = 0;
-                if (((old_al & 0x0F) > 9) || af) {
-                    CPU_AL -= 0x06;
-                    af = 1;
-                } else {
-                    af = 0;
+                uint8_t old_al;
+                old_al = CPU_AL;
+                if (((CPU_AL & 0x0F) > 9) || af) {
+                    oper1 = (uint16_t) CPU_AL - 0x06;
+                    CPU_AL = oper1 & 0xFF;
+                    if (oper1 & 0xFF00)
+                        cf = 1;
+                    if ((oper1 & 0x000F) >= (old_al & 0x0F))
+                        af = 1;
                 }
-                if ((old_al > 0x99) || old_cf) {
-                    CPU_AL -= 0x60;
-                    cf = 1;
+                if (((CPU_AL & 0xF0) > 0x90) || cf) {
+                    oper1 = (uint16_t) CPU_AL - 0x60;
+                    CPU_AL = oper1 & 0xFF;
+                    if (oper1 & 0xFF00)
+                        cf = 1;
+                    else
+                        cf = 0;
                 }
                 flag_szp8(CPU_AL);
                 break;
@@ -3627,22 +3635,12 @@ void __not_in_flash() exec86(uint32_t execloops) {
                     }
                     case 5: {
                         /* IMUL */
-                        oper1 = signext(oper1b);
-                        register uint32_t temp1 = signext(CPU_AL);
-                        register uint32_t temp2 = oper1;
-                        if ((temp1 & 0x80) == 0x80) {
-                            temp1 = temp1 | 0xFFFFFF00;
-                        }
-
-                        if ((temp2 & 0x80) == 0x80) {
-                            temp2 = temp2 | 0xFFFFFF00;
-                        }
-
-                        CPU_AX = (temp1 * temp2) & 0xFFFF;
-                        if (CPU_AH) {
-                            x86_flags.value |= FLAG_CF_OF_MASK;
+                        int16_t res16 = (int8_t)oper1b * (int8_t)CPU_AL;
+                        CPU_AX = res16;
+                        if (res16 == (int8_t)CPU_AL) {
+                             x86_flags.value &= ~FLAG_CF_OF_MASK;
                         } else {
-                            x86_flags.value &= ~FLAG_CF_OF_MASK;
+                             x86_flags.value |= FLAG_CF_OF_MASK;
                         }
 #ifdef CPU_CLEAR_ZF_ON_MUL
                         zf = 0;
