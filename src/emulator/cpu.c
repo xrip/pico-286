@@ -1312,6 +1312,7 @@ void reset86() {
 
     memset(RAM, 0, sizeof(RAM));
     memset(VIDEORAM, 0x00, sizeof(VIDEORAM));
+    fpu_reset();
 #if !PICO_ON_DEVICE
     memset(UMB, 0, sizeof(UMB));
     memset(HMA, 0, sizeof(HMA));
@@ -3473,9 +3474,9 @@ void __not_in_flash() exec86(uint32_t execloops) {
             case 0xDC:
             case 0xDE:
             case 0xDD:
-            case 0xDF: /* escape to x87 FPU (unsupported) */
+            case 0xDF: /* escape to x87 FPU */
                 modregrm();
-
+                fpu_op(opcode);
                 break;
 
             case 0xE0: /* E0 LOOPNZ Jb */

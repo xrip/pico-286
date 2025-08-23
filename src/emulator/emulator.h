@@ -6,8 +6,11 @@
 
 #endif
 #include <stdint.h>
+#ifdef _WIN32
 #include "windows.h"
+#endif
 #include "cpu.h"
+#include "fpu.h"
 
 #ifdef __cplusplus
 extern "C" {
