@@ -42,7 +42,7 @@ static void fresult_to_dos_error(const FRESULT fr) {
 
 
 // Host filesystem passthrough base directory
-#define HOST_BASE_DIR "\\XT\\"
+#define HOST_BASE_DIR "\\"
 
 // Maximum number of open files
 #define MAX_FILES 32

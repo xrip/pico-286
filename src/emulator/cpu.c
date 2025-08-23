@@ -1342,6 +1342,7 @@ void reset86() {
 
 void __not_in_flash() exec86(uint32_t execloops) {
     static uint16_t firstip;
+    static bool was_TF;
 
     //counterticks = (uint64_t) ( (double) timerfreq / (double) 65536.0);
     //tickssource();
@@ -3749,6 +3750,13 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 printf("[CPU] Invalid opcode 0x%02x exception at %04X:%04X\r\n", opcode, CPU_CS, firstip);
 #endif
                 break;
+        }
+        if (was_TF) {
+            was_TF = false;
+            intcall86(1);
+        }
+        if (tf) {
+            was_TF = true;
         }
     }
 }
