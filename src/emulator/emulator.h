@@ -177,6 +177,8 @@ extern uint8_t vga_planar_mode;
 #define ega_vga_enabled (1)
 #endif
 
+void OpFpu(uint8_t opcode);
+
 void vga_portout(uint16_t portnum, uint16_t value);
 
 uint16_t vga_portin(uint16_t portnum);

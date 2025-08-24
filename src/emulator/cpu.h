@@ -110,6 +110,7 @@ void init_umb();
 #define CPU_DI    wordregs[regdi << 1]
 #define CPU_BP    wordregs[regbp << 1]
 #define CPU_SP    wordregs[regsp << 1]
+extern uint32_t ip32;
 #define CPU_IP    (*(uint16_t*)&ip32)
 #define ip        (*(uint16_t*)&ip32)
 
@@ -122,3 +123,5 @@ void init_umb();
 #define CPU_CH    byteregs[regch]
 #define CPU_DH    byteregs[regdh]
 
+void modregrm();
+void getea(uint8_t rmval);

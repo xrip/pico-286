@@ -58,7 +58,7 @@ static const bool __not_in_flash("cpu.pf") parity[0x100] = {
     0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1
 };
 
-static __not_in_flash() void modregrm() {
+__not_in_flash() void modregrm() {
     register uint8_t addrbyte = getmem8(CPU_CS, CPU_IP);
     StepIP(1);
     mode = addrbyte >> 6;
@@ -126,7 +126,7 @@ static __not_in_flash() void modregrm() {
     }
 }
 
-static __not_in_flash() void getea(uint8_t rmval) {
+__not_in_flash() void getea(uint8_t rmval) {
     register uint32_t tempea = 0;
 #ifdef CPU_386_EXTENDED_OPS
     if (addressSizeOverride) {
@@ -3481,9 +3481,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
             case 0xDC:
             case 0xDE:
             case 0xDD:
-            case 0xDF: /* escape to x87 FPU (unsupported) */
-                modregrm();
-
+            case 0xDF: /* escape to x87 FPU */
+                OpFpu(opcode);
                 break;
 
             case 0xE0: /* E0 LOOPNZ Jb */
