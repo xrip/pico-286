@@ -2821,7 +2821,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
 #ifdef CPU_SET_HIGH_FLAGS
                 push(makeflagsword() | 0xF800);
 #else
-                push(makeflagsword() | 0x0800);
+                push(makeflagsword());
 #endif
                 break;
 
