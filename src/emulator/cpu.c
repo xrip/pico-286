@@ -991,7 +991,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
     cnt &= 0x1F;
 #endif
     switch (reg) {
-        case 0: /* ROL r/m8 */
+        case 0: /* ROL r/m16 */
             for (int shift = 1; shift <= cnt; shift++) {
                 if (s & 0x8000) {
                     cf = 1;
@@ -1008,7 +1008,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
             }
             break;
 
-        case 1: /* ROR r/m8 */
+        case 1: /* ROR r/m16 */
             for (int shift = 1; shift <= cnt; shift++) {
                 cf = s & 1;
                 s = (s >> 1) | (cf << 15);
@@ -1019,7 +1019,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
             }
             break;
 
-        case 2: /* RCL r/m8 */
+        case 2: /* RCL r/m16 */
             for (int shift = 1; shift <= cnt; shift++) {
                 register bool oldcf = cf;
                 if (s & 0x8000) {
@@ -1037,7 +1037,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
             }
             break;
 
-        case 3: /* RCR r/m8 */
+        case 3: /* RCR r/m16 */
             for (int shift = 1; shift <= cnt; shift++) {
                 register uint32_t oldcf = cf;
                 cf = s & 1;
@@ -1050,7 +1050,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
             break;
 
         case 4:
-        case 6: /* SHL r/m8 */
+        case 6: /* SHL r/m16 */
             for (unsigned int shift = 1; shift <= cnt; shift++) {
                 if (s & 0x8000) {
                     cf = 1;
@@ -1070,7 +1070,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
             flag_szp16((uint16_t) s);
             break;
 
-        case 5: /* SHR r/m8 */
+        case 5: /* SHR r/m16 */
             if ((cnt == 1) && (s & 0x8000)) {
                 of = 1;
             } else {
@@ -1085,7 +1085,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
             flag_szp16((uint16_t) s);
             break;
 
-        case 7: /* SAR r/m8 */
+        case 7: /* SAR r/m16 */
             for (int shift = 1, msb; shift <= cnt; shift++) {
                 msb = s & 0x8000;
                 cf = s & 1;
@@ -1102,6 +1102,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
 
 static inline void op_div8(uint16_t valdiv, uint8_t divisor) {
     if (divisor == 0 || valdiv / divisor > 0xFF) {
+        printf("[op_div8] %d / %d\n", valdiv, divisor);
         intcall86(0);
         return;
     }
@@ -1112,6 +1113,7 @@ static inline void op_div8(uint16_t valdiv, uint8_t divisor) {
 
 static inline void op_idiv8(uint16_t valdiv, uint8_t divisor) {
     if (divisor == 0) {
+        printf("[op_idiv8] %d / 0\n", valdiv);
         intcall86(0);
         return;
     }
@@ -1127,6 +1129,7 @@ static inline void op_idiv8(uint16_t valdiv, uint8_t divisor) {
     remainder = dividend % divisor;
 
     if (quotient & 0xFF00) {
+        printf("[op_idiv8] %d / %d\n", valdiv, divisor);
         intcall86(0);
         return;
     }
@@ -1142,6 +1145,9 @@ static inline void op_idiv8(uint16_t valdiv, uint8_t divisor) {
 
 static inline void op_div16(uint32_t valdiv, uint16_t divisor) {
     if (divisor == 0 || valdiv / divisor > 0xFFFF) {
+//        CPU_DX = 0;
+//        CPU_AX = 0xFFFF;
+//        printf("[op_div16] %d / %d\n", valdiv, divisor);
         intcall86(0);
         return;
     }
@@ -1152,6 +1158,7 @@ static inline void op_div16(uint32_t valdiv, uint16_t divisor) {
 
 static inline void op_idiv16(uint32_t valdiv, uint16_t divisor) {
     if (divisor == 0) {
+        printf("[op_idiv16] %d / %d\n", valdiv, divisor);
         intcall86(0);
         return;
     }
@@ -1167,6 +1174,7 @@ static inline void op_idiv16(uint32_t valdiv, uint16_t divisor) {
     uint32_t remainder = dividend % divisor_signed;
 
     if (quotient & 0xFFFF0000) {
+        printf("[op_idiv16] %d / %d\n", valdiv, divisor);
         intcall86(0);
         return;
     }
@@ -3415,8 +3423,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 modregrm();
 
                 oper1 = readrm16(rm);
-                writerm16(rm, op_grp2_16(1)
-                );
+                writerm16(rm, op_grp2_16(1));
                 break;
 
             case 0xD2: /* D2 GRP2 Eb CPU_CL */
