@@ -2817,16 +2817,17 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 break;
 
             case 0x9C: /* 9C PUSHF */
-#ifdef CPU_SET_HIGH_FLAGS
-                push(makeflagsword() | 0xF800);
-#else
-                push(makeflagsword() | 0x0800);
-#endif
+                push(makeflagsword());
                 break;
 
             case 0x9D: /* 9D POPF */
-                temp16 = pop();
-                decodeflagsword(temp16);
+#ifdef CPU_SET_HIGH_FLAGS
+                decodeflagsword(pop() | 2 | 0xF800);
+#else
+                decodeflagsword(pop()  & 0x0FFF);
+#endif
+
+
                 break;
 
             case 0x9E: /* 9E SAHF */
