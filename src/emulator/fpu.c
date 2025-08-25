@@ -86,10 +86,10 @@ extern uint32_t ea;
 static struct MachineFpu fpu;
 
 u64 Read64(u32 addr) {
-    return (u64)readdw86(addr) | ((u64)readdw86(addr + 4) << 32);
+    return (u64) readdw86(addr) | ((u64) readdw86(addr + 4) << 32);
 }
 
-void Read80(u8* dst, u32 addr) {
+void Read80(u8 *dst, u32 addr) {
     u32 val32;
     u16 val16;
     val32 = readdw86(addr);
@@ -105,37 +105,35 @@ void Write64(u32 addr, u64 val) {
     writedw86(addr + 4, val >> 32);
 }
 
-void Write80(u32 addr, u8* src) {
-    writedw86(addr, *(u32*)src);
-    writedw86(addr + 4, *(u32*)(src + 4));
-    writew86(addr + 8, *(u16*)(src + 8));
+void Write80(u32 addr, u8 *src) {
+    writedw86(addr, *(u32 *) src);
+    writedw86(addr + 4, *(u32 *) (src + 4));
+    writew86(addr + 8, *(u16 *) (src + 8));
 }
 
-u8* SerializeLdbl(u8 b[10], double f) {
+u8 *SerializeLdbl(u8 b[10], double f) {
     int e;
-    union DoublePun u = { f };
+    union DoublePun u = {f};
     e = (u.i >> 52) & 0x7ff;
     if (!e) {
         e = 0;
-    }
-    else if (e == 0x7ff) {
+    } else if (e == 0x7ff) {
         e = 0x7fff;
-    }
-    else {
+    } else {
         e -= 0x3ff;
         e += 0x3fff;
     }
-    *(u16*)(b + 8) = e | u.i >> 63 << 15;
-    *(u64*)(b) = (u.i & 0x000fffffffffffff) << 11 | (u64)!!u.f << 63;
+    *(u16 *) (b + 8) = e | u.i >> 63 << 15;
+    *(u64 *) (b) = (u.i & 0x000fffffffffffff) << 11 | (u64) !!u.f << 63;
     return b;
 }
 
 double DeserializeLdbl(const u8 b[10]) {
     union DoublePun u;
-    u.i = (u64)(MAX(-1023, MIN(1024, (((*(u16*)(b + 8)) & 0x7fff) - 0x3fff))) + 1023)
-        << 52 |
-        (((*(u64*)(b)) & 0x7fffffffffffffff) + (1 << (11 - 1))) >> 11 |
-        (u64)(b[9] >> 7) << 63;
+    u.i = (u64) (MAX(-1023, MIN(1024, (((*(u16*)(b + 8)) & 0x7fff) - 0x3fff))) + 1023)
+          << 52 |
+          (((*(u64 *) (b)) & 0x7fffffffffffffff) + (1 << (11 - 1))) >> 11 |
+          (u64) (b[9] >> 7) << 63;
     return u.f;
 }
 
@@ -256,12 +254,12 @@ static void FpuSetMemoryLong(i64 i) {
 }
 
 static void FpuSetMemoryFloat(float f) {
-    union FloatPun u = { f };
+    union FloatPun u = {f};
     FpuSetMemoryInt(u.i);
 }
 
 static void FpuSetMemoryDouble(double f) {
-    union DoublePun u = { f };
+    union DoublePun u = {f};
     FpuSetMemoryLong(u.i);
 }
 
@@ -272,7 +270,7 @@ static double FpuGetMemoryLdbl() {
 }
 
 static void FpuSetMemoryLdbl(double f) {
-    void* p[2];
+    void *p[2];
     u8 b[10], t[10];
     SerializeLdbl(b, f);
     //memcpy(BeginStore(fpu.dp, 10, p, t), b, 10);
@@ -297,8 +295,8 @@ static double fscale(double significand, double exponent) {
     return ldexp(significand, exponent);
 }
 
-static double x87remainder(double x, double y, u32* sw,
-    double rem(double, double), double rnd(double)) {
+static double x87remainder(double x, double y, u32 *sw,
+                           double rem(double, double), double rnd(double)) {
     int s;
     long q;
     double r;
@@ -313,36 +311,34 @@ static double x87remainder(double x, double y, u32* sw,
     return r;
 }
 
-static double fprem(double dividend, double modulus, u32* sw) {
+static double fprem(double dividend, double modulus, u32 *sw) {
     return x87remainder(dividend, modulus, sw, fmod, trunc);
 }
 
-static double fprem1(double dividend, double modulus, u32* sw) {
+static double fprem1(double dividend, double modulus, u32 *sw) {
     return x87remainder(dividend, modulus, sw, remainder, rint);
 }
 
 static double FpuAdd(double x, double y) {
     if (!isunordered(x, y)) {
         switch (isinf(y) << 1 | isinf(x)) {
-        case 0:
-            return x + y;
-        case 1:
-            return x;
-        case 2:
-            return y;
-        case 3:
-            if (signbit(x) == signbit(y)) {
+            case 0:
+                return x + y;
+            case 1:
                 return x;
-            }
-            else {
-                fpu.sw |= kFpuSwIe;
-                return copysign(NAN, x);
-            }
-        default:
-            __builtin_unreachable();
+            case 2:
+                return y;
+            case 3:
+                if (signbit(x) == signbit(y)) {
+                    return x;
+                } else {
+                    fpu.sw |= kFpuSwIe;
+                    return copysign(NAN, x);
+                }
+            default:
+                __builtin_unreachable();
         }
-    }
-    else {
+    } else {
         return NAN;
     }
 }
@@ -350,25 +346,23 @@ static double FpuAdd(double x, double y) {
 static double FpuSub(double x, double y) {
     if (!isunordered(x, y)) {
         switch (isinf(y) << 1 | isinf(x)) {
-        case 0:
-            return x - y;
-        case 1:
-            return -x;
-        case 2:
-            return y;
-        case 3:
-            if (signbit(x) == signbit(y)) {
-                fpu.sw |= kFpuSwIe;
-                return copysign(NAN, x);
-            }
-            else {
+            case 0:
+                return x - y;
+            case 1:
+                return -x;
+            case 2:
                 return y;
-            }
-        default:
-            __builtin_unreachable();
+            case 3:
+                if (signbit(x) == signbit(y)) {
+                    fpu.sw |= kFpuSwIe;
+                    return copysign(NAN, x);
+                } else {
+                    return y;
+                }
+            default:
+                __builtin_unreachable();
         }
-    }
-    else {
+    } else {
         return NAN;
     }
 }
@@ -377,13 +371,11 @@ static double FpuMul(double x, double y) {
     if (!isunordered(x, y)) {
         if (!((isinf(x) && !y) || (isinf(y) && !x))) {
             return x * y;
-        }
-        else {
+        } else {
             fpu.sw |= kFpuSwIe;
             return -NAN;
         }
-    }
-    else {
+    } else {
         return NAN;
     }
 }
@@ -393,34 +385,31 @@ static double FpuDiv(double x, double y) {
         if (x || y) {
             if (y) {
                 return x / y;
-            }
-            else {
+            } else {
                 fpu.sw |= kFpuSwZe;
                 return copysign(INFINITY, x);
             }
-        }
-        else {
+        } else {
             fpu.sw |= kFpuSwIe;
             return copysign(NAN, x);
         }
-    }
-    else {
+    } else {
         return NAN;
     }
 }
 
 static double FpuRound(double x) {
     switch ((fpu.cw & kFpuCwRc) >> 10) {
-    case 0:
-        return rint(x);
-    case 1:
-        return floor(x);
-    case 2:
-        return ceil(x);
-    case 3:
-        return trunc(x);
-    default:
-        __builtin_unreachable();
+        case 0:
+            return rint(x);
+        case 1:
+            return floor(x);
+        case 2:
+            return ceil(x);
+        case 3:
+            return trunc(x);
+        default:
+            __builtin_unreachable();
     }
 }
 
@@ -430,8 +419,7 @@ static void FpuCompare(double y) {
     if (!isunordered(x, y)) {
         if (x < y) fpu.sw |= kFpuSwC0;
         if (x == y) fpu.sw |= kFpuSwC3;
-    }
-    else {
+    } else {
         fpu.sw |= kFpuSwC0 | kFpuSwC2 | kFpuSwC3 | kFpuSwIe;
     }
 }
@@ -443,26 +431,25 @@ static void OpFxam() {
     if (signbit(x)) fpu.sw |= kFpuSwC1;
     if (FpuGetTag(0) == kFpuTagEmpty) {
         fpu.sw |= kFpuSwC0 | kFpuSwC3;
-    }
-    else {
+    } else {
         switch (fpclassify(x)) {
-        case FP_NAN:
-            fpu.sw |= kFpuSwC0;
-            break;
-        case FP_INFINITE:
-            fpu.sw |= kFpuSwC0 | kFpuSwC2;
-            break;
-        case FP_ZERO:
-            fpu.sw |= kFpuSwC3;
-            break;
-        case FP_SUBNORMAL:
-            fpu.sw |= kFpuSwC2 | kFpuSwC3;
-            break;
-        case FP_NORMAL:
-            fpu.sw |= kFpuSwC2;
-            break;
-        default:
-            __builtin_unreachable();
+            case FP_NAN:
+                fpu.sw |= kFpuSwC0;
+                break;
+            case FP_INFINITE:
+                fpu.sw |= kFpuSwC0 | kFpuSwC2;
+                break;
+            case FP_ZERO:
+                fpu.sw |= kFpuSwC3;
+                break;
+            case FP_SUBNORMAL:
+                fpu.sw |= kFpuSwC2 | kFpuSwC3;
+                break;
+            case FP_NORMAL:
+                fpu.sw |= kFpuSwC2;
+                break;
+            default:
+                __builtin_unreachable();
         }
     }
 }
@@ -921,8 +908,8 @@ static void OpFldConstant(u64 rde) {
         CASE(4, x = Fldlg2());
         CASE(5, x = Fldln2());
         CASE(6, x = Fldz());
-    default:
-        ///OpUdImpl();
+            ///OpUdImpl();
+
     }
     FpuPush(x);
 }
@@ -989,8 +976,7 @@ static void OpFcomi(u64 rde) {
         zf = (x == y) ? 1 : 0;
         cf = (x < y) ? 1 : 0;
         pf = 0;
-    }
-    else {
+    } else {
         fpu.sw |= kFpuSwIe;
         //m->flags = SetFlag(m->flags, FLAGS_ZF, true);
         //m->flags = SetFlag(m->flags, FLAGS_CF, true);
@@ -1042,22 +1028,22 @@ static void OpFstswAx() {
 }
 
 static void SetFpuEnv(u8 p[28]) {
-    *(u16*)(p + 0) = fpu.cw;
-    *(u16*)(p + 4) = fpu.sw;
-    *(u16*)(p + 8) = fpu.tw;
-    *(u64*)(p + 12) = fpu.ip64;
-    *(u16*)(p + 18) = fpu.op;
-    *(u64*)(p + 20) = fpu.dp;
+    *(u16 *) (p + 0) = fpu.cw;
+    *(u16 *) (p + 4) = fpu.sw;
+    *(u16 *) (p + 8) = fpu.tw;
+    *(u64 *) (p + 12) = fpu.ip64;
+    *(u16 *) (p + 18) = fpu.op;
+    *(u64 *) (p + 20) = fpu.dp;
 }
 
 static void GetFpuEnv(u8 p[28]) {
-    fpu.cw = *(u16*)(p + 0);
-    fpu.sw = *(u16*)(p + 4);
-    fpu.tw = *(u16*)(p + 8);
+    fpu.cw = *(u16 *) (p + 0);
+    fpu.sw = *(u16 *) (p + 4);
+    fpu.tw = *(u16 *) (p + 8);
 }
 
 static void OpFstenv() {
-    void* p[2];
+    void *p[2];
     u8 b[28];
     SetFpuEnv(b); // BeginStore(fpu.dp, sizeof(b), p, b));
     //EndStore(fpu.dp, sizeof(b), p, b);
@@ -1070,8 +1056,8 @@ static void OpFldenv() {
 
 static void OpFsave() {
     int i;
-    void* p[2];
-    u8* a, b[108], t[16];
+    void *p[2];
+    u8 *a, b[108], t[16];
     a = b; // BeginStore(fpu.dp, sizeof(b), p, b);
     SetFpuEnv(a);
     memset(t, 0, sizeof(t));
@@ -1084,7 +1070,7 @@ static void OpFsave() {
 
 static void OpFrstor() {
     int i;
-    u8* a, b[108];
+    u8 *a, b[108];
     a = b; // Load(fpu.dp, sizeof(b), b);
     GetFpuEnv(a);
     for (i = 0; i < 8; ++i) {
@@ -1094,7 +1080,7 @@ static void OpFrstor() {
 
 static void OpFnclex() {
     fpu.sw &= ~(kFpuSwIe | kFpuSwDe | kFpuSwZe | kFpuSwOe | kFpuSwUe |
-        kFpuSwPe | kFpuSwEs | kFpuSwSf | kFpuSwBf);
+                kFpuSwPe | kFpuSwEs | kFpuSwSf | kFpuSwBf);
 }
 
 static void OpFnop() {
@@ -1154,8 +1140,7 @@ double FpuPop() {
     if (FpuGetTag(0) != kFpuTagEmpty) {
         x = *FpuSt(0);
         FpuSetTag(0, kFpuTagEmpty);
-    }
-    else {
+    } else {
         x = OnFpuStackUnderflow();
     }
     fpu.sw = (fpu.sw & ~kFpuSwSp) | ((fpu.sw + (1 << 11)) & kFpuSwSp);
@@ -1176,8 +1161,7 @@ void OpFpu(uint8_t opcode) {
     if (ismemory) {
         getea(rm);
         fpu.dp = ea;
-    }
-    else {
+    } else {
         fpu.dp = 0;
     }
     switch (DISP(op, ismemory, reg)) {
@@ -1291,70 +1275,70 @@ void OpFpu(uint8_t opcode) {
         CASE(DISP(0xDF, MEMORY, 3), OpFistps());
         CASE(DISP(0xDF, MEMORY, 5), OpFildll());
         CASE(DISP(0xDF, MEMORY, 7), OpFistpll());
-    case DISP(0xD9, FPUREG, 4):
-        switch (rm) {
-            CASE(0, OpFchs());
-            CASE(1, OpFabs());
-            CASE(4, OpFtst());
-            CASE(5, OpFxam());
-        default:
-          ///  OpUdImpl();
-        }
-        break;
-    case DISP(0xD9, FPUREG, 6):
-        switch (rm) {
-            CASE(0, OpF2xm1());
-            CASE(1, OpFyl2x());
-            CASE(2, OpFptan());
-            CASE(3, OpFpatan());
-            CASE(4, OpFxtract());
-            CASE(5, OpFprem1());
-            CASE(6, OpFdecstp());
-            CASE(7, OpFincstp());
-        default:
-            __builtin_unreachable();
-        }
-        break;
-    case DISP(0xD9, FPUREG, 7):
-        switch (rm) {
-            CASE(0, OpFprem());
-            CASE(1, OpFyl2xp1());
-            CASE(2, OpFsqrt());
-            CASE(3, OpFsincos());
-            CASE(4, OpFrndint());
-            CASE(5, OpFscale());
-            CASE(6, OpFsin());
-            CASE(7, OpFcos());
-        default:
-            __builtin_unreachable();
-        }
-        break;
-    case DISP(0xDb, FPUREG, 4):
-        switch (rm) {
-            CASE(2, OpFnclex());
-            CASE(3, OpFinit());
-        default:
-           /// OpUdImpl();
-        }
-        break;
-    default:
-     ///   OpUdImpl();
+        case DISP(0xD9, FPUREG, 4):
+            switch (rm) {
+                CASE(0, OpFchs());
+                CASE(1, OpFabs());
+                CASE(4, OpFtst());
+                CASE(5, OpFxam());
+                    ///  OpUdImpl();
+
+            }
+            break;
+        case DISP(0xD9, FPUREG, 6):
+            switch (rm) {
+                CASE(0, OpF2xm1());
+                CASE(1, OpFyl2x());
+                CASE(2, OpFptan());
+                CASE(3, OpFpatan());
+                CASE(4, OpFxtract());
+                CASE(5, OpFprem1());
+                CASE(6, OpFdecstp());
+                CASE(7, OpFincstp());
+                default:
+                    __builtin_unreachable();
+            }
+            break;
+        case DISP(0xD9, FPUREG, 7):
+            switch (rm) {
+                CASE(0, OpFprem());
+                CASE(1, OpFyl2xp1());
+                CASE(2, OpFsqrt());
+                CASE(3, OpFsincos());
+                CASE(4, OpFrndint());
+                CASE(5, OpFscale());
+                CASE(6, OpFsin());
+                CASE(7, OpFcos());
+                default:
+                    __builtin_unreachable();
+            }
+            break;
+        case DISP(0xDb, FPUREG, 4):
+            switch (rm) {
+                CASE(2, OpFnclex());
+                CASE(3, OpFinit());
+                    /// OpUdImpl();
+
+            }
+            break;
+            ///   OpUdImpl();
+
     }
 }
 
 #else /* DISABLE_X87 */
 
-void(OpFpu)(P) {
+void (OpFpu)(P) {
     unsigned op;
     bool ismemory;
     op = Opcode(rde) & 7;
     ismemory = ModrmMod(rde) != 3;
     fpu.dp = ismemory ? ComputeAddress(A) : 0;
     switch (DISP(op, ismemory, reg)) {
-        CASE(DISP(0xD9, MEMORY, 5), OpFldcw());
-        CASE(DISP(0xD9, MEMORY, 7), OpFstcw());
-    default:
-        OpUdImpl();
+            CASE(DISP(0xD9, MEMORY, 5), OpFldcw());
+            CASE(DISP(0xD9, MEMORY, 7), OpFstcw());
+        default:
+            OpUdImpl();
     }
 }
 

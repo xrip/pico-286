@@ -3,7 +3,6 @@
 #include "printf/printf.h"
 #include <pico.h>
 #else
-#include "windows.h"
 #endif
 #include <stdint.h>
 #include "cpu.h"

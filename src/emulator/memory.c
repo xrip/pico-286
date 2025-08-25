@@ -342,4 +342,38 @@ uint16_t readw86(uint32_t address) {
     return 0xFFFF;
 }
 
+uint32_t readdw86(uint32_t address) {
+    if (address & 3) {
+        return (uint32_t)read86(address)
+             | ((uint32_t)read86(address + 1) << 8)
+             | ((uint32_t)read86(address + 2) << 16)
+             | ((uint32_t)read86(address + 3) << 24);
+    }
+    if (address < RAM_SIZE) {
+        return *(uint32_t *)&RAM[address];
+    }
+    if (address >= VIDEORAM_START && address < VIDEORAM_END) {
+        return *(uint32_t *)&VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) % VIDEORAM_SIZE];
+    }
+    if (address >= EMS_START && address < EMS_END) {
+        return ems_readdw(address - EMS_START);
+    }
+    if (address >= UMB_START && address < UMB_END) {
+        return *(uint32_t *)&UMB[address - UMB_START];
+    }
+    if (address >= BIOS_START && address < HMA_START) {
+        return *(uint32_t *)&BIOS[address - BIOS_START];
+    }
+    if (address >= HMA_START && address < HMA_END) {
+        if (a20_enabled) {
+            return *(uint32_t *)&HMA[address - HMA_START];
+        }
+        return *(uint32_t *)&RAM[address - HMA_START];
+    }
+    if (!a20_enabled && address >= HMA_END) {
+        return readdw86(address - HMA_START);
+    }
+    return 0xFFFFFFFF;
+}
+
 #endif
