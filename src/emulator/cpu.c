@@ -478,9 +478,10 @@ void intcall86(uint8_t intnum) {
             switch (CPU_AH) {
                 case 0x09:
                 case 0x0a:
-                    if (videomode >= 8 && videomode <= 0xa) {
+                    if (videomode >= 8 && videomode <= 0x13) {
                         // TODO: char attr?
                         tga_draw_char(CPU_AL, CURSOR_X, CURSOR_Y, 9);
+                        printf("%c", CPU_AL);
                         return;
                     }
                     break;
