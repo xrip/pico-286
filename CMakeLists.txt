@@ -15,30 +15,15 @@ endif()
 # ====================================================================================
 endif()
 cmake_minimum_required(VERSION 3.13)
-set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Pull in Raspberry Pi Pico SDK (must be before project, but after PICO_BOARD)
-include(pico_sdk_import.cmake)
+include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(286 C CXX ASM)
-
-### -D options
-#set(m1p2launcher ON)
-#set(PIMO ON) # Pimoroni Pico Plus 2 (PSRAM on GP47)
-set(MURM20 ON) # Murmulator 2.0 support
-
-set(ENABLE_VGA ON)
-set(ENABLE_PWM_SOUND ON)
-
-set(TOTAL_VIRTUAL_MEMORY_KBS 0) # do not remove it! chant 0->some val, abd back to 0
-#set(TOTAL_VIRTUAL_MEMORY_KBS 4096)
-
-SET(PROJECT_NAME 286)
-set(FLASH_SIZE 4096)
 SET(BUILD_NAME "${PROJECT_NAME}")
 
 # =========================
@@ -247,7 +232,7 @@ else ()
         -frename-registers 
         -fomit-frame-pointer 
         -fwhole-program 
-    #    -ffreestanding // build issues with std::malloc/std::free in SDK 2.1+
+#        -ffreestanding // build issues with std::malloc/std::free in SDK 2.1+
         -ffast-math 
         -ffunction-sections 
         -fdata-sections 

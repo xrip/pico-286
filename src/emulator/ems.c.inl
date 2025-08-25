@@ -46,6 +46,11 @@ static INLINE uint16_t ems_readw(uint32_t addr) {
     return *(uint16_t *) &EMS[phys_addr];
 }
 
+static INLINE uint32_t ems_readdw(uint32_t addr) {
+    uint32_t phys_addr = physical_address(addr);
+    return *(uint32_t *)&EMS[phys_addr];
+}
+
 static INLINE void ems_write(uint32_t addr, uint8_t data) {
     uint32_t phys_addr = physical_address(addr);
     EMS[phys_addr] = data;
