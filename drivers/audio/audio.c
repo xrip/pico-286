@@ -22,8 +22,10 @@
  * IN THE SOFTWARE.
  */
 
-#define PWM_PIN0 (AUDIO_PWM_PIN&0xfe)
+#ifndef PWM_PIN0
+#define PWM_PIN0 (AUDIO_PWM_PIN & 0xfe)
 #define PWM_PIN1 (PWM_PIN0+1)
+#endif
 
 #include "audio.h"
 
@@ -39,8 +41,13 @@ i2s_config_t i2s_get_default_config(void) {
     i2s_config_t i2s_config = {
             .sample_freq = 44100,
             .channel_count = 2,
-            .data_pin = 26,
-            .clock_pin_base = 27,
+#ifdef MURM2
+    		.data_pin = PWM_BEEPER,
+	    	.clock_pin_base = PWM_LEFT_CHANNEL,
+#else
+            .data_pin = PWM_LEFT_CHANNEL,
+            .clock_pin_base = PWM_RIGHT_CHANNEL,
+#endif
             .pio = pio1,
             .sm = 0,
             .dma_channel = 0,

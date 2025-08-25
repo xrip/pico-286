@@ -3,10 +3,9 @@
 #include "printf/printf.h"
 #include <pico.h>
 #else
-
+#include "windows.h"
 #endif
 #include <stdint.h>
-#include "windows.h"
 #include "cpu.h"
 
 #ifdef __cplusplus
@@ -19,7 +18,7 @@ extern "C" {
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
 #define RAM_SIZE (200 << 10)
 #else
-#define RAM_SIZE (384 << 10)
+#define RAM_SIZE (368 << 10)
 #endif
 
 #else
@@ -177,6 +176,8 @@ extern uint8_t vga_planar_mode;
 #else
 #define ega_vga_enabled (1)
 #endif
+
+void OpFpu(uint8_t opcode);
 
 void vga_portout(uint16_t portnum, uint16_t value);
 
