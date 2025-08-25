@@ -75,7 +75,7 @@ The Tandy Graphics Adapter emulation recreates the enhanced graphics capabilitie
 The VGA emulation provides comprehensive Video Graphics Array support with multiple advanced modes:
 
 **📊 Standard VGA Modes:**
-*   **🎮 320×200×256 Colors:** Mode 13h - the famous "Mode X" used by many DOS games
+*   **🎮 320×200×256 Colors:** Mode 13h
 *   **🖥️ 640×480×16 Colors:** Standard VGA high-resolution mode
 *   **📺 720×480×16 Colors:** Extended VGA mode
 *   **📝 Text modes:** 80×25 and 80×50 with enhanced character sets
