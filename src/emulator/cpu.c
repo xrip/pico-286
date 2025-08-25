@@ -478,9 +478,10 @@ void intcall86(uint8_t intnum) {
             switch (CPU_AH) {
                 case 0x09:
                 case 0x0a:
-                    if (videomode >= 8 && videomode <= 0xa) {
+                    if (videomode >= 8 && videomode <= 0x13) {
                         // TODO: char attr?
                         tga_draw_char(CPU_AL, CURSOR_X, CURSOR_Y, 9);
+                        printf("%c", CPU_AL);
                         return;
                     }
                     break;
@@ -2826,16 +2827,15 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 break;
 
             case 0x9C: /* 9C PUSHF */
-#ifdef CPU_SET_HIGH_FLAGS
-                push(makeflagsword() | 0xF800);
-#else
                 push(makeflagsword());
-#endif
                 break;
 
             case 0x9D: /* 9D POPF */
-                temp16 = pop();
-                decodeflagsword(temp16);
+#ifdef CPU_SET_HIGH_FLAGS
+                decodeflagsword(pop() | 0xF800);
+#else
+                decodeflagsword(pop() & 0x0FFF);
+#endif
                 break;
 
             case 0x9E: /* 9E SAHF */
