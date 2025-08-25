@@ -2822,7 +2822,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x9D: /* 9D POPF */
 #ifdef CPU_SET_HIGH_FLAGS
-                decodeflagsword(pop() | 2 | 0xF800);
+                decodeflagsword(pop() | 0xF800);
 #else
                 decodeflagsword(pop()  & 0x0FFF);
 #endif
