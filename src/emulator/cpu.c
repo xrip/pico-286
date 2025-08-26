@@ -1542,8 +1542,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                                     sf = 0;    *//* cheap hack to make Wolf 3D think we're a 286 so it plays */ /*
                 }*/
 
-                putreg16(reg, res16
-                );
+                putreg16(reg, res16);
                 break;
 
             case 0xC: /* 0C OR CPU_AL Ib */

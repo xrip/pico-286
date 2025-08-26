@@ -1,3 +1,6 @@
+#if PICO_ON_DEVICE
+#include "graphics.h"
+#endif
 #include "emulator/emulator.h"
 
 uint8_t cga_intensity = 0, cga_colorset = 0, cga_foreground_color = 15, cga_blinking = 0xFF, cga_blinking_lock = 0, cga_hires = 0;
@@ -6,22 +9,22 @@ volatile uint8_t port3DA = 8;
 
 const uint32_t cga_palette[16] = {
         //R, G, B
-        0x000000, //black
-        0x0000C4, //blue
-        0x00C400, //green
-        0x00C4C4, //cyan
-        0xC40000, //red
-        0xC400C4, //magenta
-        0xC47E00, //brown
-        0xC4C4C4, //light gray
-        0x4E4E4E, //dark gray
-        0x4E4EDC, //light blue
-        0x4EDC4E, //light green
-        0x4EF3F3, //light cyan
-        0xDC4E4E, //light red
-        0xF34EF3, //light magenta
-        0xF3F34E, //yellow
-        0xFFFFFF //white
+        0x000000, // 0 black
+        0x0000C4, // 1 blue
+        0x00C400, // 2 green
+        0x00C4C4, // 3 cyan
+        0xC40000, // 4 red
+        0xC400C4, // 5 magenta
+        0xC47E00, // 7 brown
+        0xC4C4C4, // 8 light gray
+        0x4E4E4E, // 9 dark gray
+        0x4E4EDC, // 10 light blue
+        0x4EDC4E, // 11 light green
+        0x4EF3F3, // 12 light cyan
+        0xDC4E4E, // 13 light red
+        0xF34EF3, // 14 light magenta
+        0xF3F34E, // 15 yellow
+        0xFFFFFF //  16 white
 };
 
 
@@ -161,6 +164,11 @@ void cga_portout(uint16_t portnum, uint16_t value) {
                 cga_blinking = (value >> 5) & 1 ? 0x7F : 0xFF;
                 //printf("[CGA] value 0x%02x\r\n", value);
             }
+#if PICO_ON_DEVICE
+            for (uint8_t i = 0; i < 4; i++) {
+                graphics_set_palette(i, cga_palette[cga_gfxpal[cga_colorset][cga_intensity][i]]);
+            }
+#endif
             break;
         case 0x3D9: // Colour control register
             cga_foreground_color = value & 0b1111;
@@ -168,6 +176,11 @@ void cga_portout(uint16_t portnum, uint16_t value) {
                 cga_colorset = value >> 5 & 1;
             cga_intensity = value >> 4 & 1;
 //            printf("cga_foreground_color %x cga_colorset %x cga_intensity %x\n", cga_foreground_color, cga_colorset, cga_intensity);
+#if PICO_ON_DEVICE
+            for (uint8_t i = 0; i < 4; i++) {
+                graphics_set_palette(i, cga_palette[cga_gfxpal[cga_colorset][cga_intensity][i]]);
+            }
+#endif
             break;
     }
 }
