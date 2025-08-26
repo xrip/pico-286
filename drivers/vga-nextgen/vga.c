@@ -147,53 +147,40 @@ void __time_critical_func() dma_handler_VGA() {
         dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
         return;
     }
+
     switch (graphics_mode) {
         case TEXTMODE_40x25_COLOR:
         case TEXTMODE_40x25_BW: {
-            // "слой" символа
             uint8_t y_div_16 = screen_line / 16;
             uint8_t glyph_line = (screen_line / 2) % 8;
 
-            //указатель откуда начать считывать символы
-            uint8_t* text_buffer_line = graphics_framebuffer + 0x8000 + (vram_offset << 1) + __fast_mul(y_div_16, 80);
+            uint8_t *text_buffer_line = graphics_framebuffer + 0x8000 + ((vram_offset & 0xffff) << 1) + __fast_mul(y_div_16, 80);
 
             for (uint8_t column = 0; column < 40; column++) {
-                //из таблицы символов получаем "срез" текущего символа
                 uint8_t glyph_pixels = font_8x8[*text_buffer_line++ * 8 + glyph_line];
-                //считываем из быстрой палитры начало таблицы быстрого преобразования 2-битных комбинаций цветов пикселей
                 uint8_t color = *text_buffer_line++;
-                uint16_t* palette_color = &txt_palette_fast[4 * (color & cga_blinking)] ;
+                uint16_t *palette_color = &txt_palette_fast[4 * (color & cga_blinking)];
 
-                // Cursor blinking check
-                uint8_t cursor_active = cursor_blink_state &&
-                                        y_div_16 == CURSOR_Y && column == CURSOR_X &&
-                                        glyph_line >= cursor_start && glyph_line <= cursor_end;
+                uint8_t cursor_active =
+                        cursor_blink_state && y_div_16 == CURSOR_Y && column == CURSOR_X &&
+                        (cursor_start > cursor_end
+                             ? !(glyph_line >= cursor_end << 1 &&
+                                 glyph_line <= cursor_start << 1)
+                             : glyph_line >= cursor_start << 1 && glyph_line <= cursor_end << 1);
 
                 if (cga_blinking == 0x7F && (color & 0x80) && cursor_blink_state) {
                     glyph_pixels = 0;
                 }
 
-                if (cursor_active) {
-                    *output_buffer_16bit++ = palette_color[3];
-                    *output_buffer_16bit++ = palette_color[3];
-                    *output_buffer_16bit++ = palette_color[3];
-                    *output_buffer_16bit++ = palette_color[3];
-                    *output_buffer_16bit++ = palette_color[3];
-                    *output_buffer_16bit++ = palette_color[3];
-                    *output_buffer_16bit++ = palette_color[3];
-                    *output_buffer_16bit++ = palette_color[3];
-                } else {
-                    *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
-                    *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
+                #pragma GCC unroll(4)
+                for (int pixel = 0; pixel < 4; pixel++) {
+                    uint16_t pixel_pair = cursor_active ? palette_color[3] : palette_color[glyph_pixels & 3];
+                    uint8_t pixel_a = pixel_pair & 0xFF;
+                    uint8_t pixel_b = pixel_pair >> 8;
+
+                    *output_buffer_16bit++ = pixel_a | (pixel_a << 8);
+                    *output_buffer_16bit++ = pixel_b | (pixel_b << 8);
                     glyph_pixels >>= 2;
-                    *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
-                    *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
-                    glyph_pixels >>= 2;
-                    *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
-                    *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
-                    glyph_pixels >>= 2;
-                    *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
-                    *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
                 }
             }
             dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
@@ -256,7 +243,7 @@ void __time_critical_func() dma_handler_VGA() {
     }
 
     // Зона прорисовки изображения. Начальные точки буферов
-    uint8_t *input_buffer_8bit = graphics_framebuffer + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+    uint8_t *input_buffer_8bit = graphics_framebuffer + 0x8000 + ((vram_offset & 0xffff) << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
     // Индекс палитры в зависимости от настроек чередования строк и кадров
     uint16_t *current_palette = palette[(y & is_flash_line) + (frame_number & is_flash_frame) & 1];
 
