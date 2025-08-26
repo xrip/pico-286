@@ -256,13 +256,13 @@ void __time_critical_func() dma_handler_VGA() {
                 uint8_t cga_byte = *input_buffer_8bit++;
 
                 uint8_t color = (cga_byte >> 6) & 3;
-                *output_buffer_16bit++ = current_palette[color ? color : cga_foreground_color];
+                *output_buffer_16bit++ = current_palette[color];
                 color = (cga_byte >> 4) & 3;
-                *output_buffer_16bit++ = current_palette[color ? color : cga_foreground_color];
+                *output_buffer_16bit++ = current_palette[color];
                 color = (cga_byte >> 2) & 3;
-                *output_buffer_16bit++ = current_palette[color ? color : cga_foreground_color];
+                *output_buffer_16bit++ = current_palette[color];
                 color = (cga_byte >> 0) & 3;
-                *output_buffer_16bit++ = current_palette[color ? color : cga_foreground_color];
+                *output_buffer_16bit++ = current_palette[color];
             }
             break;
         }
