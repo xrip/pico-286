@@ -339,11 +339,12 @@ if (sound_chips_clock) {
 
 // Screen offset
                 case 0x0C: // Start address (MSB)
-                    vram_offset = value;
+                    vram_offset = (value & 0xff) << 8;
+                    // printf("vram offset %04X\n", vram_offset);
                     break;
                 case 0x0D: // Start address (LSB)
-                    vram_offset = (uint32_t) vram_offset << 8 | (uint32_t) value;
-                    //printf("vram offset %04X\n", vram_offset);
+                    vram_offset |= (value & 0xff);
+                    // printf("vram offset %04X\n", vram_offset);
                     break;
             }
 
