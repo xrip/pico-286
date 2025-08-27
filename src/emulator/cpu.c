@@ -1112,36 +1112,27 @@ static inline void op_div8(uint16_t valdiv, uint8_t divisor) {
     CPU_AL = (uint8_t) (valdiv / divisor);
 }
 
-static inline void op_idiv8(uint16_t valdiv, uint8_t divisor) {
+static inline void op_idiv8(uint16_t valdiv, int8_t divisor) {
     if (divisor == 0) {
         printf("[op_idiv8] %d / 0\n", valdiv);
         intcall86(0);
         return;
     }
 
-    uint16_t quotient, remainder;
     int16_t dividend = (int16_t) valdiv;
-    int sign = (dividend < 0) != (divisor < 0);
 
-    dividend = abs(dividend);
-    divisor = abs(divisor);
+    int16_t quotient  = dividend / divisor;
+    int16_t remainder = dividend % divisor;
 
-    quotient = dividend / divisor;
-    remainder = dividend % divisor;
-
-    if (quotient & 0xFF00) {
-        printf("[op_idiv8] %d / %d\n", valdiv, divisor);
+    // проверка на переполнение: результат должен помещаться в int8_t
+    if (quotient < -128 || quotient > 127) {
+        printf("[op_idiv8] %d / %d overflow\n", dividend, divisor);
         intcall86(0);
         return;
     }
 
-    if (sign) {
-        quotient = -quotient;
-        remainder = -remainder;
-    }
-
-    CPU_AH = (uint8_t) remainder;
-    CPU_AL = (uint8_t) quotient;
+    CPU_AL = (uint8_t)quotient;
+    CPU_AH = (uint8_t)remainder;
 }
 
 static inline void op_div16(uint32_t valdiv, uint16_t divisor) {
@@ -1158,36 +1149,29 @@ static inline void op_div16(uint32_t valdiv, uint16_t divisor) {
 }
 
 static inline void op_idiv16(uint32_t valdiv, uint16_t divisor) {
-    if (divisor == 0) {
-        printf("[op_idiv16] %d / %d\n", valdiv, divisor);
+    int32_t dividend = (int32_t)valdiv;   // DX:AX как 32-битное signed
+    int16_t divisor_signed = (int16_t)divisor;
+
+    if (divisor_signed == 0) {
+        printf("[op_idiv16] %d / 0\n", dividend);
         intcall86(0);
         return;
     }
 
-    int32_t dividend = (int32_t) valdiv;
-    int32_t divisor_signed = (int16_t) divisor;
-    int sign = (dividend < 0) != (divisor_signed < 0);
+    int32_t quotient  = dividend / divisor_signed;
+    int32_t remainder = dividend % divisor_signed;
 
-    dividend = abs(dividend);
-    divisor_signed = abs(divisor_signed);
-
-    uint32_t quotient = dividend / divisor_signed;
-    uint32_t remainder = dividend % divisor_signed;
-
-    if (quotient & 0xFFFF0000) {
-        printf("[op_idiv16] %d / %d\n", valdiv, divisor);
+    // Проверка на переполнение: quotient должен помещаться в signed 16-bit
+    if (quotient < -32768 || quotient > 32767) {
+        printf("[op_idiv16] %d / %d overflow\n", dividend, divisor_signed);
         intcall86(0);
         return;
     }
 
-    if (sign) {
-        quotient = -quotient;
-        remainder = -remainder;
-    }
-
-    CPU_AX = (uint16_t) quotient;
-    CPU_DX = (uint16_t) remainder;
+    CPU_AX = (uint16_t)quotient;
+    CPU_DX = (uint16_t)remainder;
 }
+
 
 static __not_in_flash() void op_grp3_16() {
     switch (reg) {
