@@ -206,7 +206,7 @@ uint8_t __not_in_flash() xms_handler() {
     switch (CPU_AH) {
         case XMS_VERSION: { // Get XMS Version
             CPU_AX = 0x0200; // We are himem 2.06
-            CPU_BX = 0x0006; // driver version
+            CPU_BX = 0x0206; // driver version
             CPU_DX = 0x0001; // HMA Exist
             break;
         }
