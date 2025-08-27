@@ -1112,36 +1112,22 @@ static inline void op_div8(uint16_t valdiv, uint8_t divisor) {
     CPU_AL = (uint8_t) (valdiv / divisor);
 }
 
-static inline void op_idiv8(uint16_t valdiv, uint8_t divisor) {
+static inline void op_idiv8(uint16_t valdiv, int8_t divisor) {
     if (divisor == 0) {
         printf("[op_idiv8] %d / 0\n", valdiv);
         intcall86(0);
         return;
     }
-
-    uint16_t quotient, remainder;
     int16_t dividend = (int16_t) valdiv;
-    int sign = (dividend < 0) != (divisor < 0);
-
-    dividend = abs(dividend);
-    divisor = abs(divisor);
-
-    quotient = dividend / divisor;
-    remainder = dividend % divisor;
-
-    if (quotient & 0xFF00) {
-        printf("[op_idiv8] %d / %d\n", valdiv, divisor);
+    int16_t quotient  = dividend / divisor;
+    int16_t remainder = dividend % divisor;
+    if (quotient < -128 || quotient > 127) {
+        printf("[op_idiv8] %d / %d overflow\n", dividend, divisor);
         intcall86(0);
         return;
     }
-
-    if (sign) {
-        quotient = -quotient;
-        remainder = -remainder;
-    }
-
-    CPU_AH = (uint8_t) remainder;
-    CPU_AL = (uint8_t) quotient;
+    CPU_AL = (uint8_t)quotient;
+    CPU_AH = (uint8_t)remainder;
 }
 
 static inline void op_div16(uint32_t valdiv, uint16_t divisor) {
@@ -1158,36 +1144,24 @@ static inline void op_div16(uint32_t valdiv, uint16_t divisor) {
 }
 
 static inline void op_idiv16(uint32_t valdiv, uint16_t divisor) {
-    if (divisor == 0) {
-        printf("[op_idiv16] %d / %d\n", valdiv, divisor);
+    int32_t dividend = (int32_t)valdiv;
+    int16_t divisor_signed = (int16_t)divisor;
+    if (divisor_signed == 0) {
+        printf("[op_idiv16] %d / 0\n", dividend);
         intcall86(0);
         return;
     }
-
-    int32_t dividend = (int32_t) valdiv;
-    int32_t divisor_signed = (int16_t) divisor;
-    int sign = (dividend < 0) != (divisor_signed < 0);
-
-    dividend = abs(dividend);
-    divisor_signed = abs(divisor_signed);
-
-    uint32_t quotient = dividend / divisor_signed;
-    uint32_t remainder = dividend % divisor_signed;
-
-    if (quotient & 0xFFFF0000) {
-        printf("[op_idiv16] %d / %d\n", valdiv, divisor);
+    int32_t quotient  = dividend / divisor_signed;
+    int32_t remainder = dividend % divisor_signed;
+    if (quotient < -32768 || quotient > 32767) {
+        printf("[op_idiv16] %d / %d overflow\n", dividend, divisor_signed);
         intcall86(0);
         return;
     }
-
-    if (sign) {
-        quotient = -quotient;
-        remainder = -remainder;
-    }
-
-    CPU_AX = (uint16_t) quotient;
-    CPU_DX = (uint16_t) remainder;
+    CPU_AX = (uint16_t)quotient;
+    CPU_DX = (uint16_t)remainder;
 }
+
 
 static __not_in_flash() void op_grp3_16() {
     switch (reg) {
@@ -1229,20 +1203,11 @@ static __not_in_flash() void op_grp3_16() {
         }
         case 5: {
             /* IMUL */
-            register uint32_t temp1 = CPU_AX;
-            register uint32_t temp2 = oper1;
-            if (temp1 & 0x8000) {
-                temp1 |= 0xFFFF0000;
-            }
-
-            if (temp2 & 0x8000) {
-                temp2 |= 0xFFFF0000;
-            }
-
-            temp1 *= temp2;
-            CPU_AX = temp1 & 0xFFFF; /* into register ax */
-            CPU_DX = temp1 >> 16; /* into register dx */
-            if (CPU_DX) {
+            register int32_t temp1 = (int32_t)(int16_t)CPU_AX * (int32_t)(int16_t)oper1;
+			int16_t truncated = (int16_t)temp1;
+            CPU_AX = truncated; /* into register ax */
+            CPU_DX = (uint16_t)(temp1 >> 16); /* into register dx */
+            if (temp1 != (int32_t)truncated) {
                 x86_flags.value |= FLAG_CF_OF_MASK;
             } else {
                 x86_flags.value &= ~FLAG_CF_OF_MASK;
@@ -2275,21 +2240,12 @@ void __not_in_flash() exec86(uint32_t execloops) {
             case 0x69: {
                 /* 69 IMUL Gv Ev Iv (80186+) */
                 modregrm();
-
-                register uint32_t temp1 = readrm16(rm);
-                register uint32_t temp2 = getmem16(CPU_CS, CPU_IP);
+                register int32_t temp1 = (int32_t)(int16_t)readrm16(rm);
+                register int32_t temp2 = (int32_t)(int16_t)getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
-                if ((temp1 & 0x8000L) == 0x8000L) {
-                    temp1 = temp1 | 0xFFFF0000L;
-                }
-
-                if ((temp2 & 0x8000L) == 0x8000L) {
-                    temp2 = temp2 | 0xFFFF0000L;
-                }
-
                 temp1 *= temp2;
-                putreg16(reg, temp1 &0xFFFFL);
-                if (temp1 & 0xFFFF0000L) {
+                putreg16(reg, (int16_t)temp1);
+                if (temp1 != (int32_t)(int16_t)temp1) {
                     x86_flags.value |= FLAG_CF_OF_MASK;
                 } else {
                     x86_flags.value &= ~FLAG_CF_OF_MASK;
@@ -2304,21 +2260,12 @@ void __not_in_flash() exec86(uint32_t execloops) {
             case 0x6B: {
                 /* 6B IMUL Gv Eb Ib (80186+) */
                 modregrm();
-
-                register uint32_t temp1 = readrm16(rm);
-                register uint32_t temp2 = signext(getmem8(CPU_CS, CPU_IP));
+                register int32_t temp1 = (int32_t)(int16_t)readrm16(rm);
+                register int32_t temp2 = (int32_t)(int16_t)signext(getmem8(CPU_CS, CPU_IP));
                 StepIP(1);
-                if ((temp1 & 0x8000L) == 0x8000L) {
-                    temp1 = temp1 | 0xFFFF0000L;
-                }
-
-                if ((temp2 & 0x8000L) == 0x8000L) {
-                    temp2 = temp2 | 0xFFFF0000L;
-                }
-
                 temp1 *= temp2;
-                putreg16(reg, temp1 & 0xFFFFL);
-                if (temp1 & 0xFFFF0000L) {
+				putreg16(reg, (int16_t)temp1);
+                if (temp1 != (int32_t)(int16_t)temp1) {
                     x86_flags.value |= FLAG_CF_OF_MASK;
                 } else {
                     x86_flags.value &= ~FLAG_CF_OF_MASK;
@@ -3652,22 +3599,18 @@ void __not_in_flash() exec86(uint32_t execloops) {
                     case 5: {
                         /* IMUL */
                         oper1 = signext(oper1b);
-                        register uint32_t temp1 = signext(CPU_AL);
-                        register uint32_t temp2 = oper1;
-                        if ((temp1 & 0x80) == 0x80) {
-                            temp1 = temp1 | 0xFFFFFF00;
-                        }
-
-                        if ((temp2 & 0x80) == 0x80) {
-                            temp2 = temp2 | 0xFFFFFF00;
-                        }
-
-                        CPU_AX = (temp1 * temp2) & 0xFFFF;
-                        if (CPU_AH) {
-                            x86_flags.value |= FLAG_CF_OF_MASK;
-                        } else {
-                            x86_flags.value &= ~FLAG_CF_OF_MASK;
-                        }
+                        register int32_t temp1 = (int32_t)(int8_t)signext(CPU_AL);
+                        register int32_t temp2 = (int32_t)(int8_t)oper1;
+						temp1 *= temp2;
+						int16_t result = (int16_t)temp1;
+						int8_t truncated = (int8_t)result;
+						if (result != (int16_t)truncated) {
+							x86_flags.value |= FLAG_CF_OF_MASK; // CF=OF=1
+						} else {
+							x86_flags.value &= ~FLAG_CF_OF_MASK; // CF=OF=0
+						}
+						CPU_AL = truncated;
+						CPU_AH = (uint8_t)(result >> 8);
 #ifdef CPU_CLEAR_ZF_ON_MUL
                         zf = 0;
 #endif
