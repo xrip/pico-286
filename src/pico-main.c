@@ -447,16 +447,15 @@ void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused co
 int main(void) {
     // Platform-specific initialization
 #if PICO_RP2350
-    volatile uint32_t *qmi_m0_timing = (uint32_t *)0x400d000c;
     vreg_disable_voltage_limit();
     vreg_set_voltage(VREG_VOLTAGE_1_60);
-    sleep_ms(10);
-    *qmi_m0_timing = 0x60007204;
-    if (!set_sys_clock_hz(315 * MHZ, 0) ) {
-        return 1;
-        set_sys_clock_hz(352 * MHZ, 1);
+
+    qmi_hw->m[0].timing = 0x60007304; // 4x FLASH divisor
+
+    sleep_ms(100);
+    if (!set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, 0) ) {
+        set_sys_clock_hz(378 * MHZ, 1); // fallback to failsafe clocks
     }
-    *qmi_m0_timing = 0x60007303;
 #else
     memcpy_wrapper_replace(NULL);
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
@@ -465,7 +464,9 @@ int main(void) {
 
     // Initialize PSRAM
 #ifdef ONBOARD_PSRAM_GPIO
+    // Overclock psram
     psram_init(ONBOARD_PSRAM_GPIO);
+
 #else
     #ifndef TOTAL_VIRTUAL_MEMORY_KBS
     init_psram();
