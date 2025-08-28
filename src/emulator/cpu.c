@@ -785,24 +785,34 @@ static inline void flag_add32(uint32_t v1, uint32_t v2, uint32_t res32) {
     af = ((v1 ^ v2 ^ res32) & 0x10) != 0;
 }
 
-static inline void flag_sbb8(uint8_t v1, uint8_t v2, uint8_t v3) {
+static inline uint8_t sbb8(uint8_t v1, uint8_t v2, uint8_t v3) {
     /* v1 = destination operand, v2 = source operand, v3 = carry flag */
-    v2 += v3;
-    uint32_t dst = (uint32_t) v1 - (uint32_t) v2;
+    register uint32_t dst = (uint32_t)v1 - (uint32_t)v2 - (uint32_t)v3;
     flag_szp8((uint8_t) dst);
-    cf = (dst & 0xFF00) != 0;
-    of = ((dst ^ (uint32_t)v1) & (v1 ^ (uint32_t)v2) & 0x80) != 0;
-    af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
+    cf = ((dst >> 8) & 1) != 0;
+    of = ((dst ^ v1) & (v1 ^ v2) & 0x80) != 0;
+    af = ((v1 ^ v2 ^ dst ^ v3) & 0x10) != 0;
+    return (uint8_t)dst;
 }
 
-static inline void flag_sbb16(uint16_t v1, uint16_t v2, uint16_t v3) {
+static inline uint16_t sbb16(uint16_t v1, uint16_t v2, uint8_t v3) {
     /* v1 = destination operand, v2 = source operand, v3 = carry flag */
-    v2 += v3;
-    register uint32_t dst = (uint32_t) v1 - (uint32_t) v2;
+    register uint32_t dst = (uint32_t)v1 - (uint32_t)v2 - (uint32_t)v3;
     flag_szp16((uint16_t) dst);
-    cf = (dst & 0xFFFF0000) != 0;
+    cf = ((dst >> 16) & 1) != 0;
     of = ((dst ^ (uint32_t)v1) & (v1 ^ (uint32_t)v2) & 0x8000) != 0;
-    af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
+    af = ((v1 ^ v2 ^ dst ^ v3) & 0x10) != 0;
+    return (uint16_t)dst;
+}
+
+static inline uint32_t sbb32(uint32_t v1, uint32_t v2, uint8_t v3) {
+    /* v1 = destination operand, v2 = source operand, v3 = carry flag */
+    register uint64_t dst = (uint64_t)v1 - (uint64_t)v2 - (uint64_t)v3;
+    flag_szp32((uint32_t) dst);
+    cf = ((dst >> 32) & 1) != 0;
+    of = ((dst ^ v1) & (v1 ^ v2) & 0x80000000) != 0;
+    af = ((v1 ^ v2 ^ dst ^ v3) & 0x10) != 0;
+    return (uint32_t)dst;
 }
 
 static inline void flag_sub8(uint8_t v1, uint8_t v2) {
@@ -862,9 +872,9 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
     res16 = (uint16_t) dst; \
 }
 #define op_sub32() { res32 = oper1 - oper2; flag_sub32(oper1, oper2); }
-#define op_sbb8() { res8 = oper1b - (oper2b + cf); flag_sbb8(oper1b, oper2b, cf); }
-#define op_sbb16() { res16 = oper1 - (oper2 + cf); flag_sbb16(oper1, oper2, cf); }
-#define op_sbb32() { res32 = oper1 - (oper2 + cf); flag_sbb32(oper1, oper2, cf); }
+#define op_sbb8() { res8 = sbb8(oper1b, oper2b, cf); }
+#define op_sbb16() { res16 = sbb16(oper1, oper2, cf); }
+#define op_sbb32() { res32 = sbb32(oper1, oper2, cf); }
 
 static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
     uint16_t s = oper1b;
@@ -1604,7 +1614,6 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x18: /* 18 SBB Eb Gb */
                 modregrm();
-
                 oper1b = readrm8(rm);
                 oper2b = getreg8(reg);
                 op_sbb8();
@@ -1613,12 +1622,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x19: /* 19 SBB Ev Gv */
                 modregrm();
-
                 oper1 = readrm16(rm);
                 oper2 = getreg16(reg);
                 op_sbb16();
-                writerm16(rm, res16
-                );
+                writerm16(rm, res16);
                 break;
 
             case 0x1A: /* 1A SBB Gb Eb */
@@ -1633,12 +1640,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x1B: /* 1B SBB Gv Ev */
                 modregrm();
-
                 oper1 = getreg16(reg);
                 oper2 = readrm16(rm);
                 op_sbb16();
-                putreg16(reg, res16
-                );
+                putreg16(reg, res16);
                 break;
 
             case 0x1C: /* 1C SBB CPU_AL Ib */
