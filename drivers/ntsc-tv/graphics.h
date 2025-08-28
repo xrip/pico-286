@@ -132,9 +132,6 @@ extern volatile uint8_t port3DA;
  * Purpose: Generate NTSC composite video signal data for one scanline
  * =========================================================================== */
 static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t scanline_number) {
-    // Static pointer maintains position between function calls
-    static uint8_t *current_pixel_ptr = VIDEORAM;
-
     uint16_t *buffer_ptr = output_buffer;
 
     // Generate equalizing pulses for the first two scanlines
@@ -176,30 +173,27 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
         // Skip horizontal blanking interval
         buffer_ptr += NTSC_ACTIVE_START;
 
+#if !NDEBUG
         // Reset framebuffer pointer at start of first visible scanline
         if (scanline_number == NTSC_VSYNC_LINES + NTSC_VBLANK_TOP) {
-            current_pixel_ptr = VIDEORAM;
-#if !NDEBUG
             ntsc_is_rendering_active = 1;
-#endif
         }
+#endif
 
         const uint16_t y = scanline_number - (NTSC_VSYNC_LINES + NTSC_VBLANK_TOP);
-        uint16_t *palette = ntsc_palette;
         switch (graphics_mode) {
             case TEXTMODE_40x25_BW:
             case TEXTMODE_40x25_COLOR:
             case TEXTMODE_80x25_BW:
             case TEXTMODE_80x25_COLOR: {
                 const uint8_t glyph_line = y & 7;
-                const uint32_t offset = 0x8000 + __fast_mul(y >> 3, 160);
 
-                uint8_t *vid = current_pixel_ptr + offset;
+                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + __fast_mul(y >> 3, 160);
                 uint8_t phase = 0; /* starting parity for phase toggling */
 
                 for (int col = 0; col < TEXTMODE_COLS; ++col) {
-                    const uint8_t ch = *vid++;
-                    const uint8_t attr = *vid++;
+                    const uint8_t ch = *input_buffer_8bit++;
+                    const uint8_t attr = *input_buffer_8bit++;
                     uint8_t glyph_row = font_8x8[ch * 8 + glyph_line];
                     const uint8_t fg = attr & 0xf;
                     const uint8_t bg = attr >> 4;
@@ -208,7 +202,7 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
                     for (int bit = 0; bit < 8; ++bit) {
                         uint8_t pixel_color = glyph_row & 1 ? fg : bg;
                         glyph_row >>= 1;
-                        *buffer_ptr++ = *(uint32_t *) (palette + pixel_color * 4 + phase);
+                        *(uint32_t *) buffer_ptr++ = *(uint32_t *) (ntsc_palette + pixel_color * 4 + phase);
                         phase ^= 2;
                     }
                 }
@@ -312,7 +306,6 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
     else if (scanline_number == NTSC_VSYNC_LINES + NTSC_VBLANK_TOP + NTSC_FRAME_HEIGHT ||
              scanline_number == NTSC_VSYNC_LINES + NTSC_VBLANK_TOP + NTSC_FRAME_HEIGHT + 1) {
 #if !NDEBUG
-
         // Mark end of active video on first blanking line
         if (scanline_number == NTSC_VSYNC_LINES + NTSC_VBLANK_TOP + NTSC_FRAME_HEIGHT) {
             ntsc_is_rendering_active = 0;
