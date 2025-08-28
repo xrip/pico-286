@@ -48,3 +48,17 @@ The video signal generation is handled by `dma_handler_VGA` and has the followin
     *   Composite modes: An approximation of real CGA hardware; colors may not be an exact match.
     *   VGA "Mode X": This is a custom mode, not a standard VGA mode, that uses a planar memory layout.
 *   **Debug Console:** A debug console may be displayed at the bottom of the screen, which is not part of the emulated video output.
+
+## NTSC TV Output
+
+The NTSC TV output mode generates a composite video signal.
+
+*   **Resolution**: 320x200 pixels.
+*   **Color**: 256-color programmable palette.
+*   **Signal**: Composite video signal generated via PWM on GPIO 22.
+*   **Text Mode**: 40x25 text mode is supported.
+
+**Implementation Details & Restrictions**
+
+*   The NTSC signal generation is highly dependent on the RP2040's PIO, DMA, and a specific system clock frequency (315MHz).
+*   The refresh rate is ~60Hz (NTSC standard).

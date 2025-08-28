@@ -159,6 +159,7 @@ The emulator has a default GPIO pin configuration for its peripherals on the Ras
 |-----------------|---------------------------------|-------------------------------------|
 | **VGA Output**  | 6 (base pin)                    | Sequential pins used for RGB        |
 | **HDMI Output** | 6 (base pin)                    |                                     |
+| **NTSC TV Out** | 22                              | Composite video output              |
 | **TFT Display** | CS: 6, RST: 8, LED: 9, DC: 10, DATA: 12, CLK: 13 | ST7789 driver                       |
 | **SD Card**     | CS: 5, SCK: 2, MOSI: 3, MISO: 4 | SPI0                                |
 | **PSRAM**       | CS: 18, SCK: 19, MOSI: 20, MISO: 21 | Generic external PSRAM              |
@@ -254,6 +255,7 @@ This architecture allows for accurate timing and responsive I/O on a non-real-ti
 The project uses CMake with platform-specific configurations. All builds require exactly **one display option** and **one audio option**.
 
 #### 🖥️ Display Options (Choose exactly one):
+*   `ENABLE_NTSC-TV=ON` - NTSC TV output (locks CPU frequency to 315MHz)
 *   `ENABLE_TFT=ON` - TFT display output via ST7789
 *   `ENABLE_VGA=ON` - VGA output  
 *   `ENABLE_HDMI=ON` - HDMI output (locks CPU frequency to 378MHz)
