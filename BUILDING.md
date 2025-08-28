@@ -120,6 +120,7 @@ These builds target the Raspberry Pi Pico boards. The following instructions cre
 You can customize the build by enabling different options in the CMake command.
 
 ### Display Options (mutually exclusive)
+- `ENABLE_NTSC-TV=ON`: Use NTSC TV output.
 - `ENABLE_VGA=ON`: Use VGA output.
 - `ENABLE_HDMI=ON`: Use HDMI output.
 - `ENABLE_TFT=ON`: Use TFT display output.
