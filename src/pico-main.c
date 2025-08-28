@@ -191,8 +191,6 @@ INLINE void _putchar(char character) {
         *vidramptr = 0;
     }
 }
-enum graphics_mode_t graphics_mode;
-uint16_t ntsc_palette[4 * 256] __attribute__ ((aligned (4)));
 /* Renderer loop on Pico's second core */
 void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem

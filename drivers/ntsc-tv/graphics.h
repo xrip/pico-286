@@ -26,13 +26,10 @@ caused by using this program.
 
 #include <hardware/dma.h>
 #include <hardware/pwm.h>
-#include <hardware/vreg.h>
 #include <hardware/gpio.h>
-#include "font8x16.h"
 #include "emulator/includes/font8x8.h"
 
 #define TEXTMODE_COLS 40
-
 enum graphics_mode_t {
     TEXTMODE_40x25_BW,
     TEXTMODE_40x25_COLOR,
@@ -181,6 +178,8 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
         }
 
         switch (graphics_mode) {
+            case TEXTMODE_40x25_BW:
+            case TEXTMODE_40x25_COLOR:
             case TEXTMODE_80x25_BW:
             case TEXTMODE_80x25_COLOR: {
                 const uint16_t y = scanline_number - 36;
@@ -403,12 +402,5 @@ static inline void ntsc_init() {
 #define graphics_set_offset(a,b)
 #define graphics_set_flashmode(a,b)
 
-static inline void graphics_set_palette(const uint8_t index, const uint32_t rgb) {
-    const uint8_t r = (rgb >> 16) & 0xFF;
-    const uint8_t g = (rgb >> 8) & 0xFF;
-    const uint8_t b = (rgb >> 0) & 0xFF;
-
-    // ntsc_set_color expects parameters in order: (blue, red, green)
-    ntsc_set_color(index, b, r, g);
-}
+void graphics_set_palette(uint8_t index, uint32_t rgb);
 #endif // RP2040_PWM_NTSC_H
