@@ -191,7 +191,6 @@ INLINE void _putchar(char character) {
         *vidramptr = 0;
     }
 }
-
 /* Renderer loop on Pico's second core */
 void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem
@@ -344,7 +343,6 @@ void __time_critical_func() second_core(void) {
                 graphics_set_mode(videomode);
                 old_video_mode = videomode;
             }
-
 #if defined(TFT)
             refresh_lcd();
             port3DA = 8;
@@ -352,7 +350,6 @@ void __time_critical_func() second_core(void) {
 #endif
             last_frame_tick = tick;
         }
-
         tick = time_us_64();
         tight_loop_contents();
     }
@@ -455,7 +452,10 @@ int main(void) {
     vreg_set_voltage(VREG_VOLTAGE_1_60);
     sleep_ms(10);
     *qmi_m0_timing = 0x60007204;
-    if (!set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, 0) ) set_sys_clock_hz(352 * MHZ, 1);
+    if (!set_sys_clock_hz(315 * MHZ, 0) ) {
+        return 1;
+        set_sys_clock_hz(352 * MHZ, 1);
+    }
     *qmi_m0_timing = 0x60007303;
 #else
     memcpy_wrapper_replace(NULL);
