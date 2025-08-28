@@ -29,15 +29,15 @@ caused by using this program.
 #include <hardware/gpio.h>
 #include "emulator/includes/font8x8.h"
 
-extern uint16_t vram_offset;
-extern uint16_t tga_offset;
+extern uint32_t vram_offset;
+extern uint32_t tga_offset;
 extern uint32_t vga_plane_offset;
 extern uint8_t vga_graphics_control[9];
 extern uint8_t cga_blinking;
 extern uint8_t cga_foreground_color;
-extern uint8_t videomode;
 
-#define TEXTMODE_COLS 40
+#define TEXTMODE_COLS 80
+
 enum graphics_mode_t {
     TEXTMODE_40x25_BW,
     TEXTMODE_40x25_COLOR,
@@ -182,189 +182,130 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
 #if !NDEBUG
             ntsc_is_rendering_active = 1;
 #endif
-
         }
 
         const uint16_t y = scanline_number - (NTSC_VSYNC_LINES + NTSC_VBLANK_TOP);
+        uint16_t *palette = ntsc_palette;
         switch (graphics_mode) {
             case TEXTMODE_40x25_BW:
             case TEXTMODE_40x25_COLOR:
             case TEXTMODE_80x25_BW:
             case TEXTMODE_80x25_COLOR: {
-                const uint8_t glyph_line = y % 8;
-                uint16_t offset = 0x8000 + y / 8 * (80 * 2); // 80 chars  + 80 attrs
+                const uint8_t glyph_line = y & 7;
+                const uint32_t offset = 0x8000 + __fast_mul(y >> 3, 160);
 
-                for (int x = 0; x < TEXTMODE_COLS; x++) {
-                    const uint8_t c = current_pixel_ptr[offset++];
-                    const uint8_t colorIndex = current_pixel_ptr[offset++];
-                    uint8_t glyph_row = font_8x8[c * 8 + glyph_line];
+                uint8_t *vid = current_pixel_ptr + offset;
+                uint8_t phase = 0; /* starting parity for phase toggling */
 
-                    for (uint8_t bit = 0; bit < 8; bit++) {
-                        const uint8_t pixel_color = glyph_row & 1
-                                                             ? colorIndex & 0xf
-                                                             //цвет шрифта
-                                                             : colorIndex >> 4; //цвет фона
+                for (int col = 0; col < TEXTMODE_COLS; ++col) {
+                    const uint8_t ch = *vid++;
+                    const uint8_t attr = *vid++;
+                    uint8_t glyph_row = font_8x8[ch * 8 + glyph_line];
+                    const uint8_t fg = attr & 0xf;
+                    const uint8_t bg = attr >> 4;
+
+#pragma GCC unroll(8)
+                    for (int bit = 0; bit < 8; ++bit) {
+                        uint8_t pixel_color = glyph_row & 1 ? fg : bg;
                         glyph_row >>= 1;
-                        const uint32_t phase_offset = offset & 1 ? 2 : 0;
-                        *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + pixel_color * 4 + phase_offset);
-                        buffer_ptr += 2;
+                        *buffer_ptr++ = *(uint32_t *) (palette + pixel_color * 4 + phase);
+                        phase ^= 2;
                     }
                 }
             }
             break;
+            case COMPOSITE_160x200x16_force:
+            case COMPOSITE_160x200x16:
             case CGA_320x200x4:
             case CGA_320x200x4_BW: {
-                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + ((vram_offset & 0xffff) << 1) + (y >> 1) * 80 + ((y & 1) << 13);
-                int pixel_index = 0;
+                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                uint8_t phase = 0;
                 for (int x = 0; x < 320 / 4; x++) {
-                    uint8_t cga_byte = *input_buffer_8bit++;
+                    uint8_t four_pixels = *input_buffer_8bit++;
 
-                    uint8_t color = (cga_byte >> 6) & 3;
-                    uint32_t phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase_offset);
+                    uint8_t color = four_pixels >> 6;
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
                     buffer_ptr += 2;
-                    pixel_index++;
+                    phase ^= 2;
 
-                    color = (cga_byte >> 4) & 3;
-                    phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase_offset);
+                    color = four_pixels >> 4 & 3;
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
                     buffer_ptr += 2;
-                    pixel_index++;
+                    phase ^= 2;
 
-                    color = (cga_byte >> 2) & 3;
-                    phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase_offset);
+                    color = four_pixels >> 2 & 3;
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
                     buffer_ptr += 2;
-                    pixel_index++;
+                    phase ^= 2;
 
-                    color = (cga_byte >> 0) & 3;
-                    phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase_offset);
+                    color = four_pixels & 3;
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
                     buffer_ptr += 2;
-                    pixel_index++;
+                    phase ^= 2;
                 }
                 break;
             }
-            case COMPOSITE_160x200x16_force:
-            case COMPOSITE_160x200x16:
+
             case TGA_160x200x16: {
-                uint8_t* input_buffer_8bit = tga_offset + VIDEORAM + (y >> 1) * 80 + ((y & 1) << 13);
-                int pixel_index = 0;
+                const uint8_t *input_buffer_8bit = tga_offset + VIDEORAM + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                uint8_t phase = 0;
                 for (int x = 0; x < 320 / 4; x++) {
-                    uint8_t cga_byte = *input_buffer_8bit++; // Fetch 8 pixels from TGA memory
-                    uint8_t color1 = ((cga_byte >> 4) & 15);
-                    uint8_t color2 = (cga_byte & 15);
+                    const uint8_t cga_byte = *input_buffer_8bit++; // Fetch 8 pixels from TGA memory
+                    const uint8_t color1 = cga_byte >> 4;
+                    const uint8_t color2 = cga_byte & 15;
 
-                    if (!color1 && videomode == 0x8) color1 = cga_foreground_color;
-                    if (!color2 && videomode == 0x8) color2 = cga_foreground_color;
+                    // if (!color1 && videomode == 0x8) color1 = cga_foreground_color;
+                    // if (!color2 && videomode == 0x8) color2 = cga_foreground_color;
 
-                    uint32_t phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color1 * 4 + phase_offset);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color1 * 4 + phase);
                     buffer_ptr += 2;
-                    pixel_index++;
+                    phase ^= 2;
 
-                    phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color1 * 4 + phase_offset);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color1 * 4 + phase);
                     buffer_ptr += 2;
-                    pixel_index++;
 
-                    phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color2 * 4 + phase_offset);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color2 * 4 + phase);
                     buffer_ptr += 2;
-                    pixel_index++;
+                    phase ^= 2;
 
-                    phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color2 * 4 + phase_offset);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color2 * 4 + phase);
                     buffer_ptr += 2;
-                    pixel_index++;
+                    phase ^= 2;
                 }
                 break;
             }
             case TGA_320x200x16: {
-                uint8_t* input_buffer_8bit = tga_offset + VIDEORAM + (y & 3) * 8192 + (y >> 2) * 160;
-                int pixel_index = 0;
+                uint8_t *input_buffer_8bit = tga_offset + VIDEORAM + ((y & 3) << 13) + __fast_mul(y >> 2, 160);
+                uint8_t phase = 0;
                 for (int x = 0; x < 320 / 2; x++) {
                     uint8_t two_pixels = *input_buffer_8bit++;
-                    uint8_t color = (two_pixels >> 4) & 15;
-                    uint32_t phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase_offset);
+
+                    uint8_t color = two_pixels >> 4;
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
                     buffer_ptr += 2;
-                    pixel_index++;
+                    phase ^= 2;
 
                     color = two_pixels & 15;
-                    phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase_offset);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
                     buffer_ptr += 2;
-                    pixel_index++;
-                }
-                break;
-            }
-            case VGA_320x200x256x4: {
-                uint8_t* input_buffer_8bit = VIDEORAM + vga_plane_offset + y * 80;
-                int pixel_index = 0;
-                for (int x = 0; x < 320 / 4; x++) {
-                    uint32_t phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + input_buffer_8bit[0] * 4 + phase_offset);
-                    buffer_ptr += 2;
-                    pixel_index++;
-
-                    phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + input_buffer_8bit[16000] * 4 + phase_offset);
-                    buffer_ptr += 2;
-                    pixel_index++;
-
-                    phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + input_buffer_8bit[32000] * 4 + phase_offset);
-                    buffer_ptr += 2;
-                    pixel_index++;
-
-                    phase_offset = pixel_index & 1 ? 2 : 0;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + input_buffer_8bit[48000] * 4 + phase_offset);
-                    buffer_ptr += 2;
-                    pixel_index++;
-
-                    input_buffer_8bit++;
-                }
-                break;
-            }
-            case EGA_320x200x16x4: {
-                uint8_t* input_buffer_8bit = VIDEORAM + vga_plane_offset + y * 40;
-                int pixel_index = 0;
-                for (int x = 0; x < 40; x++) {
-                    for (int bit = 7; bit >= 0; bit--) {
-                        uint8_t color = (input_buffer_8bit[0] >> bit) & 1;
-                        color |= ((input_buffer_8bit[8000] >> bit) & 1) << 1;
-                        color |= ((input_buffer_8bit[16000] >> bit) & 1) << 2;
-                        color |= ((input_buffer_8bit[24000] >> bit) & 1) << 3;
-
-                        uint8_t final_color = vga_graphics_control[7] & (1 << color) ? vga_graphics_control[0] : color;
-
-                        uint32_t phase_offset = pixel_index & 1 ? 2 : 0;
-                        *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + final_color * 4 + phase_offset);
-                        buffer_ptr += 2;
-                        pixel_index++;
-                    }
-                    input_buffer_8bit++;
+                    phase ^= 2;
                 }
                 break;
             }
             case VGA_320x200x256:
-            default:
-                {
-                    uint8_t *line_buffer = VIDEORAM + y * 320;
-                    // Process all pixels in the scanline
-                    for (int pixel_index = 0; pixel_index < NTSC_FRAME_WIDTH; pixel_index++) {
-                        // Read one graphics pixel
-                        const uint8_t pixel_color = *line_buffer++;
+            default: {
+                uint8_t *line_buffer = VIDEORAM + __fast_mul(y, 320);
+                for (int x = 0; x < 320; x++) {
+                    const uint8_t color = *line_buffer++;
 
-                        // Write 4 NTSC phase values for this pixel
-                        // Using 32-bit writes for efficiency (2 phase values at once)
-                        // Phase offset alternates: 0,2,0,2... for proper color encoding
-                        const uint32_t phase_offset = pixel_index & 1 ? 2 : 0;
-                        *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + pixel_color * 4 + phase_offset);
-                        buffer_ptr += 2;
-                    }
+                    // Write 4 NTSC phase values for this pixel
+                    // Using 32-bit writes for efficiency (2 phase values at once)
+                    // Phase offset alternates: 0,2,0,2... for proper color encoding
+                    const uint32_t phase_offset = (x & 1) << 1;
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase_offset);
+                    buffer_ptr += 2;
                 }
+            }
         }
     }
     // Generate vertical blanking lines after active video
