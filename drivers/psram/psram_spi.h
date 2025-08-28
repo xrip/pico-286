@@ -638,12 +638,6 @@ static __always_inline bool init_psram() {
     }
     return PSRAM_AVAILABLE;
 }
-#define write8psram(addr32, v) psram_write8(&psram_spi, addr32, v)
-#define write16psram(addr32, v) psram_write16(&psram_spi, addr32, v)
-#define write32psram(addr32, v) psram_write32(&psram_spi, addr32, v)
-#define read8psram(addr32) psram_read8(&psram_spi, addr32)
-#define read16psram(addr32) psram_read16(&psram_spi, addr32)
-#define read32psram(addr32) psram_read32(&psram_spi, addr32)
 
 #ifdef __cplusplus
 }

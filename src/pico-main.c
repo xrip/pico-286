@@ -9,9 +9,7 @@
 #include <hardware/exception.h>
 
 #ifndef ONBOARD_PSRAM_GPIO
-#ifndef TOTAL_VIRTUAL_MEMORY_KBS
 #include "psram_spi.h"
-#endif
 #endif
 
 #if PICO_RP2040
@@ -37,7 +35,7 @@
 // Global variables
 extern OPL *emu8950_opl;
 extern uint16_t timeconst;
-extern bool PSRAM_AVAILABLE;
+bool PSRAM_AVAILABLE = false;
 
 FATFS fs;
 struct semaphore vga_start_semaphore;
@@ -466,10 +464,9 @@ int main(void) {
     // Initialize PSRAM
 #ifdef ONBOARD_PSRAM_GPIO
     psram_init(ONBOARD_PSRAM_GPIO);
+    PSRAM_AVAILABLE = true;
 #else
-    #ifndef TOTAL_VIRTUAL_MEMORY_KBS
-    init_psram();
-    #endif
+    PSRAM_AVAILABLE = init_psram();
 #endif
 
     // Set exception handler
@@ -514,7 +511,8 @@ int main(void) {
     }
     // adlib_init(SOUND_FREQUENCY);
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
-    init_swap();
+    if (!PSRAM_AVAILABLE)
+        init_swap();
 #endif
 
     // Initialize audio and reset emulator

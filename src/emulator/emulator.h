@@ -15,7 +15,7 @@ extern "C" {
 #if PICO_RP2350
 
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
-#define RAM_SIZE (200 << 10)
+#define RAM_SIZE (196 << 10)
 #else
 #define RAM_SIZE (362 << 10)
 #endif
@@ -332,10 +332,19 @@ extern void get_sound_sample(int16_t other_sample, int16_t *samples);
 #ifdef __cplusplus
 }
 #endif
+extern bool PSRAM_AVAILABLE;
 
-#ifndef TOTAL_VIRTUAL_MEMORY_KBS
 #if PICO_ON_DEVICE && !ONBOARD_PSRAM_GPIO
+// combined virtual memory
 #include "psram_spi.h"
+#include "swap.h"
+extern psram_spi_inst_t psram_spi;
+inline static void write8psram(uint32_t addr32, uint8_t v) { return PSRAM_AVAILABLE ? psram_write8(&psram_spi, addr32, v) : swap_write(addr32, v); }
+inline static void write16psram(uint32_t addr32, uint16_t v) { return PSRAM_AVAILABLE ? psram_write16(&psram_spi, addr32, v) : swap_write16(addr32, v); }
+inline static void write32psram(uint32_t addr32, uint32_t v) { return PSRAM_AVAILABLE ? psram_write32(&psram_spi, addr32, v) : swap_write32(addr32, v); }
+inline static uint8_t read8psram(uint32_t addr32) { return PSRAM_AVAILABLE ? psram_read8(&psram_spi, addr32) : swap_read(addr32); }
+inline static uint16_t read16psram(uint32_t addr32) { return PSRAM_AVAILABLE ? psram_read16(&psram_spi, addr32) : swap_read16(addr32); }
+inline static uint32_t read32psram(uint32_t addr32) { return PSRAM_AVAILABLE ? psram_read32(&psram_spi, addr32) : swap_read32(addr32); }
 
 #else
 extern uint8_t *PSRAM_DATA;
@@ -362,26 +371,5 @@ static INLINE uint16_t read16psram(const uint32_t address) {
 
 static INLINE uint32_t read32psram(const uint32_t address) {
     return *(uint32_t *) &PSRAM_DATA[address];
-}
-#endif
-#else
-#include "swap.h"
-static INLINE void write8psram(uint32_t address, uint8_t value) {
-    swap_write(address, value);
-}
-static INLINE void write16psram(uint32_t address, uint16_t value) {
-    swap_write16(address, value);
-}
-static INLINE void write32psram(uint32_t address, uint32_t value) {
-    swap_write32(address, value);
-}
-static INLINE uint8_t read8psram(uint32_t address) {
-    return swap_read(address);
-}
-static INLINE uint16_t read16psram(uint32_t address) {
-    return swap_read16(address);
-}
-static INLINE uint32_t read32psram(uint32_t address) {
-    return swap_read32(address);
 }
 #endif
