@@ -190,6 +190,9 @@ INLINE void _putchar(char character) {
     }
 }
 
+volatile int16_t last_sb_sample = 0;
+volatile bool ask_to_blast = false;
+
 /* Renderer loop on Pico's second core */
 void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem
@@ -253,7 +256,6 @@ void __time_critical_func() second_core(void) {
     uint64_t last_sb_tick = 0;
 
     int16_t last_dss_sample = 0;
-    int16_t last_sb_sample = 0;
 
     // Main render loop
     while (true) {
@@ -278,7 +280,8 @@ void __time_critical_func() second_core(void) {
 #if !PICO_RP2040
         // Sound Blaster sampling
         if (tick > last_sb_tick + timeconst) {
-            last_sb_sample = blaster_sample();
+            //last_sb_sample = blaster_sample();
+            ask_to_blast = true;
             last_sb_tick = tick;
         }
 #endif
