@@ -105,9 +105,6 @@ uint32_t get_swap_page_for(uint32_t address) {
 
     uint32_t save = spin_lock_blocking(swap_spinlock);
     { // critical section
-        if (get_core_num()) {
-            printf("warn: [core #1] attempt to use swap");
-        }
         if (!(SWAP_PAGES[ram_page] & PAGE_CHANGE_FLAG)) {
             swap_file_read_block(SWAP_PAGES_CACHE + (ram_page * SWAP_PAGE_SIZE), lba_page * SWAP_PAGE_SIZE, SWAP_PAGE_SIZE);
         } else {
