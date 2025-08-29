@@ -184,15 +184,15 @@ void vga_portout(uint16_t portnum, uint16_t value);
 uint16_t vga_portin(uint16_t portnum);
 
 // Memory
-extern void writew86(uint32_t addr32, uint16_t value);
-extern void writedw86(uint32_t addr32, uint32_t value);
+extern void writew86(uint32_t address, uint16_t value);
+extern void writedw86(uint32_t address, uint32_t value);
 
-extern void write86(uint32_t addr32, uint8_t value);
+extern void write86(uint32_t address, uint8_t value);
 
-extern uint16_t readw86(uint32_t addr32);
-extern uint32_t readdw86(uint32_t addr32);
+extern uint16_t readw86(uint32_t address);
+extern uint32_t readdw86(uint32_t address);
 
-extern uint8_t read86(uint32_t addr32);
+extern uint8_t read86(uint32_t address);
 
 extern void portout(uint16_t portnum, uint16_t value);
 
