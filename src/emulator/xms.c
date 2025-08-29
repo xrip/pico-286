@@ -1,5 +1,4 @@
 #pragma GCC optimize("Ofast")
-#include <stdbool.h>
 #include "emulator.h"
 // https://www.phatcode.net/res/218/files/limems40.txt
 // https://www.phatcode.net/res/219/files/xms20.txt
