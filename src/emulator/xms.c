@@ -100,11 +100,10 @@ const umb_t *get_largest_free_umb_block(uint16_t *psz) {
     while (i < UMB_BLOCKS_COUNT) {
         if (0 == umb_blocks[i].allocated_paragraphs) {
             int j = i;
-            uint16_t expected_segment = umb_blocks[i].segment;
             int length = 0;
             while (j < UMB_BLOCKS_COUNT && umb_blocks[j].allocated_paragraphs == 0) {
                 if (j > i) {
-                    uint16_t expected_segment = umb_blocks[j - 1].segment + umb_blocks[j - 1].size;
+                    const uint16_t expected_segment = umb_blocks[j - 1].segment + umb_blocks[j - 1].size;
                     if (umb_blocks[j].segment != expected_segment)
                         break;
                 }
@@ -124,7 +123,7 @@ const umb_t *get_largest_free_umb_block(uint16_t *psz) {
     return best;
 }
 
-umb_t *get_free_umb_block(uint16_t size) {
+umb_t *get_free_umb_block(const uint16_t size) {
     umb_t *best = NULL;
     int best_size = 0;
     int i = 0;
@@ -137,7 +136,7 @@ umb_t *get_free_umb_block(uint16_t size) {
         int j = i;
         while (j < UMB_BLOCKS_COUNT && umb_blocks[j].allocated_paragraphs == 0) {
             if (j > i) {
-                uint16_t expected_segment = umb_blocks[j - 1].segment + umb_blocks[j - 1].size;
+                const uint16_t expected_segment = umb_blocks[j - 1].segment + umb_blocks[j - 1].size;
                 if (umb_blocks[j].segment != expected_segment)
                     break;
             }
@@ -162,7 +161,7 @@ int a20_enabled = 0;
 
 uint8_t __attribute__((section(".psram"))) XMS[XMS_MEMORY_SIZE] = {0};
 
-static INLINE void xms_move_to(register uint32_t destination, register uint32_t source, register uint32_t length) {
+static INLINE void xms_move_to(const register uint32_t destination, register uint32_t source, register uint32_t length) {
     register uint16_t *dest_ptr = (uint16_t *) &XMS[destination];
     length /= 2;
     while (length--) {
@@ -171,8 +170,8 @@ static INLINE void xms_move_to(register uint32_t destination, register uint32_t 
     }
 }
 
-static INLINE void xms_move_from(register uint32_t source, register uint32_t destination, register uint32_t length) {
-    register uint16_t *source_ptr = (uint16_t *) &XMS[source];
+static INLINE void xms_move_from(const uint32_t source, register uint32_t destination, register uint32_t length) {
+    const register uint16_t *source_ptr = (uint16_t *) &XMS[source];
     length /= 2;
     while (length--) {
         writew86(destination, *source_ptr++);
@@ -322,14 +321,14 @@ uint8_t __not_in_flash() xms_handler() {
                     }
                 }
             } else {
-                uint16_t requested_size = CPU_DX;
+                const uint16_t requested_size = CPU_DX;
                 umb_t *umb_block = get_free_umb_block(requested_size);
                 if (umb_block != NULL) {
                     int unmarked_size = requested_size;
                     CPU_BX = umb_block->segment;
                     CPU_AX = 0x0001;
                     umb_t *ub = umb_block;
-                    uint32_t total_allocated = 0;
+                    int total_allocated = 0;
                     while (unmarked_size > 0) {
                         total_allocated += umb_block->size;
                         umb_block->allocated_paragraphs = -1;

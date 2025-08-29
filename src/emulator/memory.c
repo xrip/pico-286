@@ -8,8 +8,8 @@
 
 uint8_t VIDEORAM[VIDEORAM_SIZE] = {0};
 uint8_t __attribute__((section(".psram"))) RAM[RAM_SIZE] = {0};
-uint8_t __attribute__((section(".psram"))) UMB[(UMB_END - UMB_START)] = {0};
-uint8_t __attribute__((section(".psram"))) HMA[(HMA_END - HMA_START)] = {0};
+uint8_t __attribute__((section(".psram"))) UMB[UMB_END - UMB_START] = {0};
+uint8_t __attribute__((section(".psram"))) HMA[HMA_END - HMA_START] = {0};
 
 // Writes a byte to the virtual memory
 void write86(const uint32_t address, const uint8_t value) {
