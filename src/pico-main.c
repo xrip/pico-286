@@ -305,6 +305,16 @@ void __time_critical_func() second_core(void) {
             // Handle video mode changes
             if (old_video_mode != videomode) {
                 switch (videomode) {
+                    case TEXTMODE_80x25_BW:
+                    case TEXTMODE_40x25_BW:
+                        case TEXTMODE_80x25_COLOR:
+                        case TEXTMODE_40x25_COLOR: {
+                        for (uint8_t i = 0; i < 16; i++) {
+                            graphics_set_palette(i, cga_palette[i]);
+                        }
+                    }
+                        break;
+
                     case TGA_160x200x16:
                     case TGA_320x200x16:
                     case TGA_640x200x16:
@@ -314,17 +324,20 @@ void __time_critical_func() second_core(void) {
                         break;
 
                     case COMPOSITE_160x200x16:
+#ifndef NTSC
                         for (uint8_t i = 0; i < 15; i++) {
                             graphics_set_palette(i, cga_composite_palette[0][i]);
                         }
                         break;
+#endif
 
                     case COMPOSITE_160x200x16_force:
+#ifndef NTSC
                         for (uint8_t i = 0; i < 15; i++) {
                             graphics_set_palette(i, cga_composite_palette[cga_intensity << 1][i]);
                         }
                         break;
-
+#endif
                     case CGA_320x200x4_BW:
                     case CGA_320x200x4:
                         for (uint8_t i = 0; i < 4; i++) {

@@ -338,6 +338,7 @@ else ()
             $<$<BOOL:${ENABLE_TFT}>:TFT>
             $<$<BOOL:${ENABLE_VGA}>:VGA>
             $<$<BOOL:${ENABLE_HDMI}>:HDMI>
+            $<$<BOOL:${ENABLE_NTSC-TV}>:NTSC>
 
             # Audio type
             $<$<BOOL:${ENABLE_I2S_SOUND}>:I2S_SOUND>

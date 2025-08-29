@@ -27,14 +27,11 @@ caused by using this program.
 #include <hardware/dma.h>
 #include <hardware/pwm.h>
 #include <hardware/gpio.h>
+
+#include "emulator/emulator.h"
 #include "emulator/includes/font8x8.h"
 
-extern uint32_t vram_offset;
-extern uint32_t tga_offset;
-extern uint32_t vga_plane_offset;
-extern uint8_t vga_graphics_control[9];
-extern uint8_t cga_blinking;
-extern uint8_t cga_foreground_color;
+extern int cursor_blink_state;
 
 #define TEXTMODE_COLS 80
 
@@ -126,7 +123,26 @@ extern uint16_t ntsc_palette[4 * 256] __attribute__ ((aligned (4)));
 static uint ntsc_dma_chan_primary, ntsc_dma_chan_secondary;
 extern uint8_t VIDEORAM[(64 << 10) + 4];
 extern volatile uint8_t port3DA;
-#define CHECK_BIT(var, pos) (((var)>>(pos)) & 1)
+
+static const uint8_t cga_brightness[16] = {
+    2, // 0 black
+    3, // 1 blue
+    4, // 2 green
+    5, // 3 cyan
+    3, // 4 red
+    4, // 5 magenta
+    4, // 6 brown
+    5, // 7 light gray
+    3, // 8 dark gray
+    4, // 9 light blue
+    5, // 10 light green
+    6, // 11 light cyan
+    5, // 12 light red
+    6, // 13 light magenta
+    6, // 14 yellow
+    7 // 15 white
+};
+
 /* ===========================================================================
  * Function: ntsc_generate_scanline
  * Purpose: Generate NTSC composite video signal data for one scanline
@@ -183,15 +199,13 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
         const uint16_t y = scanline_number - (NTSC_VSYNC_LINES + NTSC_VBLANK_TOP);
         switch (graphics_mode) {
             case TEXTMODE_40x25_BW:
-            case TEXTMODE_40x25_COLOR:
-            case TEXTMODE_80x25_BW:
-            case TEXTMODE_80x25_COLOR: {
+            case TEXTMODE_40x25_COLOR: {
                 const uint8_t glyph_line = y & 7;
 
-                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + __fast_mul(y >> 3, 160);
-                uint8_t phase = 0; /* starting parity for phase toggling */
+                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + __fast_mul(y >> 3, 80);
 
-                for (int col = 0; col < TEXTMODE_COLS; ++col) {
+                uint8_t phase = 0;
+                for (int col = 0; col < 40; ++col) {
                     const uint8_t ch = *input_buffer_8bit++;
                     const uint8_t attr = *input_buffer_8bit++;
                     uint8_t glyph_row = font_8x8[ch * 8 + glyph_line];
@@ -201,15 +215,78 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
 #pragma GCC unroll(8)
                     for (int bit = 0; bit < 8; ++bit) {
                         uint8_t pixel_color = glyph_row & 1 ? fg : bg;
+                        *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + pixel_color * 4 + phase);
+                        buffer_ptr += 2;
                         glyph_row >>= 1;
-                        *(uint32_t *) buffer_ptr++ = *(uint32_t *) (ntsc_palette + pixel_color * 4 + phase);
                         phase ^= 2;
                     }
                 }
             }
             break;
+            case TEXTMODE_80x25_COLOR:
+            case TEXTMODE_80x25_BW: {
+                const uint8_t glyph_line = y & 7;
+
+                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + __fast_mul(y >> 3, 160);
+                uint8_t y_div_8 = y / 8;
+
+                for (int column = 0; column < TEXTMODE_COLS; ++column) {
+                    const uint8_t ch = *input_buffer_8bit++;
+                    const uint8_t color = *input_buffer_8bit++;
+                    uint8_t glyph_pixels = font_8x8[ch * 8 + glyph_line];
+                    const uint8_t fg = cga_brightness[color & 0xf];
+                    const uint8_t bg = cga_brightness[color >> 4];
+
+                    const uint8_t cursor_active = cursor_blink_state &&
+                                                  y_div_8 == CURSOR_Y && column == CURSOR_X &&
+                                                  glyph_line >= 4;
+
+                    if (cursor_active) {
+                            *(uint64_t *) buffer_ptr = 0x5050505050505050;
+                            buffer_ptr += 8;
+                    } else {
+                        if (cga_blinking == 0x7F && (color & 0x80) && cursor_blink_state) {
+                            glyph_pixels = 0;
+                        }
+                        #pragma GCC unroll(8)
+                        for (int bit = 0; bit < 8; ++bit) {
+                            uint8_t pixel_color = glyph_pixels & 1 ? fg : bg;
+                            glyph_pixels >>= 1;
+                            *buffer_ptr++ = pixel_color;
+                        }
+                    }
+                }
+            }
+            break;
             case COMPOSITE_160x200x16_force:
-            case COMPOSITE_160x200x16:
+            case COMPOSITE_160x200x16: {
+                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                uint8_t phase = 0;
+                for (int x = 0; x < 320 / 4; x++) {
+                    uint8_t four_pixels = *input_buffer_8bit++;
+
+                    uint8_t color = four_pixels >> 6;
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
+                    buffer_ptr += 2;
+                    phase ^= 2;
+
+                    color = four_pixels >> 4 & 3;
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
+                    buffer_ptr += 2;
+                    phase ^= 2;
+
+                    color = four_pixels >> 2 & 3;
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
+                    buffer_ptr += 2;
+                    phase ^= 2;
+
+                    color = four_pixels & 3;
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
+                    buffer_ptr += 2;
+                    phase ^= 2;
+                }
+                break;
+            }
             case CGA_320x200x4:
             case CGA_320x200x4_BW: {
                 uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
@@ -239,17 +316,35 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
                 }
                 break;
             }
+            case CGA_640x200x2: {
+                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+
+                static const uint8_t px[2] = {2, 6};
+                for (int x = 80; x--;) {
+                    uint8_t cga_byte = *input_buffer_8bit++;
+
+                    *buffer_ptr++ = px[(cga_byte >> 7) & 1];
+                    *buffer_ptr++ = px[(cga_byte >> 6) & 1];
+                    *buffer_ptr++ = px[(cga_byte >> 5) & 1];
+                    *buffer_ptr++ = px[(cga_byte >> 4) & 1];
+                    *buffer_ptr++ = px[(cga_byte >> 3) & 1];
+                    *buffer_ptr++ = px[(cga_byte >> 2) & 1];
+                    *buffer_ptr++ = px[(cga_byte >> 1) & 1];
+                    *buffer_ptr++ = px[(cga_byte >> 0) & 1];
+                }
+                break;
+            }
 
             case TGA_160x200x16: {
                 const uint8_t *input_buffer_8bit = tga_offset + VIDEORAM + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
                 uint8_t phase = 0;
                 for (int x = 0; x < 320 / 4; x++) {
-                    const uint8_t cga_byte = *input_buffer_8bit++; // Fetch 8 pixels from TGA memory
-                    const uint8_t color1 = cga_byte >> 4;
-                    const uint8_t color2 = cga_byte & 15;
+                    const uint8_t two_pixels = *input_buffer_8bit++; // Fetch 2 pixels from TGA memory
+                    uint8_t color1 = two_pixels >> 4;
+                    uint8_t color2 = two_pixels & 15;
 
-                    // if (!color1 && videomode == 0x8) color1 = cga_foreground_color;
-                    // if (!color2 && videomode == 0x8) color2 = cga_foreground_color;
+                    if (!color1) color1 = cga_foreground_color;
+                    if (!color2) color2 = cga_foreground_color;
 
                     *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color1 * 4 + phase);
                     buffer_ptr += 2;
@@ -257,6 +352,8 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
 
                     *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color1 * 4 + phase);
                     buffer_ptr += 2;
+                    phase ^= 2;
+
 
                     *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color2 * 4 + phase);
                     buffer_ptr += 2;
@@ -390,99 +487,14 @@ static void __time_critical_func(ntsc_dma_irq_handler)() {
 }
 
 
-/* ===========================================================================
- * Function: ntsc_init
- * Purpose: Initialize the complete NTSC video generation system
- * =========================================================================== */
-static inline void ntsc_init() {
-    /* Clock Configuration
-     * 315 MHz is the PERFECT frequency for NTSC video generation!
-     * NTSC color burst is exactly 315/88 MHz = 3.579545... MHz
-     * 315 MHz / 22 = 315/22 MHz = 14.318181... MHz (exactly 4x color burst)
-     * 14.318181 MHz / 4 = 3.579545 MHz (EXACT NTSC color burst frequency)
-     * This configuration provides PERFECT NTSC timing with 0% error! */
-    const uint32_t system_clock_khz = 315000;
-    const uint32_t pwm_period_cycles = 11;
-
-    // vreg_set_voltage(VREG_VOLTAGE_1_30);
-    // set_sys_clock_khz(system_clock_khz, true);
-
-    // Configure PWM output pin
-    gpio_set_function(NTSC_PIN_OUTPUT, GPIO_FUNC_PWM);
-    const uint pwm_slice = pwm_gpio_to_slice_num(NTSC_PIN_OUTPUT);
-
-    // Configure PWM for video signal generation
-    pwm_config pwm_cfg = pwm_get_default_config();
-    pwm_config_set_clkdiv(&pwm_cfg, 2.0f); // 2x clock division
-
-    pwm_init(pwm_slice, &pwm_cfg, true);
-    pwm_set_wrap(pwm_slice, pwm_period_cycles - 1);
-
-    // Get PWM compare register address for DMA writes
-    volatile void *pwm_compare_addr = &pwm_hw->slice[pwm_slice].cc;
-    // Offset by 2 bytes to write to the upper 16 bits (channel B)
-    pwm_compare_addr = (volatile void *) ((uintptr_t) pwm_compare_addr + 2);
-
-    // Allocate DMA channels for ping-pong operation
-    ntsc_dma_chan_primary = dma_claim_unused_channel(true);
-    ntsc_dma_chan_secondary = dma_claim_unused_channel(true);
-
-    // Configure primary DMA channel
-    dma_channel_config primary_config = dma_channel_get_default_config(ntsc_dma_chan_primary);
-    channel_config_set_transfer_data_size(&primary_config, DMA_SIZE_16);
-    channel_config_set_read_increment(&primary_config, true); // Increment source
-    channel_config_set_write_increment(&primary_config, false); // Fixed destination
-    channel_config_set_dreq(&primary_config, DREQ_PWM_WRAP0 + pwm_slice);
-    channel_config_set_chain_to(&primary_config, ntsc_dma_chan_secondary); // Chain to secondary
-
-    dma_channel_configure(
-        ntsc_dma_chan_primary,
-        &primary_config,
-        pwm_compare_addr, // Destination: PWM register
-        ntsc_scanline_buffers[0], // Source: Buffer 0
-        NTSC_SAMPLES_PER_LINE, // Transfer count
-        false // Don't start yet
-    );
-
-    // Configure a secondary DMA channel (mirrors primary, chains back)
-    dma_channel_config secondary_config = dma_channel_get_default_config(ntsc_dma_chan_secondary);
-    channel_config_set_transfer_data_size(&secondary_config, DMA_SIZE_16);
-    channel_config_set_read_increment(&secondary_config, true);
-    channel_config_set_write_increment(&secondary_config, false);
-    channel_config_set_dreq(&secondary_config, DREQ_PWM_WRAP0 + pwm_slice);
-    channel_config_set_chain_to(&secondary_config, ntsc_dma_chan_primary); // Chain back
-
-    dma_channel_configure(
-        ntsc_dma_chan_secondary,
-        &secondary_config,
-        pwm_compare_addr, // Destination: PWM register
-        ntsc_scanline_buffers[1], // Source: Buffer 1
-        NTSC_SAMPLES_PER_LINE, // Transfer count
-        false // Don't start yet
-    );
-
-    // Pre-fill buffers with the first two scanlines
-    ntsc_generate_scanline(ntsc_scanline_buffers[0], 0);
-    ntsc_generate_scanline(ntsc_scanline_buffers[1], 1);
-
-    // Enable DMA completion interrupts for both channels
-    dma_set_irq0_channel_mask_enabled(1u << ntsc_dma_chan_primary | 1u << ntsc_dma_chan_secondary,true);
-
-    // Install and enable interrupt handler
-    irq_set_exclusive_handler(DMA_IRQ_0, ntsc_dma_irq_handler);
-    irq_set_enabled(DMA_IRQ_0, true);
-
-    // Start video generation by triggering the first DMA transfer
-    dma_start_channel_mask(1u << ntsc_dma_chan_primary);
-}
-
-#define graphics_init() ntsc_init()
 #define graphics_set_buffer(a,b,c)
 #define graphics_set_textbuffer(a)
 #define graphics_set_bgcolor(a)
 #define graphics_set_mode(mode) graphics_mode = mode
 #define graphics_set_offset(a,b)
 #define graphics_set_flashmode(a,b)
+
+void graphics_init();
 
 void graphics_set_palette(uint8_t index, uint32_t rgb);
 #endif // RP2040_PWM_NTSC_H
