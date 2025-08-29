@@ -10,6 +10,11 @@
 // http://www.techhelpmanual.com/698-int_2fh_43xxh__himem_sys__extended_memory_manager__services.html
 
 //#define DEBUG_XMS
+#if defined(DEBUG_XMS)
+#define debug_log(...) printf(__VA_ARGS__)
+#else
+#define debug_log(...) ((void)0)
+#endif
 
 #define XMS_VERSION 0x00
 #define REQUEST_HMA 0x01
@@ -226,9 +231,7 @@ uint8_t __not_in_flash() xms_handler() {
 
         case QUERY_EMB: {
             // 08h
-#if DEBUG_XMS
-            printf("[XMS] Query free\r\n");
-#endif
+            debug_log("[XMS] Query free\r\n");
             CPU_AX = XMS_MEMORY_SIZE >> 10;
             CPU_DX = XMS_HANDLES - xms_handles;
             CPU_BL = 0;
@@ -236,9 +239,7 @@ uint8_t __not_in_flash() xms_handler() {
         }
         case ALLOCATE_EMB: {
             // Allocate Extended Memory Block (Function 09h):
-#if DEBUG_XMS
-            printf("[XMS] Allocate %dKb\n", CPU_DX);
-#endif
+            debug_log("[XMS] Allocate %dKb\n", CPU_DX);
             if (xms_handles + 1 < XMS_HANDLES) {
                 CPU_DX = ++xms_handles;
                 CPU_AX = 1;
@@ -250,9 +251,7 @@ uint8_t __not_in_flash() xms_handler() {
             break;
         }
         case RELEASE_EMB: {
-#if DEBUG_XMS
-            printf("[XMS] Free handle %d\n", CPU_DX);
-#endif
+            debug_log("[XMS] Free handle %d\n", CPU_DX);
             if (xms_handles) {
                 xms_handles--;
                 CPU_AX = 1;
@@ -371,10 +370,8 @@ uint8_t __not_in_flash() xms_handler() {
             break;
         }
         default: {
-#if DEBUG_XMS
             if (CPU_AH > 0x7 && CPU_AH < 0x10)
-                printf("[XMS] %02X\n", CPU_AH);
-#endif
+                debug_log("[XMS] %02X\n", CPU_AH);
             // Unhandled function
             CPU_AX = 0x0000; // Function not supported
             CPU_BL = 0x80; // Function not implemented
