@@ -15,8 +15,6 @@ static INLINE uint32_t physical_address(const uint32_t address) {
     return selector * 0x4000 + page_addr;
 }
 
-
-
 static INLINE uint8_t ems_read(const uint32_t address) {
     const uint32_t phys_addr = physical_address(address);
     return EMS[phys_addr];
