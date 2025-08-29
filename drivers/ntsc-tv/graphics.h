@@ -121,7 +121,7 @@ extern uint16_t ntsc_palette[4 * 256] __attribute__ ((aligned (4)));
 
 // DMA channel handles for ping-pong operation
 static uint ntsc_dma_chan_primary, ntsc_dma_chan_secondary;
-extern uint8_t VIDEORAM[(64 << 10) + 4];
+extern uint8_t VIDEORAM[VIDEORAM_SIZE];
 extern volatile uint8_t port3DA;
 
 static const uint8_t cga_brightness[16] = {
