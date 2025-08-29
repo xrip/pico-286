@@ -49,7 +49,7 @@ typedef struct __attribute__((packed, aligned)) {
 typedef struct umb {
     uint16_t segment;
     uint16_t size; // paragraphs
-    int allocated_paragraphs; // -1 for chain
+    int allocated_paragraphs; // -1 for a chain
 } umb_t;
 
 static umb_t umb_blocks[] = {
