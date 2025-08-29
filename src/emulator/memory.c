@@ -4,7 +4,7 @@
 #include "emulator.h"
 #include "ems.c.inl"
 
-uint8_t VIDEORAM[VIDEORAM_SIZE] = {0};
+uint8_t __attribute__ ((aligned (4)))  VIDEORAM[VIDEORAM_SIZE] = {0};
 uint8_t __attribute__((section(".psram"))) RAM[RAM_SIZE] = {0};
 uint8_t __attribute__((section(".psram"))) UMB[UMB_END - UMB_START] = {0};
 uint8_t __attribute__((section(".psram"))) HMA[HMA_END - HMA_START] = {0};
