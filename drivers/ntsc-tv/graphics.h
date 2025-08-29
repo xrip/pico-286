@@ -230,30 +230,35 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
                 uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + __fast_mul(y >> 3, 160);
                 uint8_t y_div_8 = y / 8;
 
+                const bool cursor_on_line = cursor_blink_state && (y_div_8 == CURSOR_Y) && (glyph_line >= 4);
+                const int cursor_col = cursor_on_line ? CURSOR_X : -1;
+
                 for (int column = 0; column < TEXTMODE_COLS; ++column) {
                     const uint8_t ch = *input_buffer_8bit++;
                     const uint8_t color = *input_buffer_8bit++;
-                    uint8_t glyph_pixels = font_8x8[ch * 8 + glyph_line];
-                    const uint8_t fg = cga_brightness[color & 0xf];
-                    const uint8_t bg = cga_brightness[color >> 4];
 
-                    const uint8_t cursor_active = cursor_blink_state &&
-                                                  y_div_8 == CURSOR_Y && column == CURSOR_X &&
-                                                  glyph_line >= 4;
-
-                    if (cursor_active) {
+                    if (cursor_col == column) {
                             *(uint64_t *) buffer_ptr = 0x5050505050505050;
                             buffer_ptr += 8;
                     } else {
+                        uint8_t glyph_pixels;
+                        const uint8_t fg = cga_brightness[color & 0xf];
+                        const uint8_t bg = cga_brightness[color >> 4];
+
                         if (cga_blinking == 0x7F && (color & 0x80) && cursor_blink_state) {
                             glyph_pixels = 0;
+                        } else {
+                            glyph_pixels = font_8x8[ch * 8 + glyph_line];
                         }
-                        #pragma GCC unroll(8)
-                        for (int bit = 0; bit < 8; ++bit) {
-                            uint8_t pixel_color = glyph_pixels & 1 ? fg : bg;
-                            glyph_pixels >>= 1;
-                            *buffer_ptr++ = pixel_color;
-                        }
+
+                        *buffer_ptr++ = (glyph_pixels & 0x01) ? fg : bg;
+                        *buffer_ptr++ = (glyph_pixels & 0x02) ? fg : bg;
+                        *buffer_ptr++ = (glyph_pixels & 0x04) ? fg : bg;
+                        *buffer_ptr++ = (glyph_pixels & 0x08) ? fg : bg;
+                        *buffer_ptr++ = (glyph_pixels & 0x10) ? fg : bg;
+                        *buffer_ptr++ = (glyph_pixels & 0x20) ? fg : bg;
+                        *buffer_ptr++ = (glyph_pixels & 0x40) ? fg : bg;
+                        *buffer_ptr++ = (glyph_pixels & 0x80) ? fg : bg;
                     }
                 }
             }
