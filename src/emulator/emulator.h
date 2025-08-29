@@ -17,7 +17,7 @@ extern "C" {
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
 #define RAM_SIZE (200 << 10)
 #else
-#define RAM_SIZE (362 << 10)
+#define RAM_SIZE (640 << 10)
 #endif
 
 #else
@@ -68,8 +68,9 @@ extern "C" {
 #define BIOS_CRTCPU_PAGE        0x48A
 extern uint8_t log_debug;
 
-extern uint8_t VIDEORAM[VIDEORAM_SIZE + 4];
-extern uint8_t RAM[RAM_SIZE + 4];
+
+extern uint8_t RAM[RAM_SIZE];
+extern uint8_t VIDEORAM[VIDEORAM_SIZE];
 
 extern uint32_t dwordregs[8];
 #define byteregs ((uint8_t*)dwordregs)
@@ -338,31 +339,7 @@ extern void get_sound_sample(int16_t other_sample, int16_t *samples);
 #include "psram_spi.h"
 
 #else
-extern uint8_t *PSRAM_DATA;
 
-static INLINE void write8psram(const uint32_t address, const uint8_t value) {
-    PSRAM_DATA[address] = value;
-}
-
-static INLINE void write16psram(const uint32_t address, const uint16_t value) {
-    *(uint16_t *) &PSRAM_DATA[address] = value;
-}
-
-static INLINE void write32psram(const uint32_t address, const uint32_t value) {
-    *(uint32_t *) &PSRAM_DATA[address] = value;
-}
-
-static INLINE uint8_t read8psram(const uint32_t address) {
-    return PSRAM_DATA[address];
-}
-
-static INLINE uint16_t read16psram(const uint32_t address) {
-    return *(uint16_t *) &PSRAM_DATA[address];
-}
-
-static INLINE uint32_t read32psram(const uint32_t address) {
-    return *(uint32_t *) &PSRAM_DATA[address];
-}
 #endif
 #else
 #include "swap.h"
