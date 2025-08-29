@@ -259,85 +259,54 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
             }
             break;
             case COMPOSITE_160x200x16_force:
-            case COMPOSITE_160x200x16: {
-                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
-                uint8_t phase = 0;
-                for (int x = 0; x < 320 / 4; x++) {
-                    uint8_t four_pixels = *input_buffer_8bit++;
-
-                    uint8_t color = four_pixels >> 6;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
-                    buffer_ptr += 2;
-                    phase ^= 2;
-
-                    color = four_pixels >> 4 & 3;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
-                    buffer_ptr += 2;
-                    phase ^= 2;
-
-                    color = four_pixels >> 2 & 3;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
-                    buffer_ptr += 2;
-                    phase ^= 2;
-
-                    color = four_pixels & 3;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
-                    buffer_ptr += 2;
-                    phase ^= 2;
-                }
-                break;
-            }
+            case COMPOSITE_160x200x16:
             case CGA_320x200x4:
             case CGA_320x200x4_BW: {
                 uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
-                uint8_t phase = 0;
+
                 for (int x = 0; x < 320 / 4; x++) {
                     uint8_t four_pixels = *input_buffer_8bit++;
 
                     uint8_t color = four_pixels >> 6;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + 0); // phase 0
                     buffer_ptr += 2;
-                    phase ^= 2;
 
                     color = four_pixels >> 4 & 3;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + 2); // phase 2
                     buffer_ptr += 2;
-                    phase ^= 2;
 
                     color = four_pixels >> 2 & 3;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + 0); // phase 0
                     buffer_ptr += 2;
-                    phase ^= 2;
 
                     color = four_pixels & 3;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + 2); // phase 2
                     buffer_ptr += 2;
-                    phase ^= 2;
                 }
                 break;
             }
             case CGA_640x200x2: {
                 uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
 
-                static const uint8_t px[2] = {2, 6};
+                static const uint8_t brightness[2] = {NTSC_LEVEL_BLANK, 6};
                 for (int x = 80; x--;) {
                     uint8_t cga_byte = *input_buffer_8bit++;
 
-                    *buffer_ptr++ = px[(cga_byte >> 7) & 1];
-                    *buffer_ptr++ = px[(cga_byte >> 6) & 1];
-                    *buffer_ptr++ = px[(cga_byte >> 5) & 1];
-                    *buffer_ptr++ = px[(cga_byte >> 4) & 1];
-                    *buffer_ptr++ = px[(cga_byte >> 3) & 1];
-                    *buffer_ptr++ = px[(cga_byte >> 2) & 1];
-                    *buffer_ptr++ = px[(cga_byte >> 1) & 1];
-                    *buffer_ptr++ = px[(cga_byte >> 0) & 1];
+                    *buffer_ptr++ = brightness[cga_byte >> 7 & 1];
+                    *buffer_ptr++ = brightness[cga_byte >> 6 & 1];
+                    *buffer_ptr++ = brightness[cga_byte >> 5 & 1];
+                    *buffer_ptr++ = brightness[cga_byte >> 4 & 1];
+                    *buffer_ptr++ = brightness[cga_byte >> 3 & 1];
+                    *buffer_ptr++ = brightness[cga_byte >> 2 & 1];
+                    *buffer_ptr++ = brightness[cga_byte >> 1 & 1];
+                    *buffer_ptr++ = brightness[cga_byte >> 0 & 1];
                 }
                 break;
             }
 
             case TGA_160x200x16: {
                 const uint8_t *input_buffer_8bit = tga_offset + VIDEORAM + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
-                uint8_t phase = 0;
+
                 for (int x = 0; x < 320 / 4; x++) {
                     const uint8_t two_pixels = *input_buffer_8bit++; // Fetch 2 pixels from TGA memory
                     uint8_t color1 = two_pixels >> 4;
@@ -346,40 +315,33 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
                     if (!color1) color1 = cga_foreground_color;
                     if (!color2) color2 = cga_foreground_color;
 
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color1 * 4 + phase);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color1 * 4 + 0); // phase 0
                     buffer_ptr += 2;
-                    phase ^= 2;
 
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color1 * 4 + phase);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color1 * 4 + 2); // phase 2
                     buffer_ptr += 2;
-                    phase ^= 2;
 
 
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color2 * 4 + phase);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color2 * 4 + 0); // phase 0
                     buffer_ptr += 2;
-                    phase ^= 2;
 
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color2 * 4 + phase);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color2 * 4 + 2); // phase 2
                     buffer_ptr += 2;
-                    phase ^= 2;
                 }
                 break;
             }
             case TGA_320x200x16: {
                 uint8_t *input_buffer_8bit = tga_offset + VIDEORAM + ((y & 3) << 13) + __fast_mul(y >> 2, 160);
-                uint8_t phase = 0;
                 for (int x = 0; x < 320 / 2; x++) {
                     uint8_t two_pixels = *input_buffer_8bit++;
 
                     uint8_t color = two_pixels >> 4;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + 0); // phase 0
                     buffer_ptr += 2;
-                    phase ^= 2;
 
                     color = two_pixels & 15;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase);
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + 2); // phase 2
                     buffer_ptr += 2;
-                    phase ^= 2;
                 }
                 break;
             }
