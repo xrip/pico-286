@@ -87,6 +87,13 @@ static umb_t umb_blocks[] = {
 
 static int umb_blocks_allocated = 0;
 
+uint32_t xms_available = XMS_MEMORY_SIZE;
+uint8_t xms_handles = 0;
+
+int a20_enabled = 0;
+
+uint8_t __attribute__((section(".psram"))) XMS[XMS_MEMORY_SIZE] = {0};
+
 void init_umb() {
     for (int i = 0; i < UMB_BLOCKS_COUNT; ++i) {
         umb_blocks[i].allocated_paragraphs = 0;
@@ -153,13 +160,6 @@ umb_t *get_free_umb_block(const uint16_t size) {
     }
     return best;
 }
-
-uint32_t xms_available = XMS_MEMORY_SIZE;
-uint8_t xms_handles = 0;
-
-int a20_enabled = 0;
-
-uint8_t __attribute__((section(".psram"))) XMS[XMS_MEMORY_SIZE] = {0};
 
 static INLINE void xms_move_to(const register uint32_t destination, register uint32_t source, register uint32_t length) {
     register uint16_t *dest_ptr = (uint16_t *) &XMS[destination];
