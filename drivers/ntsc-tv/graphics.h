@@ -121,8 +121,6 @@ extern uint16_t ntsc_palette[4 * 256] __attribute__ ((aligned (4)));
 
 // DMA channel handles for ping-pong operation
 static uint ntsc_dma_chan_primary, ntsc_dma_chan_secondary;
-extern uint8_t VIDEORAM[(64 << 10) + 4];
-extern volatile uint8_t port3DA;
 
 static const uint8_t cga_brightness[16] = {
     2, // 0 black
@@ -228,9 +226,8 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
                 const uint8_t glyph_line = y & 7;
 
                 uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + __fast_mul(y >> 3, 160);
-                uint8_t y_div_8 = y / 8;
 
-                const bool cursor_on_line = cursor_blink_state && (y_div_8 == CURSOR_Y) && (glyph_line >= 4);
+                const bool cursor_on_line = cursor_blink_state && y / 8 == CURSOR_Y && glyph_line >= 4;
                 const int cursor_col = cursor_on_line ? CURSOR_X : -1;
 
                 for (int column = 0; column < TEXTMODE_COLS; ++column) {
@@ -242,10 +239,11 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
                             buffer_ptr += 8;
                     } else {
                         uint8_t glyph_pixels;
+
                         const uint8_t fg = cga_brightness[color & 0xf];
                         const uint8_t bg = cga_brightness[color >> 4];
 
-                        if (cga_blinking == 0x7F && (color & 0x80) && cursor_blink_state) {
+                        if (cursor_blink_state && cga_blinking == 0x7F && color & 0x80) {
                             glyph_pixels = 0;
                         } else {
                             glyph_pixels = font_8x8[ch * 8 + glyph_line];
