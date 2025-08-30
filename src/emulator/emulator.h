@@ -11,13 +11,12 @@
 extern "C" {
 #endif
 #ifdef PICO_ON_DEVICE
-#define VIDEORAM_SIZE (64 << 10)
 #if PICO_RP2350
 
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
 #define RAM_SIZE (200 << 10)
 #else
-#define RAM_SIZE (362 << 10)
+#define RAM_SIZE (640 << 10)
 #endif
 
 #else
@@ -32,7 +31,6 @@ extern "C" {
 #endif
 #else
 #include "printf/printf.h"
-#define VIDEORAM_SIZE (64 << 10)
 #define RAM_SIZE (640 << 10)
 #endif
 #ifdef HARDWARE_SOUND
@@ -68,8 +66,9 @@ extern "C" {
 #define BIOS_CRTCPU_PAGE        0x48A
 extern uint8_t log_debug;
 
-extern uint8_t VIDEORAM[VIDEORAM_SIZE + 4];
-extern uint8_t RAM[RAM_SIZE + 4];
+
+extern uint8_t RAM[RAM_SIZE];
+extern uint8_t VIDEORAM[4][65536];
 
 extern uint32_t dwordregs[8];
 #define byteregs ((uint8_t*)dwordregs)
@@ -166,9 +165,10 @@ void cga_portout(uint16_t portnum, uint16_t value);
 uint16_t cga_portin(uint16_t portnum);
 
 // EGA/VGA
-#define vga_plane_size (16000)
-extern uint32_t vga_plane_offset;
-extern uint8_t vga_planar_mode;
+#define vga_plane_size (65536)
+extern uint8_t vga_latch[4];
+extern uint8_t vga_sequencer[5];
+extern uint8_t vga_graphics_control[9];
 
 #if PICO_ON_DEVICE
     extern bool ega_vga_enabled;
@@ -182,16 +182,19 @@ void vga_portout(uint16_t portnum, uint16_t value);
 
 uint16_t vga_portin(uint16_t portnum);
 
+void vga_write_byte(uint32_t address, uint8_t value);
+uint8_t vga_read_byte(uint32_t address);
+
 // Memory
-extern void writew86(uint32_t addr32, uint16_t value);
-extern void writedw86(uint32_t addr32, uint32_t value);
+extern void writew86(uint32_t address, uint16_t value);
+extern void writedw86(uint32_t address, uint32_t value);
 
-extern void write86(uint32_t addr32, uint8_t value);
+extern void write86(uint32_t address, uint8_t value);
 
-extern uint16_t readw86(uint32_t addr32);
-extern uint32_t readdw86(uint32_t addr32);
+extern uint16_t readw86(uint32_t address);
+extern uint32_t readdw86(uint32_t address);
 
-extern uint8_t read86(uint32_t addr32);
+extern uint8_t read86(uint32_t address);
 
 extern void portout(uint16_t portnum, uint16_t value);
 
@@ -338,31 +341,7 @@ extern void get_sound_sample(int16_t other_sample, int16_t *samples);
 #include "psram_spi.h"
 
 #else
-extern uint8_t *PSRAM_DATA;
 
-static INLINE void write8psram(const uint32_t address, const uint8_t value) {
-    PSRAM_DATA[address] = value;
-}
-
-static INLINE void write16psram(const uint32_t address, const uint16_t value) {
-    *(uint16_t *) &PSRAM_DATA[address] = value;
-}
-
-static INLINE void write32psram(const uint32_t address, const uint32_t value) {
-    *(uint32_t *) &PSRAM_DATA[address] = value;
-}
-
-static INLINE uint8_t read8psram(const uint32_t address) {
-    return PSRAM_DATA[address];
-}
-
-static INLINE uint16_t read16psram(const uint32_t address) {
-    return *(uint16_t *) &PSRAM_DATA[address];
-}
-
-static INLINE uint32_t read32psram(const uint32_t address) {
-    return *(uint32_t *) &PSRAM_DATA[address];
-}
 #endif
 #else
 #include "swap.h"

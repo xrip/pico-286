@@ -120,19 +120,19 @@ void tga_portout(uint16_t portnum, uint16_t value) {
                 tga_offset = (value & 0x07) << 14;
                 tga_offset -= 0x8000;
                 tga_offset &= 0xc000;
-                vga_plane_offset = (value & 0x38) << 11;
-//                vga_plane_offset -= 0x8000;
-                vga_plane_offset &= 0xc000;
+                tga_offset = (value & 0x38) << 11;
+//                tga_offset -= 0x8000;
+                tga_offset &= 0xc000;
             } else {
                 tga_offset = (value & 0x06) << 14;
                 tga_offset -= 0x18000;
                 tga_offset &= 0x8000;
-                vga_plane_offset = (value & 0x30) << 11;
-                vga_plane_offset -= 0x10000;
-                vga_plane_offset &= 0x8000;
+                tga_offset = (value & 0x30) << 11;
+                tga_offset -= 0x10000;
+                tga_offset &= 0x8000;
 
             }
-//                printf("%x tga_offset %x vga_plane_offset %x\n",value, tga_offset, vga_plane_offset);
+//                printf("%x tga_offset %x tga_offset %x\n",value, tga_offset, tga_offset);
 
             break;
     }
@@ -147,17 +147,17 @@ void tga_draw_char(uint8_t ch, int x, int y, uint8_t color) {
         uint8_t font_row = *font_char++;
         uint16_t plane_offset = base_offset + ((row & 3) << 13);  // 8192-byte offset per bitplane
 
-        VIDEORAM[plane_offset++] = (((font_row >> 0) & 1) * color << 4) | ((font_row >> 1) & 1) * color;
-        VIDEORAM[plane_offset++] = (((font_row >> 2) & 1) * color << 4) | ((font_row >> 3) & 1) * color;
-        VIDEORAM[plane_offset++] = (((font_row >> 4) & 1) * color << 4) | ((font_row >> 5) & 1) * color;
-        VIDEORAM[plane_offset]   = (((font_row >> 6) & 1) * color << 4) | ((font_row >> 7) & 1) * color;
+        VIDEORAM[0][plane_offset++] = (((font_row >> 0) & 1) * color << 4) | ((font_row >> 1) & 1) * color;
+        VIDEORAM[0][plane_offset++] = (((font_row >> 2) & 1) * color << 4) | ((font_row >> 3) & 1) * color;
+        VIDEORAM[0][plane_offset++] = (((font_row >> 4) & 1) * color << 4) | ((font_row >> 5) & 1) * color;
+        VIDEORAM[0][plane_offset]   = (((font_row >> 6) & 1) * color << 4) | ((font_row >> 7) & 1) * color;
 
         if (row == 3) base_offset += 160;
     }
 }
 
 void tga_draw_pixel(int x, int y, uint8_t color) {
-    uint8_t * pixel = &VIDEORAM[tga_offset + (x >> 1) + ((y >> 2) << 13)];
+    uint8_t * pixel = &VIDEORAM[0][tga_offset + (x >> 1) + ((y >> 2) << 13)];
     if (x & 1) {
         *pixel = (*pixel & 0xF0) | (color & 0x0F);
     } else {

@@ -503,10 +503,8 @@ void intcall86(uint8_t intnum) {
                     RAM[0x484] = (25 - 1);
 
                     if ((CPU_AL & 0x80) == 0x00) {
-                        memset(VIDEORAM, 0x0, VIDEORAM_SIZE);
+                        memset(VIDEORAM, 0x0, sizeof(VIDEORAM));
                     }
-                    vga_plane_offset = 0;
-                    vga_planar_mode = 0;
                     tga_offset = 0x8000;
                     break;
                 case 0x05: /* Select Active Page */ {
@@ -1304,8 +1302,8 @@ void reset86() {
 #else
 #ifdef ONBOARD_PSRAM_GPIO
 #ifndef TOTAL_VIRTUAL_MEMORY_KBS
-    memset(PSRAM_DATA + UMB_START, 0, (UMB_END - UMB_START) + 4);
-    memset(PSRAM_DATA + HMA_START, 0, (HMA_END - HMA_START) + 4);
+    // memset(RAM + UMB_START, 0, (UMB_END - UMB_START) + 4);
+    // memset(RAM + HMA_START, 0, (HMA_END - HMA_START) + 4);
 #else
     for (uint32_t a = UMB_START; a < ((UMB_END - UMB_START) + 4); a += 4) write32psram(a, 0);
     for (uint32_t a = HMA_START; a < ((HMA_END - HMA_START) + 4); a += 4) write32psram(a, 0);

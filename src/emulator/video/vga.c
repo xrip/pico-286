@@ -4,8 +4,7 @@
 #endif
 
 static uint8_t color_index = 0, read_color_index = 0, vga_register, sequencer_register = 0, graphics_control_register = 0;
-uint32_t vga_plane_offset = 0;
-uint8_t vga_planar_mode = 0;
+uint8_t vga_latch[4];
 uint8_t vga_sequencer[5];
 uint8_t vga_graphics_control[9];
 
@@ -89,32 +88,6 @@ void vga_portout(uint16_t portnum, uint16_t value) {
             sequencer_register = value & 0xff;
             break;
         case 0x3C5: {
-            if (sequencer_register == 2) {
-                switch (value & 0b1111) {
-                    case 1:
-                        vga_plane_offset = 0;
-                        break;
-                    case 2:
-                        vga_plane_offset = vga_plane_size * 1;
-                        break;
-                    case 4:
-                        vga_plane_offset = vga_plane_size * 2;
-                        break;
-                    case 8:
-                        vga_plane_offset = vga_plane_size * 3;
-                        break;
-                    default:
-                        vga_plane_offset = 0;
-                        break;
-                }
-
-                //printf("vga_plane_offset %x\n",value);
-            }
-            if (sequencer_register == 4) {
-                vga_planar_mode = value & 6;
-//                printf("vga planar %i\n", vga_planar_mode);
-            }
-            //printf("sequencer %x %x\n", sequencer_register, value);
             vga_sequencer[sequencer_register] = value & 0xff;
             break;
         }
@@ -156,12 +129,14 @@ void vga_portout(uint16_t portnum, uint16_t value) {
                 7 Color Don't Care
                 8 Bit Mask
              */
-            graphics_control_register = value & 8;
+            graphics_control_register = value & 0xf;
 //            printf("3CE %x\n", value);
+            break;
         }
         case 0x3CF: { // Graphics 1 and 2 Address Register
 //            printf("3CF %x\n", value);
             vga_graphics_control[graphics_control_register] = value & 0xff;
+            break;
         }
     }
 
@@ -187,5 +162,135 @@ void vga_portout(uint16_t portnum, uint16_t value) {
         }
         default:
             return 0xff;
+    }
+}
+
+
+uint8_t vga_read_byte(uint32_t address) {
+    uint32_t offset = address - VIDEORAM_START;
+    if (vga_sequencer[4] & 0x04) { // Odd/Even addressing for text mode
+        offset >>= 1;
+        uint8_t plane = (address & 1);
+        return VIDEORAM[plane][offset];
+    }
+
+    if (vga_sequencer[4] & 0x08) { // chain 4 mode
+        offset = (address - VIDEORAM_START) >> 2;
+        uint8_t plane = (address - VIDEORAM_START) & 3;
+        return VIDEORAM[plane][offset];
+    }
+
+    // Latch all 4 planes
+    for (int i = 0; i < 4; i++) {
+        vga_latch[i] = VIDEORAM[i][offset];
+    }
+
+    // Read Mode 0
+    if ((vga_graphics_control[5] & 0x08) == 0) {
+        return VIDEORAM[vga_graphics_control[4] & 0x03][offset];
+    }
+    // Read Mode 1
+    else {
+        uint8_t ret = 0;
+        uint8_t color_compare = vga_graphics_control[2] & 0x0F;
+        uint8_t color_dont_care = vga_graphics_control[7] & 0x0F;
+
+        for (int j = 0; j < 8; j++) { // for each pixel in the byte
+            uint8_t pixel_color = 0;
+            for (int i = 0; i < 4; i++) { // for each plane
+                if ((vga_latch[i] >> (7-j)) & 1) { // Bit 7 is first pixel
+                    pixel_color |= (1 << i);
+                }
+            }
+
+            if ((pixel_color & color_dont_care) == (color_compare & color_dont_care)) {
+                ret |= (1 << (7-j));
+            }
+        }
+        return ret;
+    }
+}
+
+void vga_write_byte(uint32_t address, uint8_t value) {
+    uint32_t offset = address - VIDEORAM_START;
+    if (vga_sequencer[4] & 0x04) { // Odd/Even addressing for text mode
+        offset >>= 1;
+        uint8_t plane = (address & 1);
+        if ((vga_sequencer[2] >> plane) & 1) {
+             VIDEORAM[plane][offset] = value;
+        }
+        return;
+    }
+
+    if (vga_sequencer[4] & 0x08) { // chain 4 mode
+        offset = (address - VIDEORAM_START) >> 2;
+        uint8_t plane = (address - VIDEORAM_START) & 3;
+        if ((vga_sequencer[2] >> plane) & 1) {
+            VIDEORAM[plane][offset] = value;
+        }
+        return;
+    }
+    uint8_t write_mode = vga_graphics_control[5] & 0x03;
+    uint8_t bit_mask = vga_graphics_control[8];
+
+    for (int i = 0; i < 4; i++) {
+        if (!((vga_sequencer[2] >> i) & 1)) {
+            continue; // plane not enabled
+        }
+
+        uint8_t data = value;
+
+        switch (write_mode) {
+            case 0: { // Write Mode 0: Rotate, Set/Reset, Bitmask, Logic Ops
+                uint8_t rotated_data = data;
+                uint8_t rotate_count = vga_graphics_control[3] & 0x07;
+                if (rotate_count) {
+                    rotated_data = (rotated_data >> rotate_count) | (rotated_data << (8 - rotate_count));
+                }
+
+                uint8_t set_reset_data = rotated_data;
+                if (vga_graphics_control[1] & (1 << i)) {
+                    set_reset_data = (vga_graphics_control[0] & (1 << i)) ? 0xFF : 0x00;
+                }
+
+                uint8_t latched_plane = vga_latch[i];
+                uint8_t final_data = (set_reset_data & bit_mask) | (latched_plane & ~bit_mask);
+
+                uint8_t logic_op = (vga_graphics_control[3] >> 3) & 0x03;
+                if (logic_op == 1) { // AND
+                    final_data &= latched_plane;
+                } else if (logic_op == 2) { // OR
+                    final_data |= latched_plane;
+                } else if (logic_op == 3) { // XOR
+                    final_data ^= latched_plane;
+                }
+
+                VIDEORAM[i][offset] = final_data;
+                break;
+            }
+            case 1: { // Write Mode 1: Write latches to memory
+                VIDEORAM[i][offset] = vga_latch[i];
+                break;
+            }
+            case 2: { // Write Mode 2: Bit-field write from CPU data
+                uint8_t p_data = ((value >> i) & 1) ? 0xFF : 0x00;
+                uint8_t final_data = (p_data & bit_mask) | (vga_latch[i] & ~bit_mask);
+                VIDEORAM[i][offset] = final_data;
+                break;
+            }
+            case 3: { // Write Mode 3: Set/Reset with Bitmask from CPU data
+                uint8_t rotated_data = data;
+                uint8_t rotate_count = vga_graphics_control[3] & 0x07;
+                if (rotate_count) {
+                    rotated_data = (rotated_data >> rotate_count) | (rotated_data << (8 - rotate_count));
+                }
+
+                uint8_t p_data = (vga_graphics_control[0] & (1 << i)) ? 0xff : 0;
+                uint8_t mask = bit_mask & rotated_data;
+                uint8_t final_data = (p_data & mask) | (vga_latch[i] & ~mask);
+                VIDEORAM[i][offset] = final_data;
+                break;
+            }
+        }
     }
 }
