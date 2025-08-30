@@ -13,6 +13,7 @@
 #include "pico/stdlib.h"
 #include "stdlib.h"
 #include "emulator/emulator.h"
+#include "emulator/video/vga_io.h"
 extern uint8_t vga_graphics_control[9];
 uint16_t pio_program_VGA_instructions[] = {
         //     .wrap_target
@@ -379,6 +380,29 @@ void __time_critical_func() dma_handler_VGA() {
                 input_buffer_8bit++;
             }
             break;
+        case VGA_320x200x256_PLANAR: {
+            uint32_t offset = __fast_mul(y, 80);
+            uint8_t *plane0 = vga_planes[0] + offset;
+            uint8_t *plane1 = vga_planes[1] + offset;
+            uint8_t *plane2 = vga_planes[2] + offset;
+            uint8_t *plane3 = vga_planes[3] + offset;
+
+            for (int x = 0; x < 80; x++) {
+                uint8_t b0 = *plane0++;
+                uint8_t b1 = *plane1++;
+                uint8_t b2 = *plane2++;
+                uint8_t b3 = *plane3++;
+
+                for (int bit = 6; bit >= 0; bit -= 2) {
+                    uint8_t color_index = ((b0 >> bit) & 0x03) |
+                                          (((b1 >> bit) & 0x03) << 2) |
+                                          (((b2 >> bit) & 0x03) << 4) |
+                                          (((b3 >> bit) & 0x03) << 6);
+                    *output_buffer_16bit++ = current_palette[color_index];
+                }
+            }
+            break;
+        }
         case EGA_320x200x16x4: {
             input_buffer_8bit = graphics_framebuffer + vga_plane_offset + __fast_mul(y, 40);
             for (int x = 0; x < 40; x++) {
@@ -403,7 +427,20 @@ void __time_critical_func() dma_handler_VGA() {
     dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
 }
 
+extern uint8_t default_vga_mem_read(uint32_t address);
+extern void default_vga_mem_write(uint32_t address, uint8_t value);
+
 void graphics_set_mode(enum graphics_mode_t mode) {
+    if (mode == VGA_320x200x256_PLANAR || mode == EGA_320x200x16x4) {
+        mem_read_vga = vga_mem_read;
+        mem_write_vga = vga_mem_write;
+        graphics_framebuffer = vga_planes[0];
+    } else {
+        mem_read_vga = default_vga_mem_read;
+        mem_write_vga = default_vga_mem_write;
+        graphics_framebuffer = VIDEORAM;
+    }
+
     switch (mode) {
         case TEXTMODE_40x25_BW:
         case TEXTMODE_40x25_COLOR:
@@ -466,6 +503,7 @@ void graphics_set_mode(enum graphics_mode_t mode) {
         case TGA_160x200x16:
         case TGA_640x200x16:
         case VGA_320x200x256:
+        case VGA_320x200x256_PLANAR:
         case VGA_640x480x2:
         case VGA_320x200x256x4:
         case EGA_320x200x16x4:

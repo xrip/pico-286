@@ -70,6 +70,8 @@ extern uint8_t log_debug;
 
 
 extern uint8_t RAM[RAM_SIZE];
+extern uint8_t (*mem_read_vga)(uint32_t address);
+extern void (*mem_write_vga)(uint32_t address, uint8_t value);
 extern uint8_t VIDEORAM[VIDEORAM_SIZE];
 
 extern uint32_t dwordregs[8];
