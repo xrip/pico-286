@@ -11,7 +11,6 @@
 extern "C" {
 #endif
 #ifdef PICO_ON_DEVICE
-#define VIDEORAM_SIZE (64 << 10)
 #if PICO_RP2350
 
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
@@ -32,7 +31,6 @@ extern "C" {
 #endif
 #else
 #include "printf/printf.h"
-#define VIDEORAM_SIZE (64 << 10)
 #define RAM_SIZE (640 << 10)
 #endif
 #ifdef HARDWARE_SOUND
@@ -70,7 +68,7 @@ extern uint8_t log_debug;
 
 
 extern uint8_t RAM[RAM_SIZE];
-extern uint8_t VIDEORAM[VIDEORAM_SIZE];
+extern uint8_t VIDEORAM[4][65536];
 
 extern uint32_t dwordregs[8];
 #define byteregs ((uint8_t*)dwordregs)
@@ -167,9 +165,10 @@ void cga_portout(uint16_t portnum, uint16_t value);
 uint16_t cga_portin(uint16_t portnum);
 
 // EGA/VGA
-#define vga_plane_size (16000)
-extern uint32_t vga_plane_offset;
-extern uint8_t vga_planar_mode;
+#define vga_plane_size (65536)
+extern uint8_t vga_latch[4];
+extern uint8_t vga_sequencer[5];
+extern uint8_t vga_graphics_control[9];
 
 #if PICO_ON_DEVICE
     extern bool ega_vga_enabled;
@@ -182,6 +181,9 @@ void OpFpu(uint8_t opcode);
 void vga_portout(uint16_t portnum, uint16_t value);
 
 uint16_t vga_portin(uint16_t portnum);
+
+void vga_write_byte(uint32_t address, uint8_t value);
+uint8_t vga_read_byte(uint32_t address);
 
 // Memory
 extern void writew86(uint32_t address, uint16_t value);

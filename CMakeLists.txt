@@ -20,9 +20,6 @@ set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Pull in Raspberry Pi Pico SDK (must be before project, but after PICO_BOARD)
-include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
-
 project(286 C CXX ASM)
 SET(BUILD_NAME "${PROJECT_NAME}")
 
@@ -64,10 +61,12 @@ if (PICO_PLATFORM STREQUAL "host")
     target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)
 else ()
     #set(CMAKE_BUILD_TYPE "MinSizeRel") /// outside!
-    # =========================
+    # =_=_=_=_=_=_=_=_=_=_=_=_=
     # PICO BUILD CONFIGURATION
-    # =========================
+    # =_=_=_=_=_=_=_=_=_=_=_=_=
     #set(PICO_BOARD pico2 CACHE STRING "Board type") // should be early
+    # Pull in Raspberry Pi Pico SDK (must be before project, but after PICO_BOARD)
+    include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
     pico_sdk_init()
 
     # =========================
