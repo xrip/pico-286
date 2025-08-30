@@ -2,6 +2,7 @@
 #include <cwchar>
 #include "MiniFB.h"
 #include "emulator/emulator.h"
+#include "emulator/video/vga_io.h"
 #include "emulator/includes/font8x16.h"
 #include "emulator/includes/font8x8.h"
 #include "emu8950.h"
@@ -252,16 +253,19 @@ static INLINE void renderer() {
                 break;
             }
             case 0x0D: /* EGA *320x200 16 color */ {
-                vidramptr = VIDEORAM + vram_offset;
-                for (int x = 0; x < 320; x++) {
-                    uint32_t divy = y >> 1;
-                    uint32_t vidptr = divy * 40 + (x >> 3);
-                    int x1 = 7 - (x & 7);
-                    uint32_t color = vidramptr[vidptr] >> x1 & 1
-                                     | (vidramptr[vga_plane_size + vidptr] >> x1 & 1) << 1
-                                     | (vidramptr[vga_plane_size * 2 + vidptr] >> x1 & 1) << 2
-                                     | (vidramptr[vga_plane_size * 3 + vidptr] >> x1 & 1) << 3;
-                    *pixels++ = *pixels++ = vga_palette[color];
+                int y_vga = y / 2;
+                if (y_vga < 200) {
+                    uint32_t offset = y_vga * 40;
+                    for (int x_byte = 0; x_byte < 40; x_byte++) {
+                        for (int bit = 7; bit >= 0; bit--) {
+                            uint8_t color_index = ((vga_planes[0][offset + x_byte] >> bit) & 1) |
+                                                  (((vga_planes[1][offset + x_byte] >> bit) & 1) << 1) |
+                                                  (((vga_planes[2][offset + x_byte] >> bit) & 1) << 2) |
+                                                  (((vga_planes[3][offset + x_byte] >> bit) & 1) << 3);
+                            *pixels++ = vga_palette[color_index];
+                            *pixels++ = vga_palette[color_index];
+                        }
+                    }
                 }
                 break;
             }
@@ -319,13 +323,17 @@ static INLINE void renderer() {
                 break;
             }
             case 0x12: /* EGA 640x480 16 color */ {
-                for (int x = 0; x < 640; x++) {
-                    uint32_t ptr = x / 8 + y * 80;
-                    uint8_t color = ((VIDEORAM[ptr] >> (~x & 7)) & 1);
-                    color |= ((VIDEORAM[ptr + vga_plane_size] >> (~x & 7)) & 1) << 1;
-                    color |= ((VIDEORAM[ptr + vga_plane_size * 2] >> (~x & 7)) & 1) << 2;
-                    color |= ((VIDEORAM[ptr + vga_plane_size * 3] >> (~x & 7)) & 1) << 3;
-                    *pixels++ = vga_palette[color];
+                if (y < 480) {
+                    uint32_t offset = y * 80;
+                    for (int x_byte = 0; x_byte < 80; x_byte++) {
+                        for (int bit = 7; bit >= 0; bit--) {
+                            uint8_t color_index = ((vga_planes[0][offset + x_byte] >> bit) & 1) |
+                                                  (((vga_planes[1][offset + x_byte] >> bit) & 1) << 1) |
+                                                  (((vga_planes[2][offset + x_byte] >> bit) & 1) << 2) |
+                                                  (((vga_planes[3][offset + x_byte] >> bit) & 1) << 3);
+                            *pixels++ = vga_palette[color_index];
+                        }
+                    }
                 }
                 break;
             }
@@ -346,6 +354,26 @@ static INLINE void renderer() {
                     }
                 }
 
+                break;
+            }
+            case VGA_320x200x256_PLANAR: {
+                int y_vga = y / 2;
+                if (y_vga < 200) {
+                    uint32_t offset = y_vga * 80;
+                    for (int x_byte = 0; x_byte < 80; x_byte++) {
+                        for (int p = 0; p < 4; p++) {
+                            uint8_t b0 = vga_planes[0][offset + x_byte];
+                            uint8_t b1 = vga_planes[1][offset + x_byte];
+                            uint8_t b2 = vga_planes[2][offset + x_byte];
+                            uint8_t b3 = vga_planes[3][offset + x_byte];
+                            uint8_t color_index = ((b0 >> (p*2)) & 0x03) |
+                                                  (((b1 >> (p*2)) & 0x03) << 2) |
+                                                  (((b2 >> (p*2)) & 0x03) << 4) |
+                                                  (((b3 >> (p*2)) & 0x03) << 6);
+                            *pixels++ = vga_palette[color_index];
+                        }
+                    }
+                }
                 break;
             }
             case 0x78: /* 80x100x16 textmode */
