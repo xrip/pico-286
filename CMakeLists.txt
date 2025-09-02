@@ -15,6 +15,7 @@ endif()
 # ====================================================================================
 endif()
 cmake_minimum_required(VERSION 3.13)
+set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 20)
@@ -25,6 +26,10 @@ include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(286 C CXX ASM)
 SET(BUILD_NAME "${PROJECT_NAME}")
+
+#set(MURM20 ON)
+set(ENABLE_VGA ON)
+set(ENABLE_PWM_SOUND ON)
 
 # =========================
 # OUTPUT DIRECTORIES
@@ -50,17 +55,17 @@ message(STATUS "")
 # =========================
 if (PICO_PLATFORM STREQUAL "host")
     add_compile_options(-fms-extensions -O2)
-    
+
     if (WIN32)
         add_executable(${PROJECT_NAME} ${SRC} src/win32-main.cpp src/WinMiniFB.c src/printf/printf.c)
         target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
-    else()
+    else ()
         # Linux build
         add_executable(${PROJECT_NAME} ${SRC} src/linux-main.cpp src/LinuxMiniFB.c src/linux-audio.c src/printf/printf.c findfirst/findfirst.c findfirst/spec.c)
         target_link_libraries(${PROJECT_NAME} PRIVATE X11 pthread)
         target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf findfirst/)
-    endif()
-    
+    endif ()
+
     target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)
 else ()
     #set(CMAKE_BUILD_TYPE "MinSizeRel") /// outside!
@@ -78,43 +83,15 @@ else ()
     option(ENABLE_TFT "Enable TFT display output" OFF)
     option(ENABLE_VGA "Enable VGA display output" OFF)
     option(ENABLE_HDMI "Enable HDMI display output" OFF)
+    option(ENABLE_NTSC-TV "Enable NTSC TV output" OFF)
 
     # Audio Options (mutually exclusive)
     option(ENABLE_I2S_SOUND "Enable I2S audio output" OFF)
     option(ENABLE_PWM_SOUND "Enable PWM audio output" OFF)
     option(ENABLE_HARDWARE_SOUND "Enable hardware audio output" OFF)
 
-#    set(TOTAL_VIRTUAL_MEMORY_KBS "0" CACHE STRING "Total virtual memory in KBS. Set to 0 to use PSRAM instead (if PSRAM is otherwise enabled). Set to >0 to use virtual memory and disable all PSRAM.")
-    # Determine if Virtual Memory is used instead of PSRAM
-    if (TOTAL_VIRTUAL_MEMORY_KBS GREATER 0)
-        set(USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM TRUE)
-    else ()
-        set(USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM FALSE)
-    endif ()
-
-    # PSRAM Configuration (onboard only available for RP2350)
-    if (NOT PICO_PLATFORM STREQUAL "rp2040")
-        option(ONBOARD_PSRAM "Enable onboard PSRAM support" ON)
-        if (PIMO)
-            set(ONBOARD_PSRAM_GPIO "47" CACHE STRING "GPIO pin for onboard PSRAM")
-        elseif (MURM20)
-            set(ONBOARD_PSRAM_GPIO "8" CACHE STRING "GPIO pin for onboard PSRAM")
-        else ()
-            set(ONBOARD_PSRAM_GPIO "19" CACHE STRING "GPIO pin for onboard PSRAM")
-        endif()
-    endif ()
-
     # CPU Configuration
     set(CPU_FREQ_MHZ "366" CACHE STRING "CPU frequency in MHz")
-
-    if (USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
-        message(STATUS "TOTAL_VIRTUAL_MEMORY_KBS = ${TOTAL_VIRTUAL_MEMORY_KBS}KB. Virtual Memory enabled, PSRAM will be disabled.")
-        if (NOT PICO_PLATFORM STREQUAL "rp2040")
-            # If ONBOARD_PSRAM was an option, ensure it's off when virtual memory is active.
-            # The option itself is defined earlier, here we just force its value if virtual mem is on.
-            set(ONBOARD_PSRAM OFF CACHE BOOL "Enable onboard PSRAM support" FORCE)
-        endif ()
-    endif ()
 
     # =========================
     # VALIDATION
@@ -133,6 +110,11 @@ else ()
     if (ENABLE_HDMI)
         set(CPU_FREQ_MHZ "378")
         message(STATUS "HDMI enabled - CPU frequency locked to 378 MHz")
+        math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
+    endif ()
+    if (ENABLE_NTSC-TV)
+        set(CPU_FREQ_MHZ "315")
+        message(STATUS "NTSC TV out enabled - CPU frequency locked to 315 MHz")
         math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
     endif ()
 
@@ -169,15 +151,15 @@ else ()
     if (PICO_PLATFORM STREQUAL "rp2040")
         if (MURM20)
             set(BUILD_NAME "m2p1-${BUILD_NAME}")
-        else()
+        else ()
             set(BUILD_NAME "m1p1-${BUILD_NAME}")
-        endif()
+        endif ()
     else ()
         if (MURM20)
             set(BUILD_NAME "m2p2-${BUILD_NAME}")
-        else()
+        else ()
             set(BUILD_NAME "m1p2-${BUILD_NAME}")
-        endif()
+        endif ()
     endif ()
 
     # Add frequency
@@ -186,6 +168,8 @@ else ()
     # Add display type
     if (ENABLE_TFT)
         set(BUILD_NAME "${BUILD_NAME}-TFT")
+    elseif (ENABLE_NTSC-TV)
+        set(BUILD_NAME "${BUILD_NAME}-TV")
     elseif (ENABLE_VGA)
         set(BUILD_NAME "${BUILD_NAME}-VGA")
     elseif (ENABLE_HDMI)
@@ -201,43 +185,22 @@ else ()
         set(BUILD_NAME "${BUILD_NAME}-HW")
     endif ()
 
-    # Add PSRAM or Virtual Memory info
-    if (USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
-        set(BUILD_NAME "${BUILD_NAME}-SWAP${TOTAL_VIRTUAL_MEMORY_KBS}KB")
-        # Message for this case already handled when USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM was set
-    else ()
-        # This means TOTAL_VIRTUAL_MEMORY_KBS is 0, so PSRAM (if configured) is used.
-        # ONBOARD_PSRAM will be OFF if platform is RP2040 or if user set it OFF.
-        # It's only ON if platform is RP2350 and user set it ON (or default ON).
-        if (ONBOARD_PSRAM AND NOT PICO_PLATFORM STREQUAL "rp2040")
-            set(BUILD_NAME "${BUILD_NAME}-ONBOARD_PSRAM_PIN_${ONBOARD_PSRAM_GPIO}")
-            message(STATUS "Onboard PSRAM enabled on GPIO ${ONBOARD_PSRAM_GPIO}.")
-        else ()
-            # Potentially generic PSRAM is active if drivers/psram was included.
-            # We can check if psram target exists as a proxy or rely on ONBOARD_PSRAM being the main named feature.
-            # For now, keep it simple: if not ONBOARD_PSRAM, no specific PSRAM string is added here by default,
-            # unless drivers/psram itself adds something or we want a generic "-PSRAM" tag.
-            # The original file only added ONBOARD_PSRAM specifics.
-            message(STATUS "External PSRAM ON 18/19/20/21 pins")
-        endif ()
-    endif ()
-
     # =========================
     # EXECUTABLE SETUP
     # =========================
     add_link_options(-flto -fwhole-program)
     # -frename-registers -fno-tree-vectorize
     add_compile_options(
-        -flto=auto
-        -frename-registers 
-        -fomit-frame-pointer 
-        -fwhole-program 
-#        -ffreestanding // build issues with std::malloc/std::free in SDK 2.1+
-        -ffast-math 
-        -ffunction-sections 
-        -fdata-sections 
-        -fms-extensions 
-        -O2
+            -flto=auto
+            -frename-registers
+            -fomit-frame-pointer
+            -fwhole-program
+            #        -ffreestanding // build issues with std::malloc/std::free in SDK 2.1+
+            -ffast-math
+            -ffunction-sections
+            -fdata-sections
+            -fms-extensions
+            -O2
     )
 
     add_executable(${PROJECT_NAME} ${SRC} src/pico-main.c src/printf/printf.c src/74hc595/74hc595.c)
@@ -254,15 +217,14 @@ else ()
         target_link_libraries(${PROJECT_NAME} PRIVATE memops_opt)
         target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=4)
     else ()
-        target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=3)
         if (m1p2launcher)
             if (MURM20)
                 set(BUILD_NAME "${BUILD_NAME}.m2p2")
-            else()
+            else ()
                 set(BUILD_NAME "${BUILD_NAME}.m1p2")
-            endif()
+            endif ()
             pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap12.ld")
-        else()
+        else ()
             pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap.ld")
         endif ()
     endif ()
@@ -280,21 +242,26 @@ else ()
     add_subdirectory(drivers/ps2)
     add_subdirectory(drivers/fatfs)
     add_subdirectory(drivers/sdcard)
-    add_subdirectory(drivers/graphics)
     add_subdirectory(drivers/audio)
     add_subdirectory(drivers/psram)
     add_subdirectory(drivers/nespad)
 
     # Display drivers
     if (ENABLE_TFT)
+        add_subdirectory(drivers/graphics)
         add_subdirectory(drivers/st7789)
         target_link_libraries(${PROJECT_NAME} PRIVATE st7789)
         message(STATUS "TFT display enabled")
+    elseif (ENABLE_NTSC-TV)
+        add_subdirectory(drivers/ntsc-tv)
+        message(STATUS "NTSC TV out enabled")
     elseif (ENABLE_VGA)
+        add_subdirectory(drivers/graphics)
         add_subdirectory(drivers/vga-nextgen)
         target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
         message(STATUS "VGA display enabled")
     elseif (ENABLE_HDMI)
+        add_subdirectory(drivers/graphics)
         add_subdirectory(drivers/hdmi)
         target_link_libraries(${PROJECT_NAME} PRIVATE hdmi)
         message(STATUS "HDMI display enabled")
@@ -326,48 +293,45 @@ else ()
             $<$<BOOL:${ENABLE_TFT}>:TFT>
             $<$<BOOL:${ENABLE_VGA}>:VGA>
             $<$<BOOL:${ENABLE_HDMI}>:HDMI>
+            $<$<BOOL:${ENABLE_NTSC-TV}>:NTSC>
 
             # Audio type
             $<$<BOOL:${ENABLE_I2S_SOUND}>:I2S_SOUND>
             $<$<BOOL:${ENABLE_PWM_SOUND}>:PWM_SOUND>
             $<$<BOOL:${ENABLE_HARDWARE_SOUND}>:HARDWARE_SOUND>
 
-            # PSRAM / Virtual Memory Definitions
-            $<$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>:TOTAL_VIRTUAL_MEMORY_KBS=${TOTAL_VIRTUAL_MEMORY_KBS}>
-            # PSRAM related definitions (only if NOT using virtual memory)
-            $<$<NOT:$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>>:PSRAM>
-            $<$<NOT:$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>>:$<$<AND:$<NOT:$<STREQUAL:${PICO_PLATFORM},rp2040>>,$<BOOL:${ONBOARD_PSRAM}>>:ONBOARD_PSRAM_GPIO=${ONBOARD_PSRAM_GPIO}>>
+            PSRAM
     )
     if (MURM20)
         target_compile_definitions(${PROJECT_NAME} PRIVATE
-            MURM2=1
-            # Pin configurations
-            MOUSE_CLOCK_PIN=0 MOUSE_DATA_PIN=1
-            KBD_CLOCK_PIN=2 KBD_DATA_PIN=3
-            VGA_BASE_PIN=12 HDMI_BASE_PIN=12
-            TFT_CS_PIN=12 TFT_RST_PIN=14 TFT_LED_PIN=15 TFT_DC_PIN=16 TFT_DATA_PIN=18 TFT_CLK_PIN=19
-            SDCARD_PIN_SPI0_CS=5 SDCARD_PIN_SPI0_SCK=6 SDCARD_PIN_SPI0_MOSI=7 SDCARD_PIN_SPI0_MISO=4
-            PSRAM_SPINLOCK=1 PSRAM_ASYNC=1 PSRAM_PIN_CS=18 PSRAM_PIN_SCK=19 PSRAM_PIN_MOSI=20 PSRAM_PIN_MISO=21
-            USE_NESPAD NES_GPIO_CLK=20 NES_GPIO_DATA=21 NES_GPIO_LAT=26
-            CLOCK_PIN=27 PCM_PIN=22
-            PWM_BEEPER=9 PWM_LEFT_CHANNEL=10 PWM_RIGHT_CHANNEL=11
+                MURM2=1
+                # Pin configurations
+                MOUSE_CLOCK_PIN=0 MOUSE_DATA_PIN=1
+                KBD_CLOCK_PIN=2 KBD_DATA_PIN=3
+                VGA_BASE_PIN=12 HDMI_BASE_PIN=12
+                TFT_CS_PIN=12 TFT_RST_PIN=14 TFT_LED_PIN=15 TFT_DC_PIN=16 TFT_DATA_PIN=18 TFT_CLK_PIN=19
+                SDCARD_PIN_SPI0_CS=5 SDCARD_PIN_SPI0_SCK=6 SDCARD_PIN_SPI0_MOSI=7 SDCARD_PIN_SPI0_MISO=4
+                PSRAM_SPINLOCK=1 PSRAM_ASYNC=1 PSRAM_PIN_CS=18 PSRAM_PIN_SCK=19 PSRAM_PIN_MOSI=20 PSRAM_PIN_MISO=21
+                USE_NESPAD NES_GPIO_CLK=20 NES_GPIO_DATA=21 NES_GPIO_LAT=26
+                CLOCK_PIN=27 PCM_PIN=22
+                PWM_BEEPER=9 PWM_LEFT_CHANNEL=10 PWM_RIGHT_CHANNEL=11
         )
     else ()
         target_compile_definitions(${PROJECT_NAME} PRIVATE
-            # Pin configurations
-            MOUSE_CLOCK_PIN=14 MOUSE_DATA_PIN=15
-            KBD_CLOCK_PIN=0 KBD_DATA_PIN=1
-            VGA_BASE_PIN=6 HDMI_BASE_PIN=6
-            TFT_CS_PIN=6 TFT_RST_PIN=8 TFT_LED_PIN=9 TFT_DC_PIN=10 TFT_DATA_PIN=12 TFT_CLK_PIN=13
-            SDCARD_PIN_SPI0_CS=5 SDCARD_PIN_SPI0_SCK=2 SDCARD_PIN_SPI0_MOSI=3 SDCARD_PIN_SPI0_MISO=4
-            PSRAM_SPINLOCK=1 PSRAM_ASYNC=1 PSRAM_PIN_CS=18 PSRAM_PIN_SCK=19 PSRAM_PIN_MOSI=20 PSRAM_PIN_MISO=21
-            USE_NESPAD NES_GPIO_CLK=14 NES_GPIO_DATA=16 NES_GPIO_LAT=15
-            CLOCK_PIN=17 PCM_PIN=22
-            PWM_BEEPER=28 PWM_LEFT_CHANNEL=26 PWM_RIGHT_CHANNEL=27
+                # Pin configurations
+                MOUSE_CLOCK_PIN=14 MOUSE_DATA_PIN=15
+                KBD_CLOCK_PIN=0 KBD_DATA_PIN=1
+                VGA_BASE_PIN=6 HDMI_BASE_PIN=6
+                TFT_CS_PIN=6 TFT_RST_PIN=8 TFT_LED_PIN=9 TFT_DC_PIN=10 TFT_DATA_PIN=12 TFT_CLK_PIN=13
+                SDCARD_PIN_SPI0_CS=5 SDCARD_PIN_SPI0_SCK=2 SDCARD_PIN_SPI0_MOSI=3 SDCARD_PIN_SPI0_MISO=4
+                PSRAM_SPINLOCK=1 PSRAM_ASYNC=1 PSRAM_PIN_CS=18 PSRAM_PIN_SCK=19 PSRAM_PIN_MOSI=20 PSRAM_PIN_MISO=21
+                USE_NESPAD NES_GPIO_CLK=14 NES_GPIO_DATA=16 NES_GPIO_LAT=15
+                CLOCK_PIN=17 PCM_PIN=22
+                PWM_BEEPER=28 PWM_LEFT_CHANNEL=26 PWM_RIGHT_CHANNEL=27
         )
     endif ()
     pico_add_extra_outputs(${PROJECT_NAME})
-endif()
+endif ()
 
 # =========================
 # COMMON DEFINITIONS (HOST + PICO)

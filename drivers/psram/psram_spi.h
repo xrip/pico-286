@@ -630,7 +630,7 @@ __force_inline static void psram_write_async_fast(psram_spi_inst_t* spi, uint32_
 };
 extern psram_spi_inst_t psram_spi;
 static __always_inline bool init_psram() {
-    psram_spi = psram_spi_init_clkdiv(pio1,-1, 2.0f, false);
+    psram_spi = psram_spi_init_clkdiv(pio1,-1, 2.4f, false);
     psram_write32(&psram_spi, 0x313373, 0xDEADBEEF);
     bool PSRAM_AVAILABLE = 0xDEADBEEF == psram_read32(&psram_spi, 0x313373);
     for (uint32_t addr32 = (0ul << 20); addr32 < (8ul << 20); addr32 += 4) {
@@ -638,6 +638,12 @@ static __always_inline bool init_psram() {
     }
     return PSRAM_AVAILABLE;
 }
+#define write8psram(addr32, v) psram_write8(&psram_spi, addr32, v)
+#define write16psram(addr32, v) psram_write16(&psram_spi, addr32, v)
+#define write32psram(addr32, v) psram_write32(&psram_spi, addr32, v)
+#define read8psram(addr32) psram_read8(&psram_spi, addr32)
+#define read16psram(addr32) psram_read16(&psram_spi, addr32)
+#define read32psram(addr32) psram_read32(&psram_spi, addr32)
 
 #ifdef __cplusplus
 }

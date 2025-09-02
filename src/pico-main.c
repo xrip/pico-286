@@ -8,15 +8,14 @@
 #include <hardware/pwm.h>
 #include <hardware/exception.h>
 
-#ifndef ONBOARD_PSRAM_GPIO
 #include "psram_spi.h"
-#endif
 
 #if PICO_RP2040
 #include "../../memops_opt/memops_opt.h"
 #else
 #include <hardware/structs/qmi.h>
 #include <hardware/structs/xip.h>
+#include <hardware/regs/sysinfo.h>
 #endif
 
 #include "emulator/emulator.h"
@@ -35,7 +34,7 @@
 // Global variables
 extern OPL *emu8950_opl;
 extern uint16_t timeconst;
-bool PSRAM_AVAILABLE = false;
+extern bool PSRAM_AVAILABLE;
 
 FATFS fs;
 struct semaphore vga_start_semaphore;
@@ -189,16 +188,12 @@ INLINE void _putchar(char character) {
         *vidramptr = 0;
     }
 }
-
-volatile int16_t last_sb_sample = 0;
-volatile bool ask_to_blast = false;
-
 /* Renderer loop on Pico's second core */
 void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem
     graphics_init();
-    graphics_set_buffer(VIDEORAM, 320, 200);
-    graphics_set_textbuffer(VIDEORAM + 32768);
+    graphics_set_buffer((uint8_t *)VIDEORAM, 320, 200);
+    graphics_set_textbuffer((uint8_t *)VIDEORAM + 32768*4);
     graphics_set_bgcolor(0);
     graphics_set_offset(0, 0);
     graphics_set_flashmode(true, true);
@@ -256,6 +251,7 @@ void __time_critical_func() second_core(void) {
     uint64_t last_sb_tick = 0;
 
     int16_t last_dss_sample = 0;
+    int16_t last_sb_sample = 0;
 
     // Main render loop
     while (true) {
@@ -280,8 +276,7 @@ void __time_critical_func() second_core(void) {
 #if !PICO_RP2040
         // Sound Blaster sampling
         if (tick > last_sb_tick + timeconst) {
-            //last_sb_sample = blaster_sample();
-            ask_to_blast = true;
+            last_sb_sample = blaster_sample();
             last_sb_tick = tick;
         }
 #endif
@@ -307,6 +302,16 @@ void __time_critical_func() second_core(void) {
             // Handle video mode changes
             if (old_video_mode != videomode) {
                 switch (videomode) {
+                    case TEXTMODE_80x25_BW:
+                    case TEXTMODE_40x25_BW:
+                        case TEXTMODE_80x25_COLOR:
+                        case TEXTMODE_40x25_COLOR: {
+                        for (uint8_t i = 0; i < 16; i++) {
+                            graphics_set_palette(i, cga_palette[i]);
+                        }
+                    }
+                        break;
+
                     case TGA_160x200x16:
                     case TGA_320x200x16:
                     case TGA_640x200x16:
@@ -316,17 +321,20 @@ void __time_critical_func() second_core(void) {
                         break;
 
                     case COMPOSITE_160x200x16:
+#ifndef NTSC
                         for (uint8_t i = 0; i < 15; i++) {
                             graphics_set_palette(i, cga_composite_palette[0][i]);
                         }
                         break;
+#endif
 
                     case COMPOSITE_160x200x16_force:
+#ifndef NTSC
                         for (uint8_t i = 0; i < 15; i++) {
                             graphics_set_palette(i, cga_composite_palette[cga_intensity << 1][i]);
                         }
                         break;
-
+#endif
                     case CGA_320x200x4_BW:
                     case CGA_320x200x4:
                         for (uint8_t i = 0; i < 4; i++) {
@@ -334,7 +342,11 @@ void __time_critical_func() second_core(void) {
                         }
                         break;
 
+
                     case VGA_320x200x256:
+                        if (vga_planar_mode) {
+                            videomode = VGA_320x200x256x4;
+                        }
                     case VGA_320x200x256x4:
                     default:
                         for (uint8_t i = 0; i < 255; i++) {
@@ -345,7 +357,6 @@ void __time_critical_func() second_core(void) {
                 graphics_set_mode(videomode);
                 old_video_mode = videomode;
             }
-
 #if defined(TFT)
             refresh_lcd();
             port3DA = 8;
@@ -353,7 +364,6 @@ void __time_critical_func() second_core(void) {
 #endif
             last_frame_tick = tick;
         }
-
         tick = time_us_64();
         tight_loop_contents();
     }
@@ -361,6 +371,30 @@ void __time_critical_func() second_core(void) {
 }
 
 #if PICO_RP2350
+uint32_t butter_psram_size = 0 ;
+uint32_t BUTTER_PSRAM_GPIO = 0;
+bool rp2350a = true;
+#define MB16 (16ul << 20)
+#define MB8 (8ul << 20)
+#define MB4 (4ul << 20)
+#define MB1 (1ul << 20)
+inline static uint32_t __not_in_flash_func(_butter_psram_size)() {
+    volatile uint8_t* PSRAM_DATA = (uint8_t*)0x11000000;
+    for(register int i = MB8; i < MB16; ++i)
+        PSRAM_DATA[i] = 16;
+    for(register int i = MB4; i < MB8; ++i)
+        PSRAM_DATA[i] = 8;
+    for(register int i = MB1; i < MB4; ++i)
+        PSRAM_DATA[i] = 4;
+    for(register int i = 0; i < MB1; ++i)
+        PSRAM_DATA[i] = 1;
+    register uint32_t res = PSRAM_DATA[MB16 - 1];
+    for (register int i = MB16 - MB1; i < MB16; ++i) {
+        if (res != PSRAM_DATA[i])
+            return 0;
+    }
+    return res << 20;
+}
 void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
     gpio_set_function(cs_pin, GPIO_FUNC_XIP_CS1);
 
@@ -433,6 +467,8 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
 
     // Enable writes to PSRAM
     hw_set_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_WRITABLE_M1_BITS);
+    // detect a chip size
+    butter_psram_size = _butter_psram_size();
 }
 #endif
 
@@ -458,7 +494,7 @@ int main(void) {
 
     sleep_ms(100);
     if (!set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, 0) ) {
-        set_sys_clock_hz(352 * MHZ, 1); // fallback to failsafe clocks
+        set_sys_clock_hz(378 * MHZ, 1); // fallback to failsafe clocks
     }
 #else
     memcpy_wrapper_replace(NULL);
@@ -467,12 +503,15 @@ int main(void) {
 #endif
 
     // Initialize PSRAM
-#ifdef ONBOARD_PSRAM_GPIO
-    psram_init(ONBOARD_PSRAM_GPIO);
-    PSRAM_AVAILABLE = true;
+    // Overclock psram
+    rp2350a = (*((io_ro_32*)(SYSINFO_BASE + SYSINFO_PACKAGE_SEL_OFFSET)) & 1);
+#ifdef MURM2
+    psram_init(rp2350a ?  8 : 47);
 #else
-    PSRAM_AVAILABLE = init_psram();
+    psram_init(rp2350a ? 19 : 47);
 #endif
+    if (!butter_psram_size)
+        init_psram();
 
     // Set exception handler
     exception_set_exclusive_handler(HARDFAULT_EXCEPTION, sigbus);
@@ -516,8 +555,7 @@ int main(void) {
     }
     // adlib_init(SOUND_FREQUENCY);
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
-    if (!PSRAM_AVAILABLE)
-        init_swap();
+    init_swap();
 #endif
 
     // Initialize audio and reset emulator
