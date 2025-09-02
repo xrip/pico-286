@@ -1,20 +1,25 @@
 #pragma GCC optimize("Ofast")
 
 #include "includes/bios.h"
+#include "includes/vgabios.h"
 #include "emulator.h"
 #include "ems.c.inl"
 
-uint8_t __attribute__((aligned (4)))  VIDEORAM[VIDEORAM_SIZE] = {0};
+uint32_t __attribute__((aligned (4)))  VIDEORAM[VIDEORAM_SIZE] = {0};
 uint8_t __attribute__((section(".psram"))) RAM[RAM_SIZE] = {0};
 uint8_t __attribute__((section(".psram"))) UMB[UMB_END - UMB_START] = {0};
 uint8_t __attribute__((section(".psram"))) HMA[HMA_END - HMA_START] = {0};
+
+#define VIDEORAM_MASK 0xFFFF
 
 // Writes a byte to the virtual memory
 void write86(const uint32_t address, const uint8_t value) {
     if (address < RAM_SIZE) {
         RAM[address] = value;
     } else if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-        VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) & (VIDEORAM_SIZE - 1)] = value;
+        // printf("video write %x traddr %x =  %x\n", address, (address - VIDEORAM_START) & VIDEORAM_MASK, value);
+        vga_mem_write(address, value);
+        // VIDEORAM[(address - VIDEORAM_START) & VIDEORAM_MASK] = value;
     } else if (address >= EMS_START && address < EMS_END) {
         ems_write(address - EMS_START, value);
     } else if (address >= UMB_START && address < UMB_END) {
@@ -39,7 +44,8 @@ void writew86(const uint32_t address, const uint16_t value) {
         if (address < RAM_SIZE) {
             *(uint16_t *) &RAM[address] = value;
         } else if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-            *(uint16_t *) &VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) & (VIDEORAM_SIZE - 1)] = value;
+            write86(address, (uint8_t) (value & 0xFF));
+            write86(address + 1, (uint8_t) ((value >> 8) & 0xFF));
         } else if (address >= EMS_START && address < EMS_END) {
             ems_writew(address - EMS_START, value);
         } else if (address >= UMB_START && address < UMB_END) {
@@ -66,7 +72,10 @@ void writedw86(const uint32_t address, const uint32_t value) {
         if (address < RAM_SIZE) {
             *(uint32_t *) &RAM[address] = value;
         } else if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-            *(uint32_t *) &VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) & (VIDEORAM_SIZE - 1)] = value;
+            write86(address, (uint8_t) (value & 0xFF));
+            write86(address + 1, (uint8_t) ((value >> 8) & 0xFF));
+            write86(address + 2, (uint8_t) ((value >> 16) & 0xFF));
+            write86(address + 3, (uint8_t) ((value >> 24) & 0xFF));
         } else if (address >= EMS_START && address < EMS_END) {
             ems_writedw(address - EMS_START, value);
         } else if (address >= UMB_START && address < UMB_END) {
@@ -89,8 +98,11 @@ uint8_t read86(const uint32_t address) {
         return RAM[address];
     }
     if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-        return VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) & (VIDEORAM_SIZE - 1)];
+        return vga_mem_read(address);
     }
+     // if (address >= VBIOS_START && address < VBIOS_END) {
+         // return VGABIOS[address - VBIOS_START];
+     // }
     if (address >= EMS_START && address < EMS_END) {
         return ems_read(address - EMS_START);
     }
@@ -124,8 +136,11 @@ uint16_t readw86(const uint32_t address) {
         return *(uint16_t *) &RAM[address];
     }
     if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-        return *(uint16_t *) &VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) & (VIDEORAM_SIZE - 1)];
+        return (uint16_t) read86(address) | ((uint16_t) read86(address + 1) << 8);
     }
+    // if (address >= VBIOS_START && address < VBIOS_END) {
+        // return *(uint16_t *) &VGABIOS[address - VBIOS_START];
+    // }
     if (address >= EMS_START && address < EMS_END) {
         return ems_readw(address - EMS_START);
     }
@@ -158,7 +173,10 @@ uint32_t readdw86(const uint32_t address) {
         return *(uint32_t *) &RAM[address];
     }
     if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-        return *(uint32_t *) &VIDEORAM[(vga_plane_offset + address - VIDEORAM_START) & (VIDEORAM_SIZE - 1)];
+        return (uint32_t) read86(address)
+               | ((uint32_t) read86(address + 1) << 8)
+               | ((uint32_t) read86(address + 2) << 16)
+               | ((uint32_t) read86(address + 3) << 24);
     }
     if (address >= EMS_START && address < EMS_END) {
         return ems_readdw(address - EMS_START);

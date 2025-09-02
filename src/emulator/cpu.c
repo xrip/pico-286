@@ -1288,7 +1288,7 @@ static __not_in_flash() void op_grp5() {
 extern uint8_t UMB[(UMB_END - UMB_START) + 4];
 extern uint8_t HMA[(HMA_END - HMA_START) + 4];
 #endif
-
+extern void vga_init(void);
 void reset86() {
     CPU_CS = 0xFFFF;
     CPU_SS = 0x0000;
@@ -1322,6 +1322,7 @@ void reset86() {
     init_umb();
     ip = 0x0000;
     i8237_reset();
+    vga_init();
 }
 
 void __not_in_flash() exec86(uint32_t execloops) {

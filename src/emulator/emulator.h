@@ -49,7 +49,10 @@ extern "C" {
 #define VIDEORAM_START (0xA0000)
 #define VIDEORAM_END (0xC0000)
 
-#define EMS_START (0xC0000)
+#define VBIOS_START (0xC0000)
+#define VBIOS_END (0xC8000)
+
+#define EMS_START (0xC8000)
 #define EMS_END   (0xD0000)
 
 #define UMB_START (0xD0000)
@@ -70,7 +73,7 @@ extern uint8_t log_debug;
 
 
 extern uint8_t RAM[RAM_SIZE];
-extern uint8_t VIDEORAM[VIDEORAM_SIZE];
+extern uint32_t VIDEORAM[VIDEORAM_SIZE];
 
 extern uint32_t dwordregs[8];
 #define byteregs ((uint8_t*)dwordregs)
@@ -362,3 +365,6 @@ static INLINE uint32_t read32psram(uint32_t address) {
     return swap_read32(address);
 }
 #endif
+
+void vga_mem_write(uint32_t address, uint8_t cpu_data);
+uint8_t vga_mem_read(uint32_t address);

@@ -548,7 +548,7 @@ void get_sound_sample(const int16_t other_sample, int16_t *samples) {
 #else
     OPL_calc_buffer_linear(emu8950_opl, (int32_t *)samples, 1);
 
-    samples[1] = samples[0] += (int32_t)(speaker_sample() + other_sample + covox_sample + sn76489_sample() + midi_sample());
+    samples[1] = samples[0] += (int32_t)(other_sample + covox_sample + sn76489_sample() + midi_sample());
     cms_samples(samples);
 #endif
 
