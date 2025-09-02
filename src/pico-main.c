@@ -195,8 +195,8 @@ INLINE void _putchar(char character) {
 void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem
     graphics_init();
-    graphics_set_buffer(VIDEORAM, 320, 200);
-    graphics_set_textbuffer(VIDEORAM + 32768);
+    // graphics_set_buffer(VIDEORAM, 320, 200);
+    // graphics_set_textbuffer(VIDEORAM + 32768);
     graphics_set_bgcolor(0);
     graphics_set_offset(0, 0);
     graphics_set_flashmode(true, true);

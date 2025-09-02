@@ -193,7 +193,7 @@ void __time_critical_func() dma_handler_VGA() {
             uint8_t glyph_line = screen_line % 16;
 
             //указатель откуда начать считывать символы
-            uint8_t* text_buffer_line = graphics_framebuffer + 0x8000 + (vram_offset << 1) + __fast_mul(y_div_16, 160);
+            uint32_t* text_buffer_line = &VIDEORAM[0x8000 + (vram_offset << 1) + __fast_mul(y_div_16, 160)];
 
             for (uint8_t column = 0; column < 80; column++) {
                 uint8_t glyph_pixels = font_8x16[*text_buffer_line++ * 16 + glyph_line];

@@ -276,7 +276,7 @@ static INLINE void renderer() {
                     break;
                 }
                 case 0x09: /* tandy 320x200 16 color */ {
-                    uint32_t *tga_row = &VIDEORAM[0x8000+ (y / 2 & 3) * 8192 + y / 8 * 160];
+                    uint32_t *tga_row = &VIDEORAM[tga_offset + (y / 2 & 3) * 8192 + y / 8 * 160];
                     //                  uint8_t *tga_row = &VIDEORAM[tga_offset+(((y / 2) & 3) * 8192) + ((y / 8) * 160)];
 
                     // Each byte containing 4 pixels
@@ -385,9 +385,9 @@ static INLINE void renderer() {
                     break;
                 }
                 case 0x13: {
-                    extern bool chain4;
-                    if (!chain4) {
-                        uint32_t *vga_row = &VIDEORAM[(y >> 1) * (320 / 4)];
+                    extern uint8_t planar;
+                    if (planar) {
+                        uint32_t *vga_row = &VIDEORAM[vram_offset + (y >> 1) * (320 / 4)];
                         for (int x = 0; x < 320 / 4; x++) {
                             uint32_t four_pixels = *vga_row++;
                             *pixels++ = *pixels++ = vga_palette[four_pixels & 0xFF];
@@ -396,7 +396,7 @@ static INLINE void renderer() {
                             *pixels++ = *pixels++ = vga_palette[(four_pixels >> 24) & 0xFF];
                         }
                     } else {
-                        uint32_t *vga_row = &VIDEORAM[(y >> 1) * (320)];
+                        uint32_t *vga_row = &VIDEORAM[vram_offset + (y >> 1) * (320)];
                         for (int x = 0; x < 320; x++) {
                             uint32_t four_pixels = *vga_row++;
                             *pixels++ = *pixels++ = vga_palette[four_pixels & 0xFF];

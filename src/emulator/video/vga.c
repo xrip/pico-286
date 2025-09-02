@@ -119,8 +119,33 @@ typedef struct {
     // any other cached flags...
 } vga_cache_t;
 
-uint8_t chain4; // sequencer memory_mode bit for chain4
+volatile uint8_t chain4; // sequencer memory_mode bit for chain4
 static vga_cache_t vga_cache;
+
+uint32_t vga_membase; // base address of VGA memory
+uint32_t vga_memmask; // mask of VGA memory (0xFFFF for 16-bit, 0x7FFF for 32-bit)
+
+void vga_calcmemorymap() {
+    switch (vga_cache.graphics_controller[0x06] & 0x0C) {
+        case 0x00: //0xA0000 - 0xBFFFF (128 KB)
+            vga_membase = 0x00000;
+            vga_memmask = 0xFFFF;
+            break;
+        case 0x04: //0xA0000 - 0xAFFFF (64 KB)
+            vga_membase = 0x00000;
+            vga_memmask = 0xFFFF;
+            break;
+        case 0x08: //0xB0000 - 0xB7FFF (32 KB)
+            vga_membase = 0x10000;
+            vga_memmask = 0x7FFF;
+            break;
+        case 0x0C: //0xB8000 - 0xBFFFF (32 KB)
+            vga_membase = 0x18000;
+            vga_memmask = 0x7FFF;
+            break;
+    }
+    //debug_log(DEBUG_DETAIL, "vga_membase = %05X, vga_memmask = %04X\r\n", vga_membase, vga_memmask);
+}
 
 // Initialize the regs and derived cache
 static inline void vga_reset_cache(void) {
@@ -140,11 +165,13 @@ static inline void vga_reset_cache(void) {
     vga_cache.color_dontcare32 = ndc32_from(0x0F); // default compare all planes
 }
 
+uint8_t planar = 0;
 // Call whenever sequencer reg 2 or memory_mode changed
 static inline void vga_update_seq_cache(void) {
     vga_cache.map_mask32 = plane_mask_from_mapmask(vga_cache.sequencer[2] & 0x0F);
     // memory_mode in seq[4] bit2 typically is chain4
     chain4 = !!(vga_cache.sequencer[4] & 0x04u);
+    planar = !(vga_cache.sequencer[4] & 8);
 }
 
 // Call whenever GC registers that affect derived masks change
@@ -166,14 +193,45 @@ static inline void vga_update_gc_cache(void) {
     vga_cache.bit_mask32 = expand_to_u32(vga_cache.graphics_controller[8]);
 }
 
+// ---------------------- Address translation ----------------------
+// Translate CPU graphic memory address (linear within VGA window) into:
+//  - index into vram[] (0..65535)
+//  - an optional imposed plane mask (4-bit) for chain-4/odd-even addressing
+// For simplicity we receive a 32-bit 'addr' (full CPU addr) and an active mem base offset
+static inline void addr_xlate(uint32_t addr, uint32_t *out_index, uint8_t *out_plane_mask4) {
+    // For this model we assume the CPU has already selected VGA window and passed low 18 bits
+    // We'll simply consider addr as the byte offset into VGA window. We'll model chain4.
+    if (0 && chain4) {
+        // chain4: low 2 bits select plane, upper bits index into each plane.
+        uint8_t plane = addr & 3u;
+        *out_index = (addr >> 2) & 0xFFFFu;
+        *out_plane_mask4 = (1u << plane); // imposed plane: only this plane is targeted
+    } else {
+        // planar: same index for all planes; no imposed plane restriction
+        *out_index = addr & 0xFFFFu;
+        *out_plane_mask4 = 0x0Fu; // all planes potentially addressable (subject to map_mask)
+    }
+}
 
+// Helper to build final plane_mask32 combining sequencer map_mask and imposed mask
+static inline uint32_t final_plane_mask32_from(uint8_t imposed_mask4) {
+    uint8_t mm = (uint8_t)( ( (vga_cache.sequencer[2]) & 0x0Fu) & (imposed_mask4 & 0x0Fu) );
+    return plane_mask_from_mapmask(mm);
+}
 // ---------------------- Read path ----------------------
 
 // Read a byte from VGA memory (emulates CPU byte read from VGA window).
 // Performs latch update on read.
-uint8_t vga_mem_read(const uint32_t address) {
+uint8_t yvga_mem_read(uint32_t address) {
+    // address &= 0xFFFF;
+    // address -= 0xA0000; // convert to 16-bit address
+    // address = (address - vga_membase) & vga_memmask; // mask to 16-bit address (0..0xFFFF)
+
+    // uint32_t index;
+    uint8_t imposed4;
+    addr_xlate(address, &address, &imposed4);
     // Load 32-bit latch
-    vga_latch32 = VIDEORAM[address & 0xFFFF];
+    vga_latch32 = VIDEORAM[address];
 
     if (vga_cache.read_mode == 0) {
         // return the selected byte from latch
@@ -194,13 +252,13 @@ uint8_t vga_mem_read(const uint32_t address) {
 
 // Core write implementation (CPU writes a byte to VGA memory)
 void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
-    if (address - 0xA0000 > 0x10000) {
-        // printf("%x\n", address);
-    }
-    address &= 0xFFFF;
+    uint8_t imposed4;
+    addr_xlate(address, &address, &imposed4);
 
     // Compose the effective plane mask32
-    const uint32_t plane_mask32 = vga_cache.map_mask32;
+    const uint32_t plane_mask32 = final_plane_mask32_from(imposed4);
+    // Compose the effective plane mask32
+    // const uint32_t plane_mask32 = vga_cache.map_mask32;
 
     // Grab latch (VGA hardware latches on read; on write mode 1 we use the latched value)
     const uint32_t latch = vga_latch32;
@@ -317,6 +375,7 @@ static inline void out_0x3CE_gc_index(uint8_t val) { gc_index = val & 0x0Fu; }
 
 static inline void out_0x3CF_gc_data(uint8_t val) {
     vga_cache.graphics_controller[gc_index] = val;
+    vga_calcmemorymap();
     // If register affects derived cache, update
     if (gc_index <= 8 || gc_index == 0 || gc_index == 1 || gc_index == 2 || gc_index == 3 ||
         gc_index == 4 || gc_index == 5 || gc_index == 7 || gc_index == 8) {
@@ -328,7 +387,7 @@ static inline uint8_t in_0x3CF_gc_data(void) { return vga_cache.graphics_control
 
 // ---------------------- Initialization ----------------------
 void vga_init(void) {
-    memset(VIDEORAM, 0, sizeof(VIDEORAM));
+    // memset(VIDEORAM, 0, sizeof(VIDEORAM));
     vga_reset_cache();
     vga_update_seq_cache();
     vga_update_gc_cache();
