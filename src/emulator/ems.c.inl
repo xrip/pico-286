@@ -3,7 +3,7 @@
 #define EMS_PSRAM_OFFSET (2048 << 10)
 
 static uint8_t ems_pages[4] = {0};
-uint8_t __attribute__((section(".psram"))) EMS[EMS_MEMORY_SIZE] = {0};
+uint8_t __attribute__((aligned (4), section(".psram"))) EMS[EMS_MEMORY_SIZE] = {0};
 
 inline void out_ems(const uint16_t port, const uint8_t data) {
     ems_pages[port & 3] = data;
