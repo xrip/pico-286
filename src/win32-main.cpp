@@ -99,7 +99,7 @@ static INLINE void renderer() {
                     uint16_t y_div_16 = y / 16; // Precompute y / 16
                     uint8_t glyph_line = (y / 2) % 8; // Precompute y % 8 for font lookup
                     // Calculate screen position
-                    uint8_t *text_buffer_line = vidramptr + y_div_16 * 80;
+                    uint32_t *text_buffer_line = &VIDEORAM[0x8000 + y_div_16 * 80];
 
                     for (int column = 0; column < 40; column++) {
                         uint8_t glyph_pixels = font_8x8[*text_buffer_line++ * 8 + glyph_line]; // Glyph row from font
@@ -129,6 +129,7 @@ static INLINE void renderer() {
 
                     break;
                 }
+                case 0x07:
                 case 0x02:
                 case 0x03: {
                     uint16_t y_div_16 = y / 16; // Precompute y / 16
@@ -222,11 +223,11 @@ static INLINE void renderer() {
                     cols = 90;
                     vram_offset = 5;
                     if (y >= 348) break;
-                case 0x7: {
-                    uint8_t *cga_row = vidramptr + (y & 3) * 8192 + y / 4 * cols;
+                case 0x711: {
+                    uint32_t *cga_row = &VIDEORAM[(y & 3) * 8192 + y / 4 * cols];
                     // Each byte containing 8 pixels
                     for (int x = 640 / 8; x--;) {
-                        uint8_t cga_byte = *cga_row++;
+                        uint8_t cga_byte = *cga_row++ & 0xFF;
 
                         *pixels++ = cga_palette[(cga_byte >> 7 & 1) * 15];
                         *pixels++ = cga_palette[(cga_byte >> 6 & 1) * 15];
