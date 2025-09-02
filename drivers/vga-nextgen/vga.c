@@ -347,7 +347,7 @@ void __time_critical_func() dma_handler_VGA() {
 
 #pragma GCC unroll(8)
                 for (int bit = 7; bit >= 0; --bit) {
-                    uint8_t color_index = ((plane0 >> bit) & 1)
+                    const uint8_t color_index = ((plane0 >> bit) & 1)
                                         | (((plane1 >> bit) & 1) << 1)
                                         | (((plane2 >> bit) & 1) << 2)
                                         | (((plane3 >> bit) & 1) << 3);
@@ -362,7 +362,7 @@ void __time_critical_func() dma_handler_VGA() {
             const register uint32_t* ega_row = &VIDEORAM[__fast_mul(y ,80)];
             output_buffer_8bit = (uint8_t *) output_buffer_16bit;
             for (int i = 0; i < 80; ++i) {
-                uint32_t eight_pixels = *ega_row++;
+                const uint32_t eight_pixels = *ega_row++;
                 uint8_t plane0 =  eight_pixels        & 0xFF;
                 uint8_t plane1 = (eight_pixels >> 8)  & 0xFF;
                 uint8_t plane2 = (eight_pixels >> 16) & 0xFF;
@@ -370,7 +370,7 @@ void __time_critical_func() dma_handler_VGA() {
 
 #pragma GCC unroll(8)
                 for (int bit = 7; bit >= 0; --bit) {
-                    uint8_t color_index = ((plane0 >> bit) & 1)
+                    const uint8_t color_index = ((plane0 >> bit) & 1)
                                         | (((plane1 >> bit) & 1) << 1)
                                         | (((plane2 >> bit) & 1) << 2)
                                         | (((plane3 >> bit) & 1) << 3);
@@ -383,7 +383,7 @@ void __time_critical_func() dma_handler_VGA() {
             const register uint32_t* ega_row = &VIDEORAM[__fast_mul(screen_line ,80)];
             output_buffer_8bit = (uint8_t *) output_buffer_16bit;
             for (int i = 0; i < 80; ++i) {
-                uint32_t eight_pixels = *ega_row++;
+                const uint32_t eight_pixels = *ega_row++;
                 uint8_t plane0 =  eight_pixels        & 0xFF;
                 uint8_t plane1 = (eight_pixels >> 8)  & 0xFF;
                 uint8_t plane2 = (eight_pixels >> 16) & 0xFF;
