@@ -1,4 +1,4 @@
-#pragma GCC optimize("O3")
+#pragma GCC optimize("Ofast")
 #include "emulator/emulator.h"
 #if PICO_ON_DEVICE
 #include "graphics.h"
@@ -193,7 +193,7 @@ uint8_t vga_mem_read(const uint32_t address) {
 // ---------------------- Write path ----------------------
 
 // Core write implementation (CPU writes a byte to VGA memory)
-void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
+INLINE void __time_critical_func(vga_mem_write) (uint32_t address, const uint8_t cpu_data) {
     address &= 0xFFFF;
     // uint8_t imposed4;
     // addr_xlate(address, &address, &imposed4);
