@@ -298,64 +298,69 @@ static INLINE void renderer() {
                     }
                     break;
                 }
-                case 0x0D: /* EGA *320x200 16 color */ {
-                    uint32_t line_offset = y / 2 * 40;
+                case 0x0D: /* EGA 320x200 16-color */ {
+                    if (y >= 400) break;
+                    uint32_t* vram_ptr = &VIDEORAM[(y / 2) * (320 / 8)];
+                    for (int i = 0; i < (320 / 8); ++i) {
+                        uint32_t eight_pixels = vram_ptr[i];
+                        uint8_t plane0 =  eight_pixels        & 0xFF;
+                        uint8_t plane1 = (eight_pixels >> 8)  & 0xFF;
+                        uint8_t plane2 = (eight_pixels >> 16) & 0xFF;
+                        uint8_t plane3 = (eight_pixels >> 24) & 0xFF;
 
-                    // Process 40 dwords (320 pixels) in groups
-                    for (int x = 0; x < 40; x++) {
-                        uint32_t eight_pixels = VIDEORAM[line_offset + x];
-
-                        uint8_t plane0 =  eight_pixels        & 0xFF;   // plane0
-                        uint8_t plane1 = (eight_pixels >> 8)  & 0xFF;   // plane1
-                        uint8_t plane2 = (eight_pixels >> 16) & 0xFF;   // plane2
-                        uint8_t plane3 = (eight_pixels >> 24) & 0xFF;   // plane3
-
-
-                        for (int i = 0; i < 8; i++) {
-                           *pixels++ =  *pixels++ = vga_palette[((plane0 >> (7-i)) & 1)
-                                   | ((plane1 >> (7-i)) & 1) << 1
-                                   | ((plane2 >> (7-i)) & 1) << 2
-                                   | ((plane3 >> (7-i)) & 1) << 3];
+                        for (int bit = 7; bit >= 0; --bit) {
+                            uint8_t color_index = ((plane0 >> bit) & 1)
+                                                | (((plane1 >> bit) & 1) << 1)
+                                                | (((plane2 >> bit) & 1) << 2)
+                                                | (((plane3 >> bit) & 1) << 3);
+                            uint32_t color = vga_palette[color_index];
+                            *pixels++ = color;
+                            *pixels++ = color;
                         }
                     }
                     break;
                 }
-                case 0x0E: /* EGA 640x200 16 color */ {
-                    vidramptr = (uint8_t *) (VIDEORAM + vram_offset);
-                    for (int x = 0; x < 640; x++) {
-                        uint32_t divy = y / 2;
-                        uint32_t vidptr = divy * 80 + (x >> 3);
-                        int x1 = 7 - (x & 7);
-                        uint32_t color = vidramptr[vidptr] >> x1 & 1
-                                         | (vidramptr[vga_plane_size + vidptr] >> x1 & 1) << 1
-                                         | (vidramptr[vga_plane_size * 2 + vidptr] >> x1 & 1) << 2
-                                         | (vidramptr[vga_plane_size * 3 + vidptr] >> x1 & 1) << 3;
-                        *pixels++ = vga_palette[color];
-                    }
-                    break;
-                }
-                case 0x10: /* EGA 640x350 4 or 16 color */ {
-                    if (y >= 350) break;
-                    uint8_t *ega_row = (uint8_t *) (VIDEORAM + y * 80);
-                    for (int x = 640 / 8; x--;) {
-                        uint8_t plane1_pixel = *ega_row + vga_plane_size * 0;
-                        uint8_t plane2_pixel = *ega_row + vga_plane_size * 1;
-                        uint8_t plane3_pixel = *ega_row + vga_plane_size * 2;
-                        uint8_t plane4_pixel = *ega_row + vga_plane_size * 3;
+                case 0x0E: /* EGA 640x200 16-color */ {
+                    if (y >= 400) break;
+                    uint32_t* vram_ptr = &VIDEORAM[(y / 2) * (640 / 8)];
+                    for (int i = 0; i < (640 / 8); ++i) {
+                        uint32_t eight_pixels = vram_ptr[i];
+                        uint8_t plane0 =  eight_pixels        & 0xFF;
+                        uint8_t plane1 = (eight_pixels >> 8)  & 0xFF;
+                        uint8_t plane2 = (eight_pixels >> 16) & 0xFF;
+                        uint8_t plane3 = (eight_pixels >> 24) & 0xFF;
 
-                        *pixels++ = vga_palette[plane1_pixel];
-                        *pixels++ = vga_palette[plane1_pixel & 15];
-                        *pixels++ = vga_palette[plane2_pixel];
-                        *pixels++ = vga_palette[plane2_pixel & 15];
-                        *pixels++ = vga_palette[plane3_pixel];
-                        *pixels++ = vga_palette[plane3_pixel & 15];
-                        *pixels++ = vga_palette[plane4_pixel];
-                        *pixels++ = vga_palette[plane4_pixel & 15];
-                        ega_row++;
+                        for (int bit = 7; bit >= 0; --bit) {
+                            uint8_t color_index = ((plane0 >> bit) & 1)
+                                                | (((plane1 >> bit) & 1) << 1)
+                                                | (((plane2 >> bit) & 1) << 2)
+                                                | (((plane3 >> bit) & 1) << 3);
+                            *pixels++ = vga_palette[color_index];
+                        }
                     }
                     break;
                 }
-                case 0x11: /* EGA 640x480 2 color */ {
+                case 0x10: /* EGA 640x350 16-color */ {
+                    if (y >= 350) break;
+                    uint32_t* vram_ptr = &VIDEORAM[y * (640 / 8)];
+                    for (int i = 0; i < (640 / 8); ++i) {
+                        uint32_t eight_pixels = vram_ptr[i];
+                        uint8_t plane0 =  eight_pixels        & 0xFF;
+                        uint8_t plane1 = (eight_pixels >> 8)  & 0xFF;
+                        uint8_t plane2 = (eight_pixels >> 16) & 0xFF;
+                        uint8_t plane3 = (eight_pixels >> 24) & 0xFF;
+
+                        for (int bit = 7; bit >= 0; --bit) {
+                            uint8_t color_index = ((plane0 >> bit) & 1)
+                                                | (((plane1 >> bit) & 1) << 1)
+                                                | (((plane2 >> bit) & 1) << 2)
+                                                | (((plane3 >> bit) & 1) << 3);
+                            *pixels++ = vga_palette[color_index];
+                        }
+                    }
+                    break;
+                }
+                case 0x11: /* VGA 640x480 2-color */ {
                     uint8_t *cga_row = (uint8_t *) (VIDEORAM + y * 80);
                     // Each byte containing 8 pixels
                     for (int x = 640 / 8; x--;) {
@@ -373,14 +378,23 @@ static INLINE void renderer() {
 
                     break;
                 }
-                case 0x12: /* EGA 640x480 16 color */ {
-                    for (int x = 0; x < 640; x++) {
-                        uint32_t ptr = x / 8 + y * 80;
-                        uint8_t color = ((VIDEORAM[ptr] >> (~x & 7)) & 1);
-                        color |= ((VIDEORAM[ptr + vga_plane_size] >> (~x & 7)) & 1) << 1;
-                        color |= ((VIDEORAM[ptr + vga_plane_size * 2] >> (~x & 7)) & 1) << 2;
-                        color |= ((VIDEORAM[ptr + vga_plane_size * 3] >> (~x & 7)) & 1) << 3;
-                        *pixels++ = vga_palette[color];
+                case 0x12: /* VGA 640x480 16-color */ {
+                    if (y >= 480) break;
+                    uint32_t* vram_ptr = &VIDEORAM[y * (640 / 8)];
+                    for (int i = 0; i < (640 / 8); ++i) {
+                        uint32_t eight_pixels = vram_ptr[i];
+                        uint8_t plane0 =  eight_pixels        & 0xFF;
+                        uint8_t plane1 = (eight_pixels >> 8)  & 0xFF;
+                        uint8_t plane2 = (eight_pixels >> 16) & 0xFF;
+                        uint8_t plane3 = (eight_pixels >> 24) & 0xFF;
+
+                        for (int bit = 7; bit >= 0; --bit) {
+                            uint8_t color_index = ((plane0 >> bit) & 1)
+                                                | (((plane1 >> bit) & 1) << 1)
+                                                | (((plane2 >> bit) & 1) << 2)
+                                                | (((plane3 >> bit) & 1) << 3);
+                            *pixels++ = vga_palette[color_index];
+                        }
                     }
                     break;
                 }
