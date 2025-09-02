@@ -214,6 +214,28 @@ void __time_critical_func() dma_handler_VGA() {
 
     uint8_t *output_buffer_8bit;
     switch (graphics_mode) {
+        case EGA_320x200x16x4: {
+            const uint32_t *ega_row = &VIDEORAM[__fast_mul(y, 40)];
+
+            // Process 40 dwords (320 pixels) in groups
+            for (int x = 0; x < 40; x++) {
+                const uint32_t eight_pixels = *ega_row++;
+
+                const uint8_t plane0 =  eight_pixels        & 0xFF;   // plane0
+                const uint8_t plane1 = (eight_pixels >> 8)  & 0xFF;   // plane1
+                const uint8_t plane2 = (eight_pixels >> 16) & 0xFF;   // plane2
+                const uint8_t plane3 = (eight_pixels >> 24) & 0xFF;   // plane3
+
+                #pragma GCC unroll(8)
+                for (int i = 0; i < 8; i++) {
+                    *output_buffer_16bit++ = current_palette[((plane0 >> (7-i)) & 1)
+                            | ((plane1 >> (7-i)) & 1) << 1
+                            | ((plane2 >> (7-i)) & 1) << 2
+                            | ((plane3 >> (7-i)) & 1) << 3];
+                }
+            }
+            break;
+        }
         case VGA_320x200x256x4:
         // case VGA_320x200x256:
             {
