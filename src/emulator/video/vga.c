@@ -193,25 +193,25 @@ uint8_t vga_mem_read(const uint32_t address) {
 // ---------------------- Write path ----------------------
 
 // Core write implementation (CPU writes a byte to VGA memory)
-INLINE void __time_critical_func(vga_mem_write) (uint32_t address, const uint8_t cpu_data) {
+INLINE void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
     address &= 0xFFFF;
     // uint8_t imposed4;
     // addr_xlate(address, &address, &imposed4);
 
     // Compose the effective plane mask32
-    const uint32_t plane_mask32 = vga.map_mask32;;
+    const register uint32_t plane_mask32 = vga.map_mask32;;
     // Compose the effective plane mask32
     // const uint32_t plane_mask32 = vga_cache.map_mask32;
 
     // Grab latch (VGA hardware latches on read; on write mode 1 we use the latched value)
-    const uint32_t latch = vga_latch32;
+    const register uint32_t latch = vga_latch32;
     // For other modes latch is still used for ALU combos and blending
     // Compute bit mask replicated to 32-bit
-    const uint32_t bitmask32 = vga.bit_mask32;
+    const register uint32_t bitmask32 = vga.bit_mask32;
 
     // Precompute rotated source and replicated 32-bit source
     const uint8_t rotated = ror8(cpu_data, vga.data_rotate_counter);
-    uint32_t data32 = expand_to_u32(rotated);
+    uint32_t register data32 = expand_to_u32(rotated);
 
     uint32_t result32 = VIDEORAM[address]; // read current mem for blending
 
@@ -247,8 +247,8 @@ INLINE void __time_critical_func(vga_mem_write) (uint32_t address, const uint8_t
 
         case 2: {
             // Mode 2: "color expand" set color to all planes
-            // data32 = expand_to_u32(cpu_data); // e.g. 0xA5 -> 0xA5A5A5A5
-            data32 = expand_nibble_to_planes(cpu_data);
+            data32 = expand_to_u32(cpu_data); // e.g. 0xA5 -> 0xA5A5A5A5
+            // data32 = expand_nibble_to_planes(cpu_data);
 
             // Step 3: use src32 as ALU source (set/reset is ignored; rotation ignored)
             uint32_t alu;
@@ -276,15 +276,14 @@ INLINE void __time_critical_func(vga_mem_write) (uint32_t address, const uint8_t
         case 3: {
             // Mode 3: Transparent set/reset writes
             // Selection mask is rot8 & bitmask (only bits with mask=1 affected). We must expand selection mask to 32-bit bytes.
-            uint8_t sel8 = (uint8_t) (rotated & vga.graphics_controller[8]);
+            const uint8_t sel8 = (uint8_t) (rotated & vga.graphics_controller[8]);
             // gc[8] is bit_mask, but we already set bitmask32; still compute sel8
             // Expand sel8 into 32-bit where each byte equals sel8 (and then AND with per-byte 0xFF/0x00)
             // Simpler: create sel32 = expand_to_u32(sel8) & bitmask32
-            uint32_t sel32 = expand_to_u32(sel8) & bitmask32;
+            const uint32_t sel32 = expand_to_u32(sel8) & bitmask32;
             // blend set_reset where sel32=1 else latch
-            uint32_t blended = (vga.set_reset32 & sel32) | (latch & ~sel32);
+            const uint32_t blended = (vga.set_reset32 & sel32) | (latch & ~sel32);
             result32 = (result32 & ~plane_mask32) | (blended & plane_mask32);
-            // result32 = 0xF0F0F0F;
             break;
         }
         default: {
