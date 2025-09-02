@@ -351,9 +351,7 @@ void __time_critical_func() dma_handler_VGA() {
                                         | (((plane1 >> bit) & 1) << 1)
                                         | (((plane2 >> bit) & 1) << 2)
                                         | (((plane3 >> bit) & 1) << 3);
-                    uint32_t color = current_palette[color_index];
-                    *output_buffer_16bit++ = color;
-                    *output_buffer_16bit++ = color;
+                    *output_buffer_16bit++ =  current_palette[color_index];;
                 }
             }
             break;
