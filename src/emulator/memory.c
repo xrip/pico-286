@@ -1,7 +1,6 @@
 #pragma GCC optimize("Ofast")
 
 #include "includes/bios.h"
-#include "includes/vgabios.h"
 #include "emulator.h"
 #include "ems.c.inl"
 

@@ -1,3 +1,4 @@
+#pragma GCC optimize("O3")
 #include "emulator/emulator.h"
 #if PICO_ON_DEVICE
 #include "graphics.h"
