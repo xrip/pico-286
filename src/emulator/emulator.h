@@ -52,7 +52,7 @@ extern "C" {
 #define VBIOS_START (0xC0000)
 #define VBIOS_END (0xC8000)
 
-#define EMS_START (0xC8000)
+#define EMS_START (0xC0000)
 #define EMS_END   (0xD0000)
 
 #define UMB_START (0xD0000)
