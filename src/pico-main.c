@@ -195,8 +195,8 @@ INLINE void _putchar(char character) {
 void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem
     graphics_init();
-    // graphics_set_buffer(VIDEORAM, 320, 200);
-    // graphics_set_textbuffer(VIDEORAM + 32768);
+    graphics_set_buffer((uint8_t *)VIDEORAM, 320, 200);
+    graphics_set_textbuffer((uint8_t *)VIDEORAM + 32768*4);
     graphics_set_bgcolor(0);
     graphics_set_offset(0, 0);
     graphics_set_flashmode(true, true);
@@ -345,7 +345,11 @@ void __time_critical_func() second_core(void) {
                         }
                         break;
 
+
                     case VGA_320x200x256:
+                        if (vga_planar_mode) {
+                            videomode = VGA_320x200x256x4;
+                        }
                     case VGA_320x200x256x4:
                     default:
                         for (uint8_t i = 0; i < 255; i++) {

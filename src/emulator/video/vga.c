@@ -406,8 +406,10 @@ void vga_portout(uint16_t portnum, uint16_t value) {
         // http://www.osdever.net/FreeVGA/vga/graphreg.htm
         case 0x3CE:
             out_0x3CE_gc_index(value);
+            break;
         case 0x3CF:
             out_0x3CF_gc_data(value);
+            break;
     }
 }
 
