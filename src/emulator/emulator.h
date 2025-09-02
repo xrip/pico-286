@@ -189,15 +189,27 @@ void vga_portout(uint16_t portnum, uint16_t value);
 uint16_t vga_portin(uint16_t portnum);
 
 // Memory
-extern void writew86(uint32_t address, uint16_t value);
-extern void writedw86(uint32_t address, uint32_t value);
+typedef void (*write86_t)(uint32_t address, uint8_t value);
+typedef void (*write86w_t)(uint32_t address, uint16_t value);
+typedef void (*write86dw_t)(uint32_t address, uint32_t value);
+extern write86_t write86;
+extern write86w_t writew86;
+extern write86dw_t writedw86;
 
-extern void write86(uint32_t address, uint8_t value);
+void write86_ob(const uint32_t address, const uint8_t value);
+void writew86_ob(uint32_t address, uint16_t value);
+void writedw86_ob(uint32_t address, uint32_t value);
 
-extern uint16_t readw86(uint32_t address);
-extern uint32_t readdw86(uint32_t address);
+typedef uint8_t (*read86_t)(uint32_t address);
+typedef uint16_t (*read86w_t)(uint32_t address);
+typedef uint32_t (*read86dw_t)(uint32_t address);
+extern read86_t read86;
+extern read86w_t readw86;
+extern read86dw_t readdw86;
 
-extern uint8_t read86(uint32_t address);
+uint8_t read86_ob(uint32_t address);
+uint16_t readw86_ob(uint32_t address);
+uint32_t readdw86_ob(uint32_t address);
 
 extern void portout(uint16_t portnum, uint16_t value);
 

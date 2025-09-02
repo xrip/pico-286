@@ -490,7 +490,7 @@ int main(void) {
     vreg_disable_voltage_limit();
     vreg_set_voltage(VREG_VOLTAGE_1_60);
 
-    qmi_hw->m[0].timing = 0x60007304; // 4x FLASH divisor
+    qmi_hw->m[0].timing = 0x60007404; // 4x FLASH divisor
 
     sleep_ms(100);
     if (!set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, 0) ) {
@@ -510,8 +510,16 @@ int main(void) {
 #else
     psram_init(rp2350a ? 19 : 47);
 #endif
-    if (!butter_psram_size)
+    if (!butter_psram_size) {
         init_psram();
+    } else {
+        write86 = write86_ob;
+        writew86 = writew86_ob;
+        writedw86 = writedw86_ob;
+        read86 = read86_ob;
+        readw86 = readw86_ob;
+        readdw86 = readdw86_ob;
+    }
 
     // Set exception handler
     exception_set_exclusive_handler(HARDFAULT_EXCEPTION, sigbus);
