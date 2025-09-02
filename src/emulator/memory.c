@@ -98,7 +98,7 @@ uint8_t read86(const uint32_t address) {
         return RAM[address];
     }
     if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-        return yvga_mem_read(address);
+        return vga_mem_read(address);
     }
      // if (address >= VBIOS_START && address < VBIOS_END) {
          // return VGABIOS[address - VBIOS_START];

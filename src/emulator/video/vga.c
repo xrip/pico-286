@@ -120,96 +120,70 @@ typedef struct {
 } vga_cache_t;
 
 volatile uint8_t chain4; // sequencer memory_mode bit for chain4
-static vga_cache_t vga_cache;
-
-uint32_t vga_membase; // base address of VGA memory
-uint32_t vga_memmask; // mask of VGA memory (0xFFFF for 16-bit, 0x7FFF for 32-bit)
-
-void vga_calcmemorymap() {
-    switch (vga_cache.graphics_controller[0x06] & 0x0C) {
-        case 0x00: //0xA0000 - 0xBFFFF (128 KB)
-            vga_membase = 0x00000;
-            vga_memmask = 0xFFFF;
-            break;
-        case 0x04: //0xA0000 - 0xAFFFF (64 KB)
-            vga_membase = 0x00000;
-            vga_memmask = 0xFFFF;
-            break;
-        case 0x08: //0xB0000 - 0xB7FFF (32 KB)
-            vga_membase = 0x10000;
-            vga_memmask = 0x7FFF;
-            break;
-        case 0x0C: //0xB8000 - 0xBFFFF (32 KB)
-            vga_membase = 0x18000;
-            vga_memmask = 0x7FFF;
-            break;
-    }
-    //debug_log(DEBUG_DETAIL, "vga_membase = %05X, vga_memmask = %04X\r\n", vga_membase, vga_memmask);
-}
+static vga_cache_t vga;
 
 // Initialize the regs and derived cache
 static inline void vga_reset_cache(void) {
-    memset(&vga_cache, 0, sizeof(vga_cache));
+    memset(&vga, 0, sizeof(vga));
     // sensible defaults: map_mask = 0x0F (all planes enabled)
-    vga_cache.sequencer[2] = 0x0F; // map mask
+    vga.sequencer[2] = 0x0F; // map mask
     // vga_cache.graphics_controller[4] = 0x0F; // read map select//
-    vga_cache.graphics_controller[8] = 0xFF; // bit mask
+    vga.graphics_controller[8] = 0xFF; // bit mask
 
 
-    vga_cache.map_mask32 = plane_mask_from_mapmask(0x0F);
-    vga_cache.read_map_select = 0;
-    vga_cache.bit_mask32 = expand_to_u32(0xFF); // default all bits allowed
-    vga_cache.set_reset32 = setreset32_from_setreset(0);
-    vga_cache.enable_set_reset32 = enablesr32_from(0);
-    vga_cache.color_compare32 = cc32_from(0);
-    vga_cache.color_dontcare32 = ndc32_from(0x0F); // default compare all planes
+    vga.map_mask32 = plane_mask_from_mapmask(0x0F);
+    vga.read_map_select = 0;
+    vga.bit_mask32 = expand_to_u32(0xFF); // default all bits allowed
+    vga.set_reset32 = setreset32_from_setreset(0);
+    vga.enable_set_reset32 = enablesr32_from(0);
+    vga.color_compare32 = cc32_from(0);
+    vga.color_dontcare32 = ndc32_from(0x0F); // default compare all planes
 }
 
-uint8_t planar = 0;
 // Call whenever sequencer reg 2 or memory_mode changed
 static inline void vga_update_seq_cache(void) {
-    vga_cache.map_mask32 = plane_mask_from_mapmask(vga_cache.sequencer[2] & 0x0F);
+    vga.map_mask32 = plane_mask_from_mapmask(vga.sequencer[2] & 0x0F);
     // memory_mode in seq[4] bit2 typically is chain4
-    chain4 = !!(vga_cache.sequencer[4] & 0x04u);
-    planar = !(vga_cache.sequencer[4] & 8);
+    chain4 = !!(vga.sequencer[4] & 0x04u);
+    vga_planar_mode = !(vga.sequencer[4] & 8) || !(vga.sequencer[4] & 6);
 }
 
 // Call whenever GC registers that affect derived masks change
 static inline void vga_update_gc_cache(void) {
     // set_reset: reg 0 (lower 4 bits)
-    vga_cache.set_reset32 = setreset32_from_setreset(vga_cache.graphics_controller[0] & 0x0Fu);
-    vga_cache.enable_set_reset32 = enablesr32_from(vga_cache.graphics_controller[1] & 0x0Fu);
-    vga_cache.color_compare32 = cc32_from(vga_cache.graphics_controller[2] & 0x0Fu);
+    vga.set_reset32 = setreset32_from_setreset(vga.graphics_controller[0] & 0x0Fu);
+    vga.enable_set_reset32 = enablesr32_from(vga.graphics_controller[1] & 0x0Fu);
+    vga.color_compare32 = cc32_from(vga.graphics_controller[2] & 0x0Fu);
     // color don't care: reg 7 low 4 bits indicates which planes to consider?
     // In VGA GC reg7 is color_dont_care; typically a 4-bit mask where 1 = compare
-    vga_cache.color_dontcare32 = ndc32_from(vga_cache.graphics_controller[7] & 0x0Fu);
-    vga_cache.data_rotate_counter = vga_cache.graphics_controller[3] & 0x07u;
-    vga_cache.logical_operation = (vga_cache.graphics_controller[3] >> 3) & 0x03u; // low 2 bits of upper nibble (func)
-    vga_cache.read_map_select = vga_cache.graphics_controller[4] & 0x03u;
+    vga.color_dontcare32 = ndc32_from(vga.graphics_controller[7] & 0x0Fu);
+    vga.data_rotate_counter = vga.graphics_controller[3] & 0x07u;
+    vga.logical_operation = (vga.graphics_controller[3] >> 3) & 0x03u; // low 2 bits of upper nibble (func)
+    vga.read_map_select = vga.graphics_controller[4] & 0x03u;
     // mode reg 5 bits: write mode bits 0..1, read mode bit 3
-    vga_cache.write_mode = (vga_cache.graphics_controller[5] & 0x03u);
-    vga_cache.read_mode = ((vga_cache.graphics_controller[5] & 0x08u) ? 1 : 0);
+    vga.write_mode = (vga.graphics_controller[5] & 0x03u);
+    vga.read_mode = ((vga.graphics_controller[5] & 0x08u) ? 1 : 0);
     // bit mask: reg 8
-    vga_cache.bit_mask32 = expand_to_u32(vga_cache.graphics_controller[8]);
+    vga.bit_mask32 = expand_to_u32(vga.graphics_controller[8]);
 }
 
 // ---------------------- Read path ----------------------
 
 // Read a byte from VGA memory (emulates CPU byte read from VGA window).
 // Performs latch update on read.
-uint8_t yvga_mem_read(const uint32_t address) {
+uint8_t vga_mem_read(const uint32_t address) {
     vga_latch32 = VIDEORAM[address & 0xFFFF];
 
-    if (vga_cache.read_mode == 0) {
+    if (vga.read_mode == 0) {
         // return the selected byte from latch
-        const uint32_t shift = (vga_cache.read_map_select & 3u) << 3;
+        const uint32_t shift = (vga.read_map_select & 3u) << 3;
         return (uint8_t) (vga_latch32 >> shift & 0xFF);
     }
 
     // read mode 1: color compare against color_compare + color_dont_care
     // compute per-plane mismatches:
     // tmp32 = ((lat ^ color_compare32) & color_dontcare32)
-    const uint32_t tmp = ((vga_latch32 ^ vga_cache.color_compare32) & vga_cache.color_dontcare32);
+    const uint32_t tmp = ((vga_latch32 ^ vga.color_compare32) & vga.color_dontcare32);
     // OR across plane-bytes into single byte: (tmp | tmp>>8 | tmp>>16 | tmp>>24) & 0xFF
     const uint32_t folded = (tmp | tmp >> 8 | tmp >> 16 | tmp >> 24) & 0xFFu;
     return (uint8_t) (~folded & 0xFFu);
@@ -224,7 +198,7 @@ void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
     // addr_xlate(address, &address, &imposed4);
 
     // Compose the effective plane mask32
-    const uint32_t plane_mask32 = vga_cache.map_mask32;;
+    const uint32_t plane_mask32 = vga.map_mask32;;
     // Compose the effective plane mask32
     // const uint32_t plane_mask32 = vga_cache.map_mask32;
 
@@ -232,22 +206,22 @@ void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
     const uint32_t latch = vga_latch32;
     // For other modes latch is still used for ALU combos and blending
     // Compute bit mask replicated to 32-bit
-    const uint32_t bitmask32 = vga_cache.bit_mask32;
+    const uint32_t bitmask32 = vga.bit_mask32;
 
     // Precompute rotated source and replicated 32-bit source
-    const uint8_t rotated = ror8(cpu_data, vga_cache.data_rotate_counter);
+    const uint8_t rotated = ror8(cpu_data, vga.data_rotate_counter);
     uint32_t data32 = expand_to_u32(rotated);
 
     uint32_t result32 = VIDEORAM[address]; // read current mem for blending
 
-    switch (vga_cache.write_mode) {
+    switch (vga.write_mode) {
         case 0: {
             // Mode 0: normal write using set/reset + ALU function + bitmask + plane map
             // First apply enable_set_reset: where enable == 1, take set_reset; else take source bits
-            data32 = (data32 & ~vga_cache.enable_set_reset32) | (vga_cache.set_reset32 & vga_cache.enable_set_reset32);
+            data32 = (data32 & ~vga.enable_set_reset32) | (vga.set_reset32 & vga.enable_set_reset32);
             uint32_t alu;
             // ALU function:
-            switch (vga_cache.logical_operation) {
+            switch (vga.logical_operation) {
                 default:
                 case 0: alu = data32;
                     break; // Replace (SRsel)
@@ -269,23 +243,30 @@ void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
             result32 = (result32 & ~plane_mask32) | (latch & plane_mask32);
             break;
         }
+
         case 2: {
-            // Mode 2: "color expand" expand color to all planes
-            // This gives each selected plane the CPU mask; unselected planes are zeroed.
-            uint32_t src32 = expand_to_u32(cpu_data); // e.g. 0xA5 -> 0xA5A5A5A5
+            // Mode 2: "color expand" set color to all planes
+            data32 = expand_to_u32(cpu_data); // e.g. 0xA5 -> 0xA5A5A5A5
+            uint32_t tmp = expand_nibble_to_planes(cpu_data);
+
+            // data32 &= expand_nibble_to_planes(cpu_data);  // 0xF -> 0xFFFFFFF
 
             // Step 3: use src32 as ALU source (set/reset is ignored; rotation ignored)
             uint32_t alu;
-            switch (vga_cache.logical_operation) {
+            switch (vga.logical_operation) {
                 default:
-                case 0: alu = src32;        break; // PASS
-                case 1: alu = src32 & latch;break; // AND
-                case 2: alu = src32 | latch;break; // OR
-                case 3: alu = src32 ^ latch;break; // XOR
+                case 0: alu = data32;
+                    break; // PASS
+                case 1: alu = data32 & result32;
+                    break; // AND
+                case 2: alu = data32 | result32;
+                    break; // OR
+                case 3: alu = data32 ^ result32;
+                    break; // XOR
             }
 
             // Step 4: apply GC bitmask (reg 8) — this selects bit positions within bytes
-            uint32_t blended = (alu & bitmask32) | (latch & ~bitmask32);
+            const uint32_t blended = (alu & bitmask32) | (result32 & ~bitmask32);
 
             // Step 5: write only to planes enabled by sequencer map_mask & addressing-imposed mask
             result32 = (result32 & ~plane_mask32) | (blended & plane_mask32);
@@ -296,13 +277,13 @@ void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
         case 3: {
             // Mode 3: Transparent set/reset writes
             // Selection mask is rot8 & bitmask (only bits with mask=1 affected). We must expand selection mask to 32-bit bytes.
-            uint8_t sel8 = (uint8_t) (rotated & vga_cache.graphics_controller[8]);
+            uint8_t sel8 = (uint8_t) (rotated & vga.graphics_controller[8]);
             // gc[8] is bit_mask, but we already set bitmask32; still compute sel8
             // Expand sel8 into 32-bit where each byte equals sel8 (and then AND with per-byte 0xFF/0x00)
             // Simpler: create sel32 = expand_to_u32(sel8) & bitmask32
             uint32_t sel32 = expand_to_u32(sel8) & bitmask32;
             // blend set_reset where sel32=1 else latch
-            uint32_t blended = (vga_cache.set_reset32 & sel32) | (latch & ~sel32);
+            uint32_t blended = (vga.set_reset32 & sel32) | (latch & ~sel32);
             result32 = (result32 & ~plane_mask32) | (blended & plane_mask32);
             // result32 = 0xF0F0F0F;
             break;
@@ -318,21 +299,14 @@ void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
     // Note: hardware doesn't automatically reload latch on write; latch remains last read.
 }
 
-// ---------------------- Port I/O (basic) ----------------------
-// Provide minimal port handlers for the registers we emulate:
-// Sequencer: index port 0x3C4, data 0x3C5
-// Graphics Controller: index port 0x3CE, data 0x3CF
-// The code assumes external code calls these when CPU I/O happens.
-// For brevity, attribute checking and other ports omitted.
-
 static uint8_t seq_index = 0;
 static uint8_t gc_index = 0;
 
-static inline void out_0x3C4_seq_index(uint8_t val) { seq_index = val & 0x07u; }
+static inline void out_0x3C4_seq_index(const uint8_t value) { seq_index = value & 0x07u; }
 
-static inline void out_0x3C5_seq_data(uint8_t val) {
+static inline void out_0x3C5_seq_data(const uint8_t value) {
     // store raw
-    vga_cache.sequencer[seq_index] = val;
+    vga.sequencer[seq_index] = value;
     // update derived cache for changes that matter
     if (seq_index == 2 || seq_index == 4) {
         vga_update_seq_cache();
@@ -340,13 +314,12 @@ static inline void out_0x3C5_seq_data(uint8_t val) {
     // other seq regs could be handled here if desired
 }
 
-static inline uint8_t in_0x3C5_seq_data(void) { return vga_cache.sequencer[seq_index]; }
+static inline uint8_t in_0x3C5_seq_data() { return vga.sequencer[seq_index]; }
 
-static inline void out_0x3CE_gc_index(uint8_t val) { gc_index = val & 0x0Fu; }
+static inline void out_0x3CE_gc_index(const uint8_t value) { gc_index = value & 0x0Fu; }
 
-static inline void out_0x3CF_gc_data(uint8_t val) {
-    vga_cache.graphics_controller[gc_index] = val;
-    vga_calcmemorymap();
+static inline void out_0x3CF_gc_data(const uint8_t value) {
+    vga.graphics_controller[gc_index] = value;
     // If register affects derived cache, update
     if (gc_index <= 8 || gc_index == 0 || gc_index == 1 || gc_index == 2 || gc_index == 3 ||
         gc_index == 4 || gc_index == 5 || gc_index == 7 || gc_index == 8) {
@@ -354,7 +327,7 @@ static inline void out_0x3CF_gc_data(uint8_t val) {
     }
 }
 
-static inline uint8_t in_0x3CF_gc_data(void) { return vga_cache.graphics_controller[gc_index]; }
+static inline uint8_t in_0x3CF_gc_data() { return vga.graphics_controller[gc_index]; }
 
 // ---------------------- Initialization ----------------------
 void vga_init(void) {
@@ -365,14 +338,6 @@ void vga_init(void) {
     vga_latch32 = 0;
     seq_index = gc_index = 0;
 }
-
-// ---------------------- Small test helpers (optional) ----------------------
-#ifdef VGA_SELFTEST
-#include <stdio.h>
-static void dump_word(uint32_t w) {
-    printf("vram word: %02X %02X %02X %02X\n", (int) (w & 0xFFu), (int) ((w >> 8) & 0xFFu), (int) ((w >> 16) & 0xFFu), (int) ((w >> 24) & 0xFFu));
-}
-#endif
 
 
 void vga_portout(uint16_t portnum, uint16_t value) {
@@ -411,13 +376,11 @@ void vga_portout(uint16_t portnum, uint16_t value) {
         // http://www.osdever.net/FreeVGA/vga/seqreg.htm
         // https://vtda.org/books/Computing/Programming/EGA-VGA-ProgrammersReferenceGuide2ndEd_BradleyDyckKliewer.pdf
         case 0x3C4:
-            //            printf("3C4 %x\n", value);
             out_0x3C4_seq_index(value);
             break;
-        case 0x3C5: {
+        case 0x3C5:
             out_0x3C5_seq_data(value);
             break;
-        }
         case 0x3C7:
             read_color_index = value & 0xff;
             break;
@@ -441,31 +404,10 @@ void vga_portout(uint16_t portnum, uint16_t value) {
         }
 
         // http://www.osdever.net/FreeVGA/vga/graphreg.htm
-        case 0x3CE: {
-            // Graphics 1 and 2 Address Register
-            /*
-             * The Graphics 1 and 2 Address Register selects which register
-                will appear at port 3cfh. The index number of the desired regis
-                ter is written OUT to port 3ceh.
-                Index Register
-                0 Set/Reset
-                1 Enable Set/Reset
-                2 Color Compare
-                3 Data Rotate
-                4 Read Map Select
-                5 Mode Register
-                6 Miscellaneous
-                7 Color Don't Care
-                8 Bit Mask
-             */
+        case 0x3CE:
             out_0x3CE_gc_index(value);
-            //            printf("3CE %x\n", value);
-        }
-        case 0x3CF: {
-            // Graphics 1 and 2 Address Register
-            // printf("3CF %d %x\n", graphics_control_register, value);
+        case 0x3CF:
             out_0x3CF_gc_data(value);
-        }
     }
 }
 

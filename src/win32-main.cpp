@@ -385,8 +385,7 @@ static INLINE void renderer() {
                     break;
                 }
                 case 0x13: {
-                    extern uint8_t planar;
-                    if (planar) {
+                    if (vga_planar_mode) {
                         uint32_t *vga_row = &VIDEORAM[vram_offset + (y >> 1) * (320 / 4)];
                         for (int x = 0; x < 320 / 4; x++) {
                             uint32_t four_pixels = *vga_row++;
