@@ -193,45 +193,12 @@ static inline void vga_update_gc_cache(void) {
     vga_cache.bit_mask32 = expand_to_u32(vga_cache.graphics_controller[8]);
 }
 
-// ---------------------- Address translation ----------------------
-// Translate CPU graphic memory address (linear within VGA window) into:
-//  - index into vram[] (0..65535)
-//  - an optional imposed plane mask (4-bit) for chain-4/odd-even addressing
-// For simplicity we receive a 32-bit 'addr' (full CPU addr) and an active mem base offset
-static inline void addr_xlate(uint32_t addr, uint32_t *out_index, uint8_t *out_plane_mask4) {
-    // For this model we assume the CPU has already selected VGA window and passed low 18 bits
-    // We'll simply consider addr as the byte offset into VGA window. We'll model chain4.
-    if (0 && chain4) {
-        // chain4: low 2 bits select plane, upper bits index into each plane.
-        uint8_t plane = addr & 3u;
-        *out_index = (addr >> 2) & 0xFFFFu;
-        *out_plane_mask4 = (1u << plane); // imposed plane: only this plane is targeted
-    } else {
-        // planar: same index for all planes; no imposed plane restriction
-        *out_index = addr & 0xFFFFu;
-        *out_plane_mask4 = 0x0Fu; // all planes potentially addressable (subject to map_mask)
-    }
-}
-
-// Helper to build final plane_mask32 combining sequencer map_mask and imposed mask
-static inline uint32_t final_plane_mask32_from(uint8_t imposed_mask4) {
-    uint8_t mm = (uint8_t)( ( (vga_cache.sequencer[2]) & 0x0Fu) & (imposed_mask4 & 0x0Fu) );
-    return plane_mask_from_mapmask(mm);
-}
 // ---------------------- Read path ----------------------
 
 // Read a byte from VGA memory (emulates CPU byte read from VGA window).
 // Performs latch update on read.
-uint8_t yvga_mem_read(uint32_t address) {
-    // address &= 0xFFFF;
-    // address -= 0xA0000; // convert to 16-bit address
-    // address = (address - vga_membase) & vga_memmask; // mask to 16-bit address (0..0xFFFF)
-
-    // uint32_t index;
-    uint8_t imposed4;
-    addr_xlate(address, &address, &imposed4);
-    // Load 32-bit latch
-    vga_latch32 = VIDEORAM[address];
+uint8_t yvga_mem_read(const uint32_t address) {
+    vga_latch32 = VIDEORAM[address & 0xFFFF];
 
     if (vga_cache.read_mode == 0) {
         // return the selected byte from latch
@@ -252,11 +219,12 @@ uint8_t yvga_mem_read(uint32_t address) {
 
 // Core write implementation (CPU writes a byte to VGA memory)
 void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
-    uint8_t imposed4;
-    addr_xlate(address, &address, &imposed4);
+    address &= 0xFFFF;
+    // uint8_t imposed4;
+    // addr_xlate(address, &address, &imposed4);
 
     // Compose the effective plane mask32
-    const uint32_t plane_mask32 = final_plane_mask32_from(imposed4);
+    const uint32_t plane_mask32 = vga_cache.map_mask32;;
     // Compose the effective plane mask32
     // const uint32_t plane_mask32 = vga_cache.map_mask32;
 
@@ -302,31 +270,33 @@ void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
             break;
         }
         case 2: {
-            // Mode 2: CPU data is color expand: low nibble selects which planes get '1's
-            // Expand low nibble into per-plane 0xFF/0x00 bytes (not per-bit expansion)
-            // uint8_t nib = cpu_data & 0x0Fu;
-            uint32_t exp32 = expand_nibble_to_planes(cpu_data); // each plane byte is 0xFF iff nib bit set
-            // In mode 2, data_rotate is ignored normally; treat exp32 as source for ALU
+            // Mode 2: "color expand" expand color to all planes
+            // This gives each selected plane the CPU mask; unselected planes are zeroed.
+            uint32_t src32 = expand_to_u32(cpu_data); // e.g. 0xA5 -> 0xA5A5A5A5
+
+            // Step 3: use src32 as ALU source (set/reset is ignored; rotation ignored)
             uint32_t alu;
             switch (vga_cache.logical_operation) {
                 default:
-                case 0: alu = exp32;
-                    break;
-                case 1: alu = exp32 & latch;
-                    break;
-                case 2: alu = exp32 | latch;
-                    break;
-                case 3: alu = exp32 ^ latch;
-                    break;
+                case 0: alu = src32;        break; // PASS
+                case 1: alu = src32 & latch;break; // AND
+                case 2: alu = src32 | latch;break; // OR
+                case 3: alu = src32 ^ latch;break; // XOR
             }
+
+            // Step 4: apply GC bitmask (reg 8) — this selects bit positions within bytes
             uint32_t blended = (alu & bitmask32) | (latch & ~bitmask32);
+
+            // Step 5: write only to planes enabled by sequencer map_mask & addressing-imposed mask
             result32 = (result32 & ~plane_mask32) | (blended & plane_mask32);
+
             break;
         }
+
         case 3: {
             // Mode 3: Transparent set/reset writes
             // Selection mask is rot8 & bitmask (only bits with mask=1 affected). We must expand selection mask to 32-bit bytes.
-            uint8_t sel8 = (uint8_t) (rotated & (uint8_t) (vga_cache.graphics_controller[8]));
+            uint8_t sel8 = (uint8_t) (rotated & vga_cache.graphics_controller[8]);
             // gc[8] is bit_mask, but we already set bitmask32; still compute sel8
             // Expand sel8 into 32-bit where each byte equals sel8 (and then AND with per-byte 0xFF/0x00)
             // Simpler: create sel32 = expand_to_u32(sel8) & bitmask32
@@ -334,6 +304,7 @@ void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
             // blend set_reset where sel32=1 else latch
             uint32_t blended = (vga_cache.set_reset32 & sel32) | (latch & ~sel32);
             result32 = (result32 & ~plane_mask32) | (blended & plane_mask32);
+            // result32 = 0xF0F0F0F;
             break;
         }
         default: {
