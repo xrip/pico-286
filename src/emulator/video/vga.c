@@ -247,8 +247,8 @@ INLINE void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
 
         case 2: {
             // Mode 2: "color expand" set color to all planes
-            data32 = expand_to_u32(cpu_data); // e.g. 0xA5 -> 0xA5A5A5A5
-            // data32 = expand_nibble_to_planes(cpu_data);
+            // data32 = expand_to_u32(cpu_data); // e.g. 0xA5 -> 0xA5A5A5A5
+            data32 = expand_nibble_to_planes(cpu_data);
 
             // Step 3: use src32 as ALU source (set/reset is ignored; rotation ignored)
             uint32_t alu;

@@ -341,7 +341,6 @@ static INLINE void renderer() {
                     break;
                 }
                 case 0x10: /* EGA 640x350 16-color */ {
-                    if (y >= 350) break;
                     uint32_t* vram_ptr = &VIDEORAM[y * (640 / 8)];
                     for (int i = 0; i < (640 / 8); ++i) {
                         uint32_t eight_pixels = vram_ptr[i];
