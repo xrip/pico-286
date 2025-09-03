@@ -376,6 +376,6 @@ static inline void diskhandler() {
 
     // Set the last status in BIOS Data Area (for hard drives)
     if (CPU_DL & 0x80) {
-        RAM[0x474] = CPU_AH;
+        (butter_psram_size ? RAM : UMB)[0x474] = CPU_AH;
     }
 }

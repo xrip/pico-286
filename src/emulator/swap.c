@@ -1,3 +1,5 @@
+#if PICO_ON_DEVICE
+
 #include "emulator.h"
 #include "swap.h"
 #include "f_util.h"
@@ -168,3 +170,5 @@ void swap_file_flush_block(const uint8_t *src, uint32_t offset, uint32_t size) {
     }
     gpio_put(PICO_DEFAULT_LED_PIN, false);
 }
+
+#endif

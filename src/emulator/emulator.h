@@ -143,8 +143,8 @@ uint8_t in8259(uint16_t portnum);
 
 // Video
 extern int videomode;
-#define CURSOR_X RAM[0x450]
-#define CURSOR_Y RAM[0x451]
+#define CURSOR_X (butter_psram_size ? RAM : UMB)[0x450]
+#define CURSOR_Y (butter_psram_size ? RAM : UMB)[0x451]
 extern uint8_t cursor_start, cursor_end;
 extern uint32_t vga_palette[256];
 

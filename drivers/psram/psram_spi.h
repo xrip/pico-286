@@ -25,6 +25,8 @@ SOFTWARE.
 
 ******************************************************************************/
 
+#if PICO_ON_DEVICE
+
 /**
  * @file psram_spi.h
  *
@@ -648,3 +650,14 @@ static __always_inline bool init_psram() {
 #ifdef __cplusplus
 }
 #endif
+
+#else
+/// placeholders
+inline static void write8psram(uint32_t addr32, uint8_t v) {}
+inline static void write16psram(uint32_t addr32, uint16_t v) {}
+inline static void write32psram(uint32_t addr32, uint32_t v) {}
+inline static uint8_t  read8psram(uint32_t addr32) { return 0; }
+inline static uint16_t read16psram(uint32_t addr32) { return 0; }
+inline static uint32_t read32psram(uint32_t addr32) { return 0; }
+
+#endif // PICO_ON_DEVICE
