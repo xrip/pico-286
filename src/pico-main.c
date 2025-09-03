@@ -511,7 +511,16 @@ int main(void) {
     psram_init(rp2350a ? 19 : 47);
 #endif
     if (!butter_psram_size) {
-        init_psram();
+        if (init_psram() ) {
+            write86 = write86_mp;
+            writew86 = writew86_mp;
+            writedw86 = writedw86_mp;
+            read86 = read86_mp;
+            readw86 = readw86_mp;
+            readdw86 = readdw86_mp;
+        } else {
+            /// TODO: swap
+        }
     } else {
         write86 = write86_ob;
         writew86 = writew86_ob;

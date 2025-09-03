@@ -9,6 +9,7 @@
 static uint32_t ALIGN(4, SCREEN[640 * 480]);
 uint8_t ALIGN(4, DEBUG_VRAM[80 * 10]) = {0};
 
+uint32_t butter_psram_size = (8 << 20); // actually, any except zero
 int cursor_blink_state = 0;
 uint8_t log_debug = 0;
 
