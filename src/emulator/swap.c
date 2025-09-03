@@ -1,4 +1,3 @@
-#ifdef TOTAL_VIRTUAL_MEMORY_KBS
 #include "emulator.h"
 #include "swap.h"
 #include "f_util.h"
@@ -6,14 +5,24 @@
 #include <pico.h>
 #include <hardware/gpio.h>
 
+#define TOTAL_VIRTUAL_MEMORY_KBS 4098
+
+#define SWAP_PAGE_SIZE (2048)
+#define RAM_IN_PAGE_ADDR_MASK (0x000007FF)
+#define SHIFT_AS_DIV (11)
+
+// (UMB_END - UMB_START) = 2C000 = 180224 = 176 KB
+#define SWAPPABLE_RAM_SIZE (UMB_END - UMB_START)
+#define SWAP_BLOCKS (SWAPPABLE_RAM_SIZE / SWAP_PAGE_SIZE)
+
 #undef printf_
 #define printf_(...)
 
 #define PAGE_CHANGE_FLAG 0x8000
 #define PAGE_ID_MASK 0x7FFF
 
-uint16_t ALIGN(4, SWAP_PAGES[SWAP_BLOCKS]) = {0};
-uint8_t ALIGN(4, SWAP_PAGES_CACHE[RAM_SIZE]) = {0};
+uint16_t __scratch_y("swap_pages") ALIGN(4, SWAP_PAGES[SWAP_BLOCKS]) = {0};
+#define SWAP_PAGES_CACHE UMB
 
 static INLINE uint32_t get_swap_page_for(uint32_t address);
 
@@ -159,4 +168,3 @@ void swap_file_flush_block(const uint8_t *src, uint32_t offset, uint32_t size) {
     }
     gpio_put(PICO_DEFAULT_LED_PIN, false);
 }
-#endif

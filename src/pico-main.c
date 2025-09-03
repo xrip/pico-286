@@ -9,6 +9,7 @@
 #include <hardware/exception.h>
 
 #include "psram_spi.h"
+#include "emulator/swap.h"
 
 #if PICO_RP2040
 #include "../../memops_opt/memops_opt.h"
@@ -519,7 +520,13 @@ int main(void) {
             readw86 = readw86_mp;
             readdw86 = readdw86_mp;
         } else {
-            /// TODO: swap
+            init_swap();
+            write86 = write86_sw;
+            writew86 = writew86_sw;
+            writedw86 = writedw86_sw;
+            read86 = read86_sw;
+            readw86 = readw86_sw;
+            readdw86 = readdw86_sw;
         }
     } else {
         write86 = write86_ob;

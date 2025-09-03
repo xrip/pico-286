@@ -14,11 +14,8 @@ extern "C" {
 #define VIDEORAM_SIZE (64 << 10)
 #if PICO_RP2350
 
-#ifdef TOTAL_VIRTUAL_MEMORY_KBS
-#define RAM_SIZE (200 << 10)
-#else
+extern uint32_t butter_psram_size;
 #define RAM_SIZE (640 << 10)
-#endif
 
 #else
 //#define RAM_SIZE (146 << 10)
@@ -215,6 +212,14 @@ void writedw86_mp(uint32_t address, uint32_t value);
 uint8_t read86_mp(uint32_t address);
 uint16_t readw86_mp(uint32_t address);
 uint32_t readdw86_mp(uint32_t address);
+// swap
+void write86_sw(const uint32_t address, const uint8_t value);
+void writew86_sw(uint32_t address, uint16_t value);
+void writedw86_sw(uint32_t address, uint32_t value);
+uint8_t read86_sw(uint32_t address);
+uint16_t readw86_sw(uint32_t address);
+uint32_t readdw86_sw(uint32_t address);
+
 
 // Ports
 
@@ -352,28 +357,6 @@ static INLINE int16_t speaker_sample() {
 
 extern void get_sound_sample(int16_t other_sample, int16_t *samples);
 #ifdef __cplusplus
-}
-#endif
-
-#ifdef TODO
-#include "swap.h"
-static INLINE void write8psram(uint32_t address, uint8_t value) {
-    swap_write(address, value);
-}
-static INLINE void write16psram(uint32_t address, uint16_t value) {
-    swap_write16(address, value);
-}
-static INLINE void write32psram(uint32_t address, uint32_t value) {
-    swap_write32(address, value);
-}
-static INLINE uint8_t read8psram(uint32_t address) {
-    return swap_read(address);
-}
-static INLINE uint16_t read16psram(uint32_t address) {
-    return swap_read16(address);
-}
-static INLINE uint32_t read32psram(uint32_t address) {
-    return swap_read32(address);
 }
 #endif
 

@@ -1288,37 +1288,21 @@ static __not_in_flash() void op_grp5() {
 extern uint8_t UMB[(UMB_END - UMB_START) + 4];
 extern uint8_t HMA[(HMA_END - HMA_START) + 4];
 #endif
+///#include "psram_spi.h"
 extern void vga_init(void);
 void reset86() {
     CPU_CS = 0xFFFF;
     CPU_SS = 0x0000;
     CPU_SP = 0x0000;
-
-    memset(RAM, 0, sizeof(RAM));
+    
     memset(VIDEORAM, 0x00, sizeof(VIDEORAM));
-#if !PICO_ON_DEVICE
     memset(UMB, 0, sizeof(UMB));
-    memset(HMA, 0, sizeof(HMA));
-    //memset(EMS, 0, sizeof(EMS));
-    //memset(XMS, 0, sizeof(XMS));
-#else
-#ifndef TODO
-#ifndef TODO
-    memset(UMB, 0, sizeof(UMB));
-    memset(HMA, 0, sizeof(HMA));
-#else
-    for (uint32_t a = UMB_START; a < ((UMB_END - UMB_START) + 4); a += 4) write32psram(a, 0);
-    for (uint32_t a = HMA_START; a < ((HMA_END - HMA_START) + 4); a += 4) write32psram(a, 0);
-#endif
-#else
-    for (uint32_t a = UMB_START; a < ((UMB_END - UMB_START) + 4); a += 4) {
-        write32psram(a, 0);
+    if (butter_psram_size) {
+        memset(RAM, 0, sizeof(RAM)); // actually, not sure it is required
+        memset(HMA, 0, sizeof(HMA));
+    } else {
+///        for (uint32_t a = 0; a < (((1024 + 64) << 10) + 4); a += 4) write32psram(a, 0);
     }
-    for (uint32_t a = HMA_START; a < ((HMA_END - HMA_START) + 4); a += 4) {
-        write32psram(a, 0);
-    }
-#endif
-#endif
     init_umb();
     ip = 0x0000;
     i8237_reset();
