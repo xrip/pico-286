@@ -7,6 +7,7 @@
 #include <hardware/vreg.h>
 #include <hardware/pwm.h>
 #include <hardware/exception.h>
+#include <hardware/watchdog.h>
 
 #include "psram_spi.h"
 #include "emulator/swap.h"
@@ -82,6 +83,7 @@ static const uint32_t SCANCODE_ALT_RELEASE = 0xB8;
 static const uint32_t SCANCODE_KP_MULT_UP = 0xB7;
 static const uint32_t SCANCODE_KP_MINUS_UP = 0xCA;
 static const uint32_t SCANCODE_KP_PLUS_UP = 0xCE;
+static const uint32_t SCANCODE_DEL_RELEASE = 0xD3;
 
 bool handleScancode(uint32_t ps2scancode) {
     //printf("PS/2 SCANCODE: %d\n", ps2scancode);
@@ -99,9 +101,16 @@ bool handleScancode(uint32_t ps2scancode) {
         case SCANCODE_ALT_RELEASE:
             altPressed = false;
             break;
+        case SCANCODE_DEL_RELEASE:
+            if (ctrlPressed && altPressed) {
+                watchdog_enable(1, true);
+            }
+            break;
         case SCANCODE_KP_MULT_UP: // KP "*" up
-            ega_vga_enabled = !ega_vga_enabled;
-            printf("EGA/VGA: %s\n", ega_vga_enabled ? "ON" : "OFF");
+            if (ctrlPressed && altPressed) {
+                ega_vga_enabled = !ega_vga_enabled;
+                printf("EGA/VGA: %s\n", ega_vga_enabled ? "ON" : "MCGA");
+            }
             break;
         case SCANCODE_KP_MINUS_UP: // KP "-" up
             if (ctrlPressed && altPressed) {
@@ -506,11 +515,13 @@ int main(void) {
     // Initialize PSRAM
     // Overclock psram
     rp2350a = (*((io_ro_32*)(SYSINFO_BASE + SYSINFO_PACKAGE_SEL_OFFSET)) & 1);
+    int gp;
 #ifdef MURM2
-    psram_init(rp2350a ?  8 : 47);
+    gp = rp2350a ?  8 : 47;
 #else
-    psram_init(rp2350a ? 19 : 47);
+    gp = rp2350a ? 19 : 47;
 #endif
+    psram_init(gp);
     if (!butter_psram_size) {
         if (init_psram() ) {
             write86 = write86_mp;
@@ -572,15 +583,20 @@ int main(void) {
     multicore_launch_core1(second_core);
     sem_release(&vga_start_semaphore);
 
+    if (write86 == write86_ob) {
+        printf("On-Board PSRAM mode (GP%d)\n", gp);
+    } else if (write86 == write86_mp) {
+        printf("Murmulator-Board PSRAM mode\n");
+    } else {
+        printf("Swap-RAM mode (4MB)\n");
+    }
+
     // Mount SD card filesystem
     if (FR_OK != f_mount(&fs, "0", 1)) {
         printf("SD Card not inserted or SD Card error!");
         while (1);
     }
     // adlib_init(SOUND_FREQUENCY);
-#ifdef TOTAL_VIRTUAL_MEMORY_KBS
-    init_swap();
-#endif
 
     // Initialize audio and reset emulator
     sn76489_reset();
