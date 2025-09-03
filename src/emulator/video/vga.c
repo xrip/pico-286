@@ -193,13 +193,95 @@ uint8_t vga_mem_read(const uint32_t address) {
 }
 
 // ---------------------- Write path ----------------------
-
-// Core write implementation (CPU writes a byte to VGA memory)
-INLINE void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
+INLINE void vga_mem_write_loop(uint32_t address, const uint8_t cpu_data) {
     address &= 0xFFFF;
 
     uint32_t new_data;
-    uint32_t *videoram_data = &VIDEORAM[address]; // current data pointer
+    const uint32_t previous_data = VIDEORAM[address]; // read current mem for blending
+
+    switch (vga.write_mode) {
+        case 1: // Mode 1: Write latch directly to enabled planes
+            VIDEORAM[address] = (previous_data & ~vga.map_mask32) | (vga_latch32 & vga.map_mask32);
+            return;
+
+        case 0: {
+            // Mode 0: Normal write with set/reset + ALU
+            new_data = 0;
+            const uint8_t rdata = (ror8(cpu_data, vga.data_rotate_counter));
+
+            for (int i = 0; i < 4; i++) {
+                const uint32_t mask = 1 << i;
+
+                uint8_t value = 0;
+                if ((vga.sequencer[2] & 0xf) & mask) {
+                    if (vga.graphics_controller[1] & mask) {
+                        value = vga.graphics_controller[0] & mask ? 0xFF : 0x00;
+                    } else {
+                        value = ror8(rdata, vga.data_rotate_counter);
+                    }
+
+                    new_data |= value << (i * 8);
+                }
+            }
+            break;
+        }
+
+        case 2: {
+            // Mode 2: Color expands to all planes
+            new_data = 0;
+            for (int i = 0; i < 4; i++) {
+                uint8_t value = 0;
+                const uint32_t mask = 1 << i;
+                if ((vga.sequencer[2] & 0xf) & mask) {
+                    value = cpu_data & mask ? 0xFF : 0x00;
+                }
+                new_data |= value << (i * 8);
+            }
+            break;
+        }
+
+        case 3: {
+            // Mode 0: Normal write with set/reset + ALU
+            new_data = 0;
+            const uint8_t value = ror8(cpu_data, vga.data_rotate_counter) & vga.graphics_controller[8];
+
+            for (int i = 0; i < 4; i++) {
+                const uint32_t mask = 1 << i;
+
+                if ((vga.sequencer[2] & 0xf) & mask) {
+                    uint8_t set_reset = vga.graphics_controller[0] & mask ? 0xFF : 0x00;
+
+                    new_data |= value << (i * 8);
+                }
+            }
+            VIDEORAM[address] = (vga.set_reset32 & new_data) | (~new_data & vga_latch32);
+            return;
+            break;
+        }
+
+        default:
+            new_data = 0;
+    }
+
+
+
+    switch (vga.logical_operation) {
+        case 1: new_data = new_data & vga_latch32;
+            break;
+        case 2: new_data = new_data | vga_latch32;
+            break;
+        case 3: new_data = new_data ^ vga_latch32;
+            break;
+    }
+    new_data = (vga.bit_mask32 & new_data) | (~vga.bit_mask32 & vga_latch32);
+
+    // Смешивание всех изменившихся планов с не изменившимися
+    VIDEORAM[address] = (~vga.map_mask32 & previous_data) | (vga.map_mask32 & new_data);
+}
+// Core write implementation (CPU writes a byte to VGA memory)
+INLINE void vga_mem_write(const uint32_t address, const uint8_t cpu_data) {
+    uint32_t new_data;
+    uint32_t *videoram_data = &VIDEORAM[address & 0xFFFF]; // current data pointer
 
     switch (vga.write_mode) {
         case 0: {
