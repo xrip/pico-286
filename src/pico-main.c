@@ -436,8 +436,8 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
         tight_loop_contents();
     }
 
-    // Set PSRAM timing for APS6404
-    const int max_psram_freq = 166000000;
+    // Set PSRAM timing
+    const int max_psram_freq = PSRAM_FREQ_MHZ * MHZ;
     const int clock_hz = clock_get_hz(clk_sys);
     int divisor = (clock_hz + max_psram_freq - 1) / max_psram_freq;
 
@@ -511,10 +511,22 @@ int main(void) {
     vreg_disable_voltage_limit();
     vreg_set_voltage(VREG_VOLTAGE_1_60);
 
-    qmi_hw->m[0].timing = 0x60007404; // 4x FLASH divisor
+    const int max_flash_freq = FLASH_FREQ_MHZ * MHZ;
+    const int clock_hz = CPU_FREQ_MHZ * MHZ;
+    int divisor = (clock_hz + max_flash_freq - 1) / max_flash_freq;
+    if (divisor == 1 && clock_hz > 100000000) {
+        divisor = 2;
+    }
+    int rxdelay = divisor;
+    if (clock_hz / divisor > 100000000) {
+        rxdelay += 1;
+    }
+    qmi_hw->m[0].timing = 0x60007000 |
+                          rxdelay << QMI_M0_TIMING_RXDELAY_LSB |
+                          divisor << QMI_M0_TIMING_CLKDIV_LSB;
 
     sleep_ms(100);
-    if (!set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, 0) ) {
+    if (!set_sys_clock_hz(clock_hz, 0) ) {
         set_sys_clock_hz(378 * MHZ, 1); // fallback to failsafe clocks
     }
 #else

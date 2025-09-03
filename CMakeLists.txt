@@ -31,6 +31,8 @@ SET(BUILD_NAME "${PROJECT_NAME}")
 #set(m1p2launcher ON)
 set(ENABLE_VGA ON)
 set(ENABLE_PWM_SOUND ON)
+set(FLASH_FREQ_MHZ "88")
+set(PSRAM_FREQ_MHZ "88")
 
 # =========================
 # OUTPUT DIRECTORIES
@@ -92,7 +94,7 @@ else ()
     option(ENABLE_HARDWARE_SOUND "Enable hardware audio output" OFF)
 
     # CPU Configuration
-    set(CPU_FREQ_MHZ "366" CACHE STRING "CPU frequency in MHz")
+    set(CPU_FREQ_MHZ "378")
 
     # =========================
     # VALIDATION
@@ -164,7 +166,7 @@ else ()
     endif ()
 
     # Add frequency
-    set(BUILD_NAME "${BUILD_NAME}-${CPU_FREQ_MHZ}MHz")
+    set(BUILD_NAME "${BUILD_NAME}-${FLASH_FREQ_MHZ}-${PSRAM_FREQ_MHZ}-${CPU_FREQ_MHZ}MHz")
 
     # Add display type
     if (ENABLE_TFT)
@@ -288,6 +290,8 @@ else ()
             PICO_PANIC_FUNCTION=
             EMU8950_ASM=1
             CPU_FREQ_MHZ=${CPU_FREQ_MHZ}
+            FLASH_FREQ_MHZ=${FLASH_FREQ_MHZ}
+            PSRAM_FREQ_MHZ=${PSRAM_FREQ_MHZ}
             PICO_FLASH_SIZE_BYTES=16777216
 
             # Display type
