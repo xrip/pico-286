@@ -8,15 +8,14 @@
 #include <hardware/pwm.h>
 #include <hardware/exception.h>
 
-#ifndef ONBOARD_PSRAM_GPIO
 #include "psram_spi.h"
-#endif
 
 #if PICO_RP2040
 #include "../../memops_opt/memops_opt.h"
 #else
 #include <hardware/structs/qmi.h>
 #include <hardware/structs/xip.h>
+#include <hardware/regs/sysinfo.h>
 #endif
 
 #include "emulator/emulator.h"
@@ -189,10 +188,6 @@ INLINE void _putchar(char character) {
         *vidramptr = 0;
     }
 }
-
-volatile int16_t last_sb_sample = 0;
-volatile bool ask_to_blast = false;
-
 /* Renderer loop on Pico's second core */
 void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem
@@ -256,6 +251,7 @@ void __time_critical_func() second_core(void) {
     uint64_t last_sb_tick = 0;
 
     int16_t last_dss_sample = 0;
+    int16_t last_sb_sample = 0;
 
     // Main render loop
     while (true) {
@@ -280,8 +276,7 @@ void __time_critical_func() second_core(void) {
 #if !PICO_RP2040
         // Sound Blaster sampling
         if (tick > last_sb_tick + timeconst) {
-            //last_sb_sample = blaster_sample();
-            ask_to_blast = true;
+            last_sb_sample = blaster_sample();
             last_sb_tick = tick;
         }
 #endif
@@ -376,6 +371,30 @@ void __time_critical_func() second_core(void) {
 }
 
 #if PICO_RP2350
+uint32_t butter_psram_size = 0 ;
+uint32_t BUTTER_PSRAM_GPIO = 0;
+bool rp2350a = true;
+#define MB16 (16ul << 20)
+#define MB8 (8ul << 20)
+#define MB4 (4ul << 20)
+#define MB1 (1ul << 20)
+inline static uint32_t __not_in_flash_func(_butter_psram_size)() {
+    volatile uint8_t* PSRAM_DATA = (uint8_t*)0x11000000;
+    for(register int i = MB8; i < MB16; ++i)
+        PSRAM_DATA[i] = 16;
+    for(register int i = MB4; i < MB8; ++i)
+        PSRAM_DATA[i] = 8;
+    for(register int i = MB1; i < MB4; ++i)
+        PSRAM_DATA[i] = 4;
+    for(register int i = 0; i < MB1; ++i)
+        PSRAM_DATA[i] = 1;
+    register uint32_t res = PSRAM_DATA[MB16 - 1];
+    for (register int i = MB16 - MB1; i < MB16; ++i) {
+        if (res != PSRAM_DATA[i])
+            return 0;
+    }
+    return res << 20;
+}
 void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
     gpio_set_function(cs_pin, GPIO_FUNC_XIP_CS1);
 
@@ -448,6 +467,8 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
 
     // Enable writes to PSRAM
     hw_set_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_WRITABLE_M1_BITS);
+    // detect a chip size
+    butter_psram_size = _butter_psram_size();
 }
 #endif
 
@@ -469,7 +490,7 @@ int main(void) {
     vreg_disable_voltage_limit();
     vreg_set_voltage(VREG_VOLTAGE_1_60);
 
-    qmi_hw->m[0].timing = 0x60007304; // 4x FLASH divisor
+    qmi_hw->m[0].timing = 0x60007404; // 4x FLASH divisor
 
     sleep_ms(100);
     if (!set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, 0) ) {
@@ -482,15 +503,32 @@ int main(void) {
 #endif
 
     // Initialize PSRAM
-#ifdef ONBOARD_PSRAM_GPIO
     // Overclock psram
-    psram_init(ONBOARD_PSRAM_GPIO);
-
+    rp2350a = (*((io_ro_32*)(SYSINFO_BASE + SYSINFO_PACKAGE_SEL_OFFSET)) & 1);
+#ifdef MURM2
+    psram_init(rp2350a ?  8 : 47);
 #else
-    #ifndef TOTAL_VIRTUAL_MEMORY_KBS
-    init_psram();
-    #endif
+    psram_init(rp2350a ? 19 : 47);
 #endif
+    if (!butter_psram_size) {
+        if (init_psram() ) {
+            write86 = write86_mp;
+            writew86 = writew86_mp;
+            writedw86 = writedw86_mp;
+            read86 = read86_mp;
+            readw86 = readw86_mp;
+            readdw86 = readdw86_mp;
+        } else {
+            /// TODO: swap
+        }
+    } else {
+        write86 = write86_ob;
+        writew86 = writew86_ob;
+        writedw86 = writedw86_ob;
+        read86 = read86_ob;
+        readw86 = readw86_ob;
+        readdw86 = readdw86_ob;
+    }
 
     // Set exception handler
     exception_set_exclusive_handler(HARDFAULT_EXCEPTION, sigbus);

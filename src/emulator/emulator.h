@@ -73,6 +73,8 @@ extern uint8_t log_debug;
 
 
 extern uint8_t RAM[RAM_SIZE];
+extern uint8_t UMB[UMB_END - UMB_START];
+extern uint8_t HMA[HMA_END - HMA_START];
 extern uint32_t VIDEORAM[VIDEORAM_SIZE];
 
 extern uint32_t dwordregs[8];
@@ -187,25 +189,41 @@ void vga_portout(uint16_t portnum, uint16_t value);
 uint16_t vga_portin(uint16_t portnum);
 
 // Memory
-extern void writew86(uint32_t address, uint16_t value);
-extern void writedw86(uint32_t address, uint32_t value);
+typedef void (*write86_t)(uint32_t address, uint8_t value);
+typedef void (*write86w_t)(uint32_t address, uint16_t value);
+typedef void (*write86dw_t)(uint32_t address, uint32_t value);
+typedef uint8_t (*read86_t)(uint32_t address);
+typedef uint16_t (*read86w_t)(uint32_t address);
+typedef uint32_t (*read86dw_t)(uint32_t address);
+extern read86_t read86;
+extern read86w_t readw86;
+extern read86dw_t readdw86;
+extern write86_t write86;
+extern write86w_t writew86;
+extern write86dw_t writedw86;
+// on-board (butter) psram
+void write86_ob(const uint32_t address, const uint8_t value);
+void writew86_ob(uint32_t address, uint16_t value);
+void writedw86_ob(uint32_t address, uint32_t value);
+uint8_t read86_ob(uint32_t address);
+uint16_t readw86_ob(uint32_t address);
+uint32_t readdw86_ob(uint32_t address);
+// murmulator-psram
+void write86_mp(const uint32_t address, const uint8_t value);
+void writew86_mp(uint32_t address, uint16_t value);
+void writedw86_mp(uint32_t address, uint32_t value);
+uint8_t read86_mp(uint32_t address);
+uint16_t readw86_mp(uint32_t address);
+uint32_t readdw86_mp(uint32_t address);
 
-extern void write86(uint32_t address, uint8_t value);
-
-extern uint16_t readw86(uint32_t address);
-extern uint32_t readdw86(uint32_t address);
-
-extern uint8_t read86(uint32_t address);
+// Ports
 
 extern void portout(uint16_t portnum, uint16_t value);
-
 extern void portout16(uint16_t portnum, uint16_t value);
 
 extern uint16_t portin(uint16_t portnum);
-
 extern uint16_t portin16(uint16_t portnum);
 
-// Ports
 extern uint8_t port60, port61, port64;
 extern volatile uint8_t port3DA;
 extern uint32_t vram_offset;
@@ -337,14 +355,7 @@ extern void get_sound_sample(int16_t other_sample, int16_t *samples);
 }
 #endif
 
-#ifndef TOTAL_VIRTUAL_MEMORY_KBS
-#if PICO_ON_DEVICE && !ONBOARD_PSRAM_GPIO
-#include "psram_spi.h"
-
-#else
-
-#endif
-#else
+#ifdef TODO
 #include "swap.h"
 static INLINE void write8psram(uint32_t address, uint8_t value) {
     swap_write(address, value);

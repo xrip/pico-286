@@ -165,21 +165,44 @@ umb_t *get_free_umb_block(const uint16_t size) {
     return best;
 }
 
+#include "psram_spi.h"
+extern uint32_t butter_psram_size;
+
 static INLINE void xms_move_to(const register uint32_t destination, register uint32_t source, register uint32_t length) {
-    register uint16_t *dest_ptr = (uint16_t *) &XMS[destination];
-    length /= 2;
-    while (length--) {
-        *dest_ptr++ = readw86(source);
-        source += 2;
+    if (butter_psram_size) {
+        register uint16_t *dest_ptr = (uint16_t *) &XMS[destination];
+        length /= 2;
+        while (length--) {
+            *dest_ptr++ = readw86(source);
+            source += 2;
+        }
+    } else {
+        uint32_t dest = XMS_PSRAM_OFFSET + destination;
+        length /= 2;
+        while (length--) {
+            write16psram(dest, readw86(source));
+            dest += 2;
+            source += 2;
+        }
     }
 }
 
 static INLINE void xms_move_from(const uint32_t source, register uint32_t destination, register uint32_t length) {
-    const register uint16_t *source_ptr = (uint16_t *) &XMS[source];
-    length /= 2;
-    while (length--) {
-        writew86(destination, *source_ptr++);
-        destination += 2;
+    if (butter_psram_size) {
+        const register uint16_t *source_ptr = (uint16_t *) &XMS[source];
+        length /= 2;
+        while (length--) {
+            writew86(destination, *source_ptr++);
+            destination += 2;
+        }
+    } else {
+        uint32_t s = source + XMS_PSRAM_OFFSET;
+        length /= 2;
+        while (length--) {
+            writew86(destination, read16psram(s));
+            destination += 2;
+            s += 2;
+        }
     }
 }
 
