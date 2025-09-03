@@ -87,6 +87,7 @@ void __time_critical_func() dma_handler_VGA() {
     }
 
     if (screen_line >= N_lines_visible) {
+        port3DA = 8; // useful frame is finished
         //заполнение цветом фона
         if (screen_line == N_lines_visible | screen_line == N_lines_visible + 3) {
             uint32_t *output_buffer_32bit = lines_pattern[2 + (screen_line & 1)];
@@ -103,26 +104,23 @@ void __time_critical_func() dma_handler_VGA() {
             dma_channel_set_read_addr(dma_channel_control, &lines_pattern[1], false); //VS SYNC
         else
             dma_channel_set_read_addr(dma_channel_control, &lines_pattern[0], false);
+        port3DA |= 1; // no more data shown
         return;
     }
+    port3DA = 0; // activated output
 
     if (!graphics_framebuffer) {
         dma_channel_set_read_addr(dma_channel_control, &lines_pattern[0], false);
+        port3DA |= 1; // no more data shown
         return;
     } //если нет видеобуфера - рисуем пустую строку
 
-    if (screen_line >= 399)
-        port3DA = 8;
-    else
-        port3DA = 0;
-
-    if (screen_line & 1)
-        port3DA |= 1;
+    int max_lines = graphics_mode == EGA_640x350x16x4 ? 480 : 400;
 
     uint32_t * *output_buffer = &lines_pattern[2 + (screen_line & 1)];
     uint16_t *output_buffer_16bit = (uint16_t *) (*output_buffer) + shift_picture / 2;
-    if (1 && screen_line >= 400) {
-        uint8_t y = screen_line - 400;
+    if (screen_line >= max_lines) {
+        uint8_t y = screen_line - max_lines;
         uint8_t y_div_8 = y / 8;
         uint8_t glyph_line = y % 8;
 
@@ -145,6 +143,7 @@ void __time_critical_func() dma_handler_VGA() {
             *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
         }
         dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
+        port3DA |= 1; // no more data shown
         return;
     }
 
@@ -192,6 +191,7 @@ void __time_critical_func() dma_handler_VGA() {
                 }
             }
             dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
+            port3DA |= 1; // no more data shown
             return;
         }
     }
@@ -199,8 +199,9 @@ void __time_critical_func() dma_handler_VGA() {
     if (screen_line % 2 && (graphics_mode != HERC_640x480x2_90 && graphics_mode != HERC_640x480x2)) return;
     uint32_t y = screen_line >> 1;
 
-    if (screen_line >= 400) {
+    if (screen_line >= max_lines) {
         dma_channel_set_read_addr(dma_channel_control, &lines_pattern[0], false); // TODO: ensue it is required
+        port3DA |= 1; // no more data shown
         return;
     }
 
@@ -378,7 +379,8 @@ void __time_critical_func() dma_handler_VGA() {
             break;
         }
         case EGA_640x350x16x4: /* EGA 640x350 16-color */ {
-            const register uint32_t* ega_row = &VIDEORAM[__fast_mul(screen_line ,80)];
+            int logical_line = __fast_mul(screen_line, 350) / 480;
+            const register uint32_t* ega_row = &VIDEORAM[__fast_mul(logical_line, 80)];
             output_buffer_8bit = (uint8_t *) output_buffer_16bit;
             for (int i = 0; i < 80; ++i) {
                 const uint32_t eight_pixels = *ega_row++;
@@ -418,9 +420,11 @@ void __time_critical_func() dma_handler_VGA() {
             break;
     }
     dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
+    port3DA |= 1; // no more data shown
 }
 
 void graphics_set_mode(enum graphics_mode_t mode) {
+    printf("mode: %0x\n", mode);
     switch (mode) {
         case TEXTMODE_40x25_BW:
         case TEXTMODE_40x25_COLOR:
