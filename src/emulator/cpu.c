@@ -1294,7 +1294,7 @@ void reset86() {
     CPU_CS = 0xFFFF;
     CPU_SS = 0x0000;
     CPU_SP = 0x0000;
-
+    
     memset(VIDEORAM, 0x00, sizeof(VIDEORAM));
     memset(UMB, 0, sizeof(UMB));
     if (butter_psram_size) {

@@ -91,11 +91,9 @@ void swap_write32(uint32_t addr32, uint32_t value) {
     }
 }
 
+
 static uint16_t oldest_ram_page = 1, last_ram_page = 0;
 static uint32_t last_lba_page = 0;
-
-#include "pico/sync.h"
-static spin_lock_t *swap_spinlock;
 
 uint32_t get_swap_page_for(uint32_t address) {
     uint32_t lba_page = address >> SHIFT_AS_DIV;
@@ -112,18 +110,15 @@ uint32_t get_swap_page_for(uint32_t address) {
     uint16_t ram_page = oldest_ram_page++;
     if (oldest_ram_page >= SWAP_BLOCKS - 1) oldest_ram_page = 1;
 
-    uint32_t save = spin_lock_blocking(swap_spinlock);
-    { // critical section
-        if (!(SWAP_PAGES[ram_page] & PAGE_CHANGE_FLAG)) {
-            swap_file_read_block(SWAP_PAGES_CACHE + (ram_page * SWAP_PAGE_SIZE), lba_page * SWAP_PAGE_SIZE, SWAP_PAGE_SIZE);
-        } else {
-            swap_file_flush_block(SWAP_PAGES_CACHE + (ram_page * SWAP_PAGE_SIZE), (SWAP_PAGES[ram_page] & PAGE_ID_MASK) * SWAP_PAGE_SIZE, SWAP_PAGE_SIZE);
-            swap_file_read_block(SWAP_PAGES_CACHE + (ram_page * SWAP_PAGE_SIZE), lba_page * SWAP_PAGE_SIZE, SWAP_PAGE_SIZE);
-        }
-        SWAP_PAGES[ram_page] = lba_page;
-        last_ram_page = ram_page;
-        spin_unlock(swap_spinlock, save);
+    if (!(SWAP_PAGES[ram_page] & PAGE_CHANGE_FLAG)) {
+        swap_file_read_block(SWAP_PAGES_CACHE + (ram_page * SWAP_PAGE_SIZE), lba_page * SWAP_PAGE_SIZE, SWAP_PAGE_SIZE);
+    } else {
+        swap_file_flush_block(SWAP_PAGES_CACHE + (ram_page * SWAP_PAGE_SIZE), (SWAP_PAGES[ram_page] & PAGE_ID_MASK) * SWAP_PAGE_SIZE, SWAP_PAGE_SIZE);
+        swap_file_read_block(SWAP_PAGES_CACHE + (ram_page * SWAP_PAGE_SIZE), lba_page * SWAP_PAGE_SIZE, SWAP_PAGE_SIZE);
     }
+
+    SWAP_PAGES[ram_page] = lba_page;
+    last_ram_page = ram_page;
     return ram_page;
 }
 
@@ -132,7 +127,6 @@ static FIL swap_file;
 
 bool init_swap() {
     printf("Initializing pagefile...\n");
-    swap_spinlock = spin_lock_instance(0);
     f_unlink(path);
     FRESULT result = f_open(&swap_file, path, FA_READ | FA_WRITE | FA_CREATE_ALWAYS);
     if (result == FR_OK) {
