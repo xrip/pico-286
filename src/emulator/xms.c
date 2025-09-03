@@ -316,15 +316,9 @@ uint8_t __not_in_flash() xms_handler() {
             // TODO: Add mem<>mem and xms<>xms
             if (!move_data.source_handle) {
                 move_data.source_offset = to_physical_offset(move_data.source_offset);
-#if PICO_ON_DEVICE && TODO
-                move_data.destination_offset += XMS_PSRAM_OFFSET;
-#endif
                 xms_move_to(move_data.destination_offset, move_data.source_offset, move_data.length);
             } else if (!move_data.destination_handle) {
                 move_data.destination_offset = to_physical_offset(move_data.destination_offset);
-#if PICO_ON_DEVICE && TODO
-                move_data.source_offset += XMS_PSRAM_OFFSET;
-#endif
                 xms_move_from(move_data.source_offset, move_data.destination_offset, move_data.length);
             }
 

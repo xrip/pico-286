@@ -28,7 +28,7 @@ project(286 C CXX ASM)
 SET(BUILD_NAME "${PROJECT_NAME}")
 
 #set(MURM20 ON)
-set(m1p2launcher ON)
+#set(m1p2launcher ON)
 set(ENABLE_VGA ON)
 set(ENABLE_PWM_SOUND ON)
 
