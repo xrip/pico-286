@@ -10,6 +10,13 @@ uint32_t vga_plane_offset = 0;
 uint8_t vga_planar_mode = 0;
 
 // https://wiki.osdev.org/VGA_Hardware
+static const uint32_t plane_expand_lut[16] = {
+    0x00000000u, 0x000000FFu, 0x0000FF00u, 0x0000FFFFu,
+    0x00FF0000u, 0x00FF00FFu, 0x00FFFF00u, 0x00FFFFFFu,
+    0xFF000000u, 0xFF0000FFu, 0xFF00FF00u, 0xFF00FFFFu,
+    0xFFFF0000u, 0xFFFF00FFu, 0xFFFFFF00u, 0xFFFFFFFFu
+};
+
 
 uint32_t vga_palette[256] = {
     0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA, // 0-7
@@ -72,33 +79,8 @@ static inline uint8_t ror8(const uint8_t value, unsigned count) {
 // Expand 4-bit nibble into per-plane byte mask (0xFF if bit set, else 0x00)
 // nibble bit0 -> plane0 (low byte), bit1 -> plane1, bit2 -> plane2, bit3 -> plane3
 static inline uint32_t expand_nibble_to_planes(const uint8_t nibble) {
-    return (nibble & 1 ? 0x000000FFu : 0) |
-           (nibble & 2 ? 0x0000FF00u : 0) |
-           (nibble & 4 ? 0x00FF0000u : 0) |
-           (nibble & 8 ? 0xFF000000u : 0);
+    return plane_expand_lut[nibble & 0x0Fu];
 }
-
-
-// Expand 4-bit value (0..15) into per-plane byte value 0x00/0xFF placed in each plane byte
-// Equivalent to plane_mask32 for map_mask bits
-static inline uint32_t plane_mask_from_mapmask(const uint8_t map_mask) {
-    return expand_nibble_to_planes(map_mask & 0x0Fu);
-}
-
-// Build set_reset32 where each plane's byte is 0xFF if set_reset bit for that plane = 1, else 0x00
-static inline uint32_t setreset32_from_setreset(const uint8_t set_reset) {
-    return expand_nibble_to_planes(set_reset & 0x0Fu);
-}
-
-// Build enable_set_reset32 same as above
-static inline uint32_t enablesr32_from(const uint8_t enable_set_reset) {
-    return expand_nibble_to_planes(enable_set_reset & 0x0Fu);
-}
-
-// color_compare/don't care: each is 4-bit; expand into 0x00/0xFF per plane byte
-static inline uint32_t cc32_from(const uint8_t cc4) { return expand_nibble_to_planes(cc4 & 0x0Fu); }
-static inline uint32_t ndc32_from(const uint8_t ndc4) { return expand_nibble_to_planes(ndc4 & 0x0Fu); }
-// don't care mask
 
 // Precomputed derived register cache to accelerate hot path
 typedef struct {
@@ -134,18 +116,18 @@ static inline void vga_reset_cache(void) {
     vga.graphics_controller[8] = 0xFF; // bit mask
 
 
-    vga.map_mask32 = plane_mask_from_mapmask(0x0F);
+    vga.map_mask32 = expand_nibble_to_planes(0x0F);
     vga.read_map_select = 0;
     vga.bit_mask32 = expand_to_u32(0xFF); // default all bits allowed
-    vga.set_reset32 = setreset32_from_setreset(0);
-    vga.enable_set_reset32 = enablesr32_from(0);
-    vga.color_compare32 = cc32_from(0);
-    vga.color_dontcare32 = ndc32_from(0x0F); // default compare all planes
+    vga.set_reset32 = expand_nibble_to_planes(0);
+    vga.enable_set_reset32 = expand_nibble_to_planes(0);
+    vga.color_compare32 = expand_nibble_to_planes(0);
+    vga.color_dontcare32 = expand_nibble_to_planes(0x0F); // default compare all planes
 }
 
 // Call whenever sequencer reg 2 or memory_mode changed
 static inline void vga_update_seq_cache(void) {
-    vga.map_mask32 = plane_mask_from_mapmask(vga.sequencer[2] & 0x0F);
+    vga.map_mask32 = expand_nibble_to_planes(vga.sequencer[2]);
     // memory_mode in seq[4] bit2 typically is chain4
     chain4 = !!(vga.sequencer[4] & 0x04u);
     vga_planar_mode = !(vga.sequencer[4] & 8) || !(vga.sequencer[4] & 6);
@@ -154,12 +136,12 @@ static inline void vga_update_seq_cache(void) {
 // Call whenever GC registers that affect derived masks change
 static inline void vga_update_gc_cache(void) {
     // set_reset: reg 0 (lower 4 bits)
-    vga.set_reset32 = setreset32_from_setreset(vga.graphics_controller[0] & 0x0Fu);
-    vga.enable_set_reset32 = enablesr32_from(vga.graphics_controller[1] & 0x0Fu);
-    vga.color_compare32 = cc32_from(vga.graphics_controller[2] & 0x0Fu);
+    vga.set_reset32 = expand_nibble_to_planes(vga.graphics_controller[0]);
+    vga.enable_set_reset32 = expand_nibble_to_planes(vga.graphics_controller[1]);
+    vga.color_compare32 = expand_nibble_to_planes(vga.graphics_controller[2]);
     // color don't care: reg 7 low 4 bits indicates which planes to consider?
     // In VGA GC reg7 is color_dont_care; typically a 4-bit mask where 1 = compare
-    vga.color_dontcare32 = ndc32_from(vga.graphics_controller[7] & 0x0Fu);
+    vga.color_dontcare32 = expand_nibble_to_planes(vga.graphics_controller[7]);
     vga.data_rotate_counter = vga.graphics_controller[3] & 0x07u;
     vga.logical_operation = (vga.graphics_controller[3] >> 3) & 0x03u; // low 2 bits of upper nibble (func)
     vga.read_map_select = vga.graphics_controller[4] & 0x03u;
@@ -193,7 +175,7 @@ uint8_t vga_mem_read(const uint32_t address) {
 }
 
 // ---------------------- Write path ----------------------
-INLINE void vga_mem_write_loop(uint32_t address, const uint8_t cpu_data) {
+void vga_mem_write_loop(uint32_t address, const uint8_t cpu_data) {
     address &= 0xFFFF;
 
     uint32_t new_data;
@@ -264,7 +246,6 @@ INLINE void vga_mem_write_loop(uint32_t address, const uint8_t cpu_data) {
     }
 
 
-
     switch (vga.logical_operation) {
         case 1: new_data = new_data & vga_latch32;
             break;
@@ -278,16 +259,20 @@ INLINE void vga_mem_write_loop(uint32_t address, const uint8_t cpu_data) {
     // Смешивание всех изменившихся планов с не изменившимися
     VIDEORAM[address] = (~vga.map_mask32 & previous_data) | (vga.map_mask32 & new_data);
 }
+
 // Core write implementation (CPU writes a byte to VGA memory)
-INLINE void vga_mem_write(const uint32_t address, const uint8_t cpu_data) {
-    uint32_t new_data;
-    uint32_t *videoram_data = &VIDEORAM[address & 0xFFFF]; // current data pointer
+void __not_in_flash() vga_mem_write(const uint32_t address, const uint8_t cpu_data) {
+    register uint32_t new_data;
+
+    register const uint32_t map_mask32 = vga.map_mask32;
+    register uint32_t *videoram_data = &VIDEORAM[address & 0xFFFF]; // current data pointer
 
     switch (vga.write_mode) {
         case 0: {
             // Mode 0: Normal write with set/reset + ALU
-            new_data = expand_to_u32(ror8(cpu_data, vga.data_rotate_counter)) & ~vga.enable_set_reset32
-                       | vga.set_reset32 & vga.enable_set_reset32;
+            register const uint32_t enable_set_reset32 = vga.enable_set_reset32;
+
+            new_data = expand_to_u32(ror8(cpu_data, vga.data_rotate_counter)) & ~enable_set_reset32 | vga.set_reset32 & enable_set_reset32;
             break;
         }
         case 2: {
@@ -298,14 +283,14 @@ INLINE void vga_mem_write(const uint32_t address, const uint8_t cpu_data) {
         }
 
         case 1: // Mode 1: Write latch directly to enabled planes
-            *videoram_data = *videoram_data & ~vga.map_mask32 | vga_latch32 & vga.map_mask32;
+            *videoram_data = *videoram_data & ~map_mask32 | vga_latch32 & map_mask32;
             return;
 
         case 3: {
+            register const uint32_t set_reset32 = vga.set_reset32;
             // Mode 3: Transparent set/reset
-            new_data = expand_to_u32(ror8(cpu_data, vga.data_rotate_counter)) & vga.set_reset32
-                       | vga_latch32 & ~vga.set_reset32;
-            *videoram_data = *videoram_data & ~vga.map_mask32 | new_data & vga.map_mask32;
+            new_data = expand_to_u32(ror8(cpu_data, vga.data_rotate_counter)) & set_reset32 | vga_latch32 & ~set_reset32;
+            *videoram_data = *videoram_data & ~map_mask32 | new_data & map_mask32;
             return;
         }
     }
@@ -319,9 +304,10 @@ INLINE void vga_mem_write(const uint32_t address, const uint8_t cpu_data) {
         case 3: new_data ^= vga_latch32;
     }
 
-    new_data = new_data & vga.bit_mask32 | vga_latch32 & ~vga.bit_mask32;
+    register const uint32_t bit_mask32 = vga.bit_mask32;
+    new_data = new_data & bit_mask32 | vga_latch32 & ~bit_mask32;
 
-    *videoram_data = *videoram_data & ~vga.map_mask32 | new_data & vga.map_mask32;
+    *videoram_data = *videoram_data & ~map_mask32 | new_data & map_mask32;
 }
 
 static uint8_t seq_index = 0;
@@ -346,10 +332,10 @@ static inline void out_0x3CE_gc_index(const uint8_t value) { gc_index = value & 
 static inline void out_0x3CF_gc_data(const uint8_t value) {
     vga.graphics_controller[gc_index] = value;
     // If register affects derived cache, update
-    if (gc_index <= 8 || gc_index == 0 || gc_index == 1 || gc_index == 2 || gc_index == 3 ||
-        gc_index == 4 || gc_index == 5 || gc_index == 7 || gc_index == 8) {
-        vga_update_gc_cache();
-    }
+    // if (gc_index <= 8 || gc_index == 0 || gc_index == 1 || gc_index == 2 || gc_index == 3 ||
+    // gc_index == 4 || gc_index == 5 || gc_index == 7 || gc_index == 8) {
+    vga_update_gc_cache();
+    // }
 }
 
 static inline uint8_t in_0x3CF_gc_data() { return vga.graphics_controller[gc_index]; }
