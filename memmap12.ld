@@ -23,7 +23,8 @@
 
 MEMORY
 {
-    FLASH(rx) : ORIGIN = 0x10010000, LENGTH = 4096k-256k
+    FLASH(rx) : ORIGIN = 0x10010000, LENGTH = 2048k-64k
+    CMOS(rx) : ORIGIN = 0x10200000, LENGTH = 4k
     RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 512k
     SCRATCH_X(rwx) : ORIGIN = 0x20080000, LENGTH = 4k
     SCRATCH_Y(rwx) : ORIGIN = 0x20081000, LENGTH = 4k
@@ -128,6 +129,11 @@ SECTIONS
         *(SORT_BY_ALIGNMENT(SORT_BY_NAME(.flashdata*)))
         . = ALIGN(4);
     } > FLASH
+
+    .cmos : {
+        *(.cmos*)
+        . = ALIGN(4);
+    } > CMOS
 
     .ARM.extab :
     {

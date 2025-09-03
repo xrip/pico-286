@@ -33,6 +33,8 @@
 #include "74hc595/74hc595.h"
 #endif
 
+uint8_t __attribute__((aligned (4), section(".cmos"))) cmos[4 << 10] = { 0 };
+
 // Global variables
 extern OPL *emu8950_opl;
 extern uint16_t timeconst;
@@ -505,14 +507,13 @@ void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused co
     }
 }
 
-int main(void) {
-    // Platform-specific initialization
-#if PICO_RP2350
-    vreg_disable_voltage_limit();
-    vreg_set_voltage(VREG_VOLTAGE_1_60);
+int cpu_mhz = CPU_FREQ_MHZ;
+int flash_mhz = FLASH_FREQ_MHZ;
+int psram_mhz = PSRAM_FREQ_MHZ;
 
-    const int max_flash_freq = FLASH_FREQ_MHZ * MHZ;
-    const int clock_hz = CPU_FREQ_MHZ * MHZ;
+void __not_in_flash() flash_timings() {
+    const int max_flash_freq = flash_mhz * MHZ;
+    const int clock_hz = cpu_mhz * MHZ;
     int divisor = (clock_hz + max_flash_freq - 1) / max_flash_freq;
     if (divisor == 1 && clock_hz > 100000000) {
         divisor = 2;
@@ -524,52 +525,137 @@ int main(void) {
     qmi_hw->m[0].timing = 0x60007000 |
                           rxdelay << QMI_M0_TIMING_RXDELAY_LSB |
                           divisor << QMI_M0_TIMING_CLKDIV_LSB;
+}
 
+void __not_in_flash() psram_timings() {
+    const int max_psram_freq = psram_mhz * MHZ;
+    const int clock_hz = cpu_mhz * MHZ;
+    int divisor = (clock_hz + max_psram_freq - 1) / max_psram_freq;
+    if (divisor == 1 && clock_hz > 100000000) {
+        divisor = 2;
+    }
+    int rxdelay = divisor;
+    if (clock_hz / divisor > 100000000) {
+        rxdelay += 1;
+    }
+    qmi_hw->m[1].timing = (qmi_hw->m[1].timing & ~0x000000FFF) |
+                          rxdelay << QMI_M0_TIMING_RXDELAY_LSB |
+                          divisor << QMI_M0_TIMING_CLKDIV_LSB;
+}
+
+static char* open_config(UINT* pbr) {
+    FILINFO fileinfo;
+    size_t file_size = 0;
+    char * cfn = "/config.286";
+    if (f_stat(cfn, &fileinfo) != FR_OK || (fileinfo.fattrib & AM_DIR)) {
+        cfn = "/xt/config.286";
+        if (f_stat(cfn, &fileinfo) != FR_OK || (fileinfo.fattrib & AM_DIR)) {
+            return 0;
+        } else {
+            file_size = (size_t)fileinfo.fsize & 0xFFFFFFFF;
+        }
+    } else {
+        file_size = (size_t)fileinfo.fsize & 0xFFFFFFFF;
+    }
+
+    FIL f;
+    if(f_open(&f, cfn, FA_READ) != FR_OK) {
+        return 0;
+    }
+    char* buff = (char*)calloc(file_size + 1, 1);
+    if (f_read(&f, buff, file_size, pbr) != FR_OK) {
+        printf("Failed to read config.286\n");
+        free(buff);
+        buff = 0;
+    }
+    f_close(&f);
+    return buff;
+}
+
+inline static void tokenizeCfg(char* s, size_t sz) {
+    size_t i = 0;
+    for (; i < sz; ++i) {
+        if (s[i] == '=' || s[i] == '\n' || s[i] == '\r') {
+            s[i] = 0;
+        }
+    }
+    s[i] = 0;
+}
+
+static char* next_token(char* t) {
+    char *t1 = t + strlen(t);
+    while(!*t1++);
+    return t1 - 1;
+}
+
+static void load_config_286() {
+    UINT br;
+    char* buff = open_config(&br);
+    if (buff) {
+        tokenizeCfg(buff, br);
+        char *t = buff;
+        while (t - buff < br) {
+            if (strcmp(t, "CPU") == 0) {
+                t = next_token(t);
+                cpu_mhz = atoi(t);
+                if (clock_get_hz(clk_sys) != cpu_mhz * MHZ) {
+                    if (!set_sys_clock_hz(cpu_mhz * MHZ, 0) ) {
+                        printf("Failed to overclock to %d MHz\n", cpu_mhz);
+                        cpu_mhz = clock_get_hz(clk_sys) / MHZ;
+                    } else {
+                        printf("CPU: %d MHz\n", cpu_mhz);
+                    }
+                }
+            } else if (strcmp(t, "VREG") == 0) {
+                t = next_token(t);
+                int vreg = atoi(t);
+                if (vreg < VREG_VOLTAGE_0_55 || vreg > VREG_VOLTAGE_3_30) {
+                    printf("Unexpected VREG value: %d\n", vreg);
+                } else {
+                    vreg_set_voltage(vreg);
+                    printf("VREG: %d\n", vreg);
+                }
+            } else if (strcmp(t, "FLASH") == 0) {
+                t = next_token(t);
+                int new_flash_mhz = atoi(t);
+                if (flash_mhz != new_flash_mhz) {
+                    flash_mhz = new_flash_mhz;
+                    flash_timings();
+                    printf("FLASH: %d MHz\n", flash_mhz);
+                }
+            } else if (strcmp(t, "PSRAM") == 0) {
+                t = next_token(t);
+                int new_psram_mhz = atoi(t);
+                if (psram_mhz != new_psram_mhz) {
+                    psram_mhz = new_psram_mhz;
+                    psram_timings();
+                    printf("PSRAM: %d MHz\n", psram_mhz);
+                }
+            } else { // unknown token
+                t = next_token(t);
+            }
+            t = next_token(t);
+        }
+        free(buff);
+    }
+}
+
+int main(void) {
+    // Platform-specific initialization
+#if PICO_RP2350
+    vreg_disable_voltage_limit();
+    vreg_set_voltage(VREG_VOLTAGE_1_60);
+    flash_timings();
     sleep_ms(100);
-    if (!set_sys_clock_hz(clock_hz, 0) ) {
-        set_sys_clock_hz(378 * MHZ, 1); // fallback to failsafe clocks
+    if (!set_sys_clock_hz(cpu_mhz * MHZ, 0) ) {
+        cpu_mhz = 378;
+        set_sys_clock_hz(cpu_mhz * MHZ, 1); // fallback to failsafe clocks
     }
 #else
     memcpy_wrapper_replace(NULL);
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
     set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, true);
 #endif
-
-    // Initialize PSRAM
-    // Overclock psram
-    rp2350a = (*((io_ro_32*)(SYSINFO_BASE + SYSINFO_PACKAGE_SEL_OFFSET)) & 1);
-    int gp;
-#ifdef MURM2
-    gp = rp2350a ?  8 : 47;
-#else
-    gp = rp2350a ? 19 : 47;
-#endif
-    psram_init(gp);
-    if (!butter_psram_size) {
-        if (init_psram() ) {
-            write86 = write86_mp;
-            writew86 = writew86_mp;
-            writedw86 = writedw86_mp;
-            read86 = read86_mp;
-            readw86 = readw86_mp;
-            readdw86 = readdw86_mp;
-        } else {
-            init_swap();
-            write86 = write86_sw;
-            writew86 = writew86_sw;
-            writedw86 = writedw86_sw;
-            read86 = read86_sw;
-            readw86 = readw86_sw;
-            readdw86 = readdw86_sw;
-        }
-    } else {
-        write86 = write86_ob;
-        writew86 = writew86_ob;
-        writedw86 = writedw86_ob;
-        read86 = read86_ob;
-        readw86 = readw86_ob;
-        readdw86 = readdw86_ob;
-    }
 
     // Set exception handler
     exception_set_exclusive_handler(HARDFAULT_EXCEPTION, sigbus);
@@ -605,6 +691,53 @@ int main(void) {
     sem_init(&vga_start_semaphore, 0, 1);
     multicore_launch_core1(second_core);
     sem_release(&vga_start_semaphore);
+#if 0 // for future save settings in flash
+    if (cmos[0] == 0) {
+        printf("Empty CMOS\n");
+    }
+#endif
+    // Mount SD card filesystem
+    if (FR_OK != f_mount(&fs, "0", 1)) {
+        printf("SD Card not inserted or SD Card error!");
+        while (1);
+    }
+
+    load_config_286();
+
+    // Initialize PSRAM
+    rp2350a = (*((io_ro_32*)(SYSINFO_BASE + SYSINFO_PACKAGE_SEL_OFFSET)) & 1);
+    int gp;
+#ifdef MURM2
+    gp = rp2350a ?  8 : 47;
+#else
+    gp = rp2350a ? 19 : 47;
+#endif
+    psram_init(gp);
+    if (!butter_psram_size) {
+        if (init_psram() ) {
+            write86 = write86_mp;
+            writew86 = writew86_mp;
+            writedw86 = writedw86_mp;
+            read86 = read86_mp;
+            readw86 = readw86_mp;
+            readdw86 = readdw86_mp;
+        } else {
+            init_swap();
+            write86 = write86_sw;
+            writew86 = writew86_sw;
+            writedw86 = writedw86_sw;
+            read86 = read86_sw;
+            readw86 = readw86_sw;
+            readdw86 = readdw86_sw;
+        }
+    } else {
+        write86 = write86_ob;
+        writew86 = writew86_ob;
+        writedw86 = writedw86_ob;
+        read86 = read86_ob;
+        readw86 = readw86_ob;
+        readdw86 = readdw86_ob;
+    }
 
     if (write86 == write86_ob) {
         printf("On-Board PSRAM mode (GP%d)\n", gp);
@@ -614,14 +747,8 @@ int main(void) {
         printf("Swap-RAM mode (4MB)\n");
     }
 
-    // Mount SD card filesystem
-    if (FR_OK != f_mount(&fs, "0", 1)) {
-        printf("SD Card not inserted or SD Card error!");
-        while (1);
-    }
-    // adlib_init(SOUND_FREQUENCY);
-
     // Initialize audio and reset emulator
+    // adlib_init(SOUND_FREQUENCY);
     sn76489_reset();
     reset86();
 

@@ -424,7 +424,7 @@ void __time_critical_func() dma_handler_VGA() {
 }
 
 void graphics_set_mode(enum graphics_mode_t mode) {
-    printf("mode: %0x\n", mode);
+    // printf("mode: %0x\n", mode);
     switch (mode) {
         case TEXTMODE_40x25_BW:
         case TEXTMODE_40x25_COLOR:
