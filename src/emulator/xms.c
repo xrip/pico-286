@@ -165,6 +165,7 @@ umb_t *get_free_umb_block(const uint16_t size) {
     return best;
 }
 
+#include "swap.h"
 #include "psram_spi.h"
 extern uint32_t butter_psram_size;
 
@@ -179,10 +180,18 @@ static INLINE void xms_move_to(const register uint32_t destination, register uin
     } else {
         uint32_t dest = XMS_PSRAM_OFFSET + destination;
         length /= 2;
-        while (length--) {
-            write16psram(dest, readw86(source));
-            dest += 2;
-            source += 2;
+        if (PSRAM_AVAILABLE) {
+            while (length--) {
+                write16psram(dest, readw86(source));
+                dest += 2;
+                source += 2;
+            }
+        } else {
+            while (length--) {
+                swap_write16(dest, readw86(source));
+                dest += 2;
+                source += 2;
+            }
         }
     }
 }
@@ -198,10 +207,18 @@ static INLINE void xms_move_from(const uint32_t source, register uint32_t destin
     } else {
         uint32_t s = source + XMS_PSRAM_OFFSET;
         length /= 2;
-        while (length--) {
-            writew86(destination, read16psram(s));
-            destination += 2;
-            s += 2;
+        if (PSRAM_AVAILABLE) {
+            while (length--) {
+                writew86(destination, read16psram(s));
+                destination += 2;
+                s += 2;
+            }
+        } else {
+            while (length--) {
+                writew86(destination, swap_read16(s));
+                destination += 2;
+                s += 2;
+            }
         }
     }
 }

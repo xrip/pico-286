@@ -1309,6 +1309,9 @@ void reset86() {
     vga_init();
 }
 
+extern volatile int16_t last_sb_sample;
+extern volatile bool ask_to_blast;
+
 void __not_in_flash() exec86(uint32_t execloops) {
     static uint16_t firstip;
     static bool was_TF;
@@ -1318,6 +1321,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
     for (uint32_t loopcount = 0; loopcount < execloops; loopcount++) {
         if (unlikely(ifl && (i8259_controller.interrupt_request_register & (~i8259_controller.interrupt_mask_register)))) {
             intcall86(nextintr()); // get next interrupt from the i8259, if any d
+        }
+        if (ask_to_blast) {
+            ask_to_blast = false;
+            last_sb_sample = blaster_sample();
         }
         reptype = 0;
         segoverride = 0;

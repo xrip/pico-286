@@ -631,10 +631,11 @@ __force_inline static void psram_write_async_fast(psram_spi_inst_t* spi, uint32_
     pio_spi_write_async(spi, write_async_fast_command, 6 + count);
 };
 extern psram_spi_inst_t psram_spi;
+extern bool PSRAM_AVAILABLE;
 static __always_inline bool init_psram() {
     psram_spi = psram_spi_init_clkdiv(pio1,-1, 2.4f, false);
     psram_write32(&psram_spi, 0x313373, 0xDEADBEEF);
-    bool PSRAM_AVAILABLE = 0xDEADBEEF == psram_read32(&psram_spi, 0x313373);
+    PSRAM_AVAILABLE = 0xDEADBEEF == psram_read32(&psram_spi, 0x313373);
     for (uint32_t addr32 = (0ul << 20); addr32 < (8ul << 20); addr32 += 4) {
         psram_write32(&psram_spi, addr32, 0x00);
     }
@@ -653,6 +654,7 @@ static __always_inline bool init_psram() {
 
 #else
 /// placeholders
+static __always_inline bool init_psram() { return false; }
 inline static void write8psram(uint32_t addr32, uint8_t v) {}
 inline static void write16psram(uint32_t addr32, uint16_t v) {}
 inline static void write32psram(uint32_t addr32, uint32_t v) {}

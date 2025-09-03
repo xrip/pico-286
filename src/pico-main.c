@@ -129,6 +129,9 @@ bool handleScancode(uint32_t ps2scancode) {
                         #endif
                         printf("PC XT\n");
                         break;
+                    default:
+                        printf("\n\n\n\n\n\n\n\n\n\n");
+                        break;
                 }
             }
             break;
@@ -144,12 +147,14 @@ bool handleScancode(uint32_t ps2scancode) {
                         break;
                     case TORMOZ_TURBO_8:
                         tormoz = NO_TORMOZ;
-                        #if !PICO_RP2040
-                            delay = 0;
+                        delay = 0;
+                        if (butter_psram_size)
                             printf("Model 70\n");
-                        #else
-                            printf("Model 30\n");
-                        #endif
+                        else
+                            printf("Model 50\n");
+                        break;
+                    default:
+                        printf("\n\n\n\n\n\n\n\n\n\n");
                         break;
                 }
             }
@@ -198,6 +203,10 @@ INLINE void _putchar(char character) {
         *vidramptr = 0;
     }
 }
+
+volatile int16_t last_sb_sample = 0;
+volatile bool ask_to_blast = false;
+
 /* Renderer loop on Pico's second core */
 void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem
@@ -261,7 +270,6 @@ void __time_critical_func() second_core(void) {
     uint64_t last_sb_tick = 0;
 
     int16_t last_dss_sample = 0;
-    int16_t last_sb_sample = 0;
 
     // Main render loop
     while (true) {
@@ -286,7 +294,10 @@ void __time_critical_func() second_core(void) {
 #if !PICO_RP2040
         // Sound Blaster sampling
         if (tick > last_sb_tick + timeconst) {
-            last_sb_sample = blaster_sample();
+            if (butter_psram_size || PSRAM_AVAILABLE)
+                last_sb_sample = blaster_sample();
+            else
+                ask_to_blast = true; // protect swap from using from seconf core
             last_sb_tick = tick;
         }
 #endif
