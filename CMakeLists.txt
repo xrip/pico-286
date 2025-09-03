@@ -28,7 +28,7 @@ project(286 C CXX ASM)
 SET(BUILD_NAME "${PROJECT_NAME}")
 
 #set(MURM20 ON)
-#set(m1p2launcher ON)
+set(m1p2launcher ON)
 set(ENABLE_VGA ON)
 set(ENABLE_PWM_SOUND ON)
 
@@ -332,6 +332,14 @@ else ()
         )
     endif ()
     pico_add_extra_outputs(${PROJECT_NAME})
+
+    if (m1p2launcher)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E rename
+            "${OUTPUT_DIR}/${BUILD_NAME}.uf2"
+            "${OUTPUT_DIR}/${BUILD_NAME}"
+        )
+    endif ()
 endif ()
 
 # =========================
