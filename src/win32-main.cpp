@@ -1111,6 +1111,7 @@ extern "C" void _putchar(char character) {
     } else if (character == '\n') {
         x = 0;
         y++;
+        y++;
     } else if (character == '\r') {
         x = 0;
     } else if (character == 8 && x > 0) {
