@@ -4,11 +4,19 @@
 #include "graphics.h"
 #endif
 
-static uint8_t color_index = 0, read_color_index = 0, vga_register, sequencer_register = 0, graphics_control_register = 0;
+static uint8_t color_index = 0, read_color_index = 0, vga_register, sequencer_register = 0, graphics_control_register =
+                0;
 uint32_t vga_plane_offset = 0;
 uint8_t vga_planar_mode = 0;
 
 // https://wiki.osdev.org/VGA_Hardware
+static const uint32_t plane_expand_lut[16] = {
+    0x00000000u, 0x000000FFu, 0x0000FF00u, 0x0000FFFFu,
+    0x00FF0000u, 0x00FF00FFu, 0x00FFFF00u, 0x00FFFFFFu,
+    0xFF000000u, 0xFF0000FFu, 0xFF00FF00u, 0xFF00FFFFu,
+    0xFFFF0000u, 0xFFFF00FFu, 0xFFFFFF00u, 0xFFFFFFFFu
+};
+
 
 uint32_t vga_palette[256] = {
     0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA, // 0-7
@@ -57,46 +65,47 @@ bool ega_vga_enabled = true;
 static uint32_t vga_latch32 = 0;
 
 // Utility: replicate an 8-bit value into all four bytes of a 32-bit word
-static inline uint32_t expand_to_u32(const uint8_t value) {
-    // multiplication trick: x * 0x01010101
-    return (uint32_t) value * 0x01010101u;
+inline static uint32_t expand_to_u32(const uint8_t value) {
+#if PICO_ON_DEVICE && !PICO_RP2350
+    // ✅ RP2040 (Cortex-M0+) optimal: 3 instructions (no MUL, no constants)
+    uint32_t result;
+    __asm __volatile(
+        "uxtb   %[res], %[val]\n" // zero-extend v
+        "orr    %[res], %[res], %[res], lsl #8\n" // duplicate into 16 bits
+        "orr    %[res], %[res], %[res], lsl #16\n" // duplicate into 32 bits
+        : [res] "=&r"(result)
+        : [val] "r"(value));
+    return result;
+#else
+    // ✅ RP2350 (Cortex-M33) optimal: single MUL
+    return (uint32_t) __fast_mul(value, 0x01010101u);
+#endif
 }
 
 // Rotate right 8-bit
-static inline uint8_t ror8(const uint8_t value, unsigned count) {
+inline static uint8_t ror8(const uint8_t value, unsigned count) {
+#if PICO_ON_DEVICE && PICO_RP2350
+    // ✅ RP2350 (M33): has real ROR
+    uint32_t result;
+    __asm("ror %0, %1, %2"
+        : "=r"(result)
+        : "r"((uint32_t) value), "r"(count));
+    return (uint8_t) result;
+#else
     count &= 7;
     return (uint8_t) ((value >> count) | (value << ((8 - count) & 7)));
+#endif
 }
 
 // Expand 4-bit nibble into per-plane byte mask (0xFF if bit set, else 0x00)
 // nibble bit0 -> plane0 (low byte), bit1 -> plane1, bit2 -> plane2, bit3 -> plane3
 static inline uint32_t expand_nibble_to_planes(const uint8_t nibble) {
-    return (nibble & 1 ? 0x000000FFu : 0) |
-           (nibble & 2 ? 0x0000FF00u : 0) |
-           (nibble & 4 ? 0x00FF0000u : 0) |
-           (nibble & 8 ? 0xFF000000u : 0);
+    return plane_expand_lut[nibble & 0x0Fu];
 }
 
-
-// Expand 4-bit value (0..15) into per-plane byte value 0x00/0xFF placed in each plane byte
-// Equivalent to plane_mask32 for map_mask bits
-static inline uint32_t plane_mask_from_mapmask(const uint8_t map_mask) {
-    return expand_nibble_to_planes(map_mask & 0x0Fu);
+static inline uint32_t masked_merge_xor(const uint32_t dst, const uint32_t src, const uint32_t mask) {
+    return (dst & ~mask) | (src & mask);
 }
-
-// Build set_reset32 where each plane's byte is 0xFF if set_reset bit for that plane = 1, else 0x00
-static inline uint32_t setreset32_from_setreset(const uint8_t set_reset) {
-    return expand_nibble_to_planes(set_reset & 0x0Fu);
-}
-
-// Build enable_set_reset32 same as above
-static inline uint32_t enablesr32_from(const uint8_t enable_set_reset) {
-    return expand_nibble_to_planes(enable_set_reset & 0x0Fu);
-}
-
-// color_compare/don't care: each is 4-bit; expand into 0x00/0xFF per plane byte
-static inline uint32_t cc32_from(const uint8_t cc4) { return expand_nibble_to_planes(cc4 & 0x0Fu); }
-static inline uint32_t ndc32_from(const uint8_t ndc4) { return expand_nibble_to_planes(ndc4 & 0x0Fu); } // don't care mask
 
 // Precomputed derived register cache to accelerate hot path
 typedef struct {
@@ -132,18 +141,18 @@ static inline void vga_reset_cache(void) {
     vga.graphics_controller[8] = 0xFF; // bit mask
 
 
-    vga.map_mask32 = plane_mask_from_mapmask(0x0F);
+    vga.map_mask32 = expand_nibble_to_planes(0x0F);
     vga.read_map_select = 0;
     vga.bit_mask32 = expand_to_u32(0xFF); // default all bits allowed
-    vga.set_reset32 = setreset32_from_setreset(0);
-    vga.enable_set_reset32 = enablesr32_from(0);
-    vga.color_compare32 = cc32_from(0);
-    vga.color_dontcare32 = ndc32_from(0x0F); // default compare all planes
+    vga.set_reset32 = expand_nibble_to_planes(0);
+    vga.enable_set_reset32 = expand_nibble_to_planes(0);
+    vga.color_compare32 = expand_nibble_to_planes(0);
+    vga.color_dontcare32 = expand_nibble_to_planes(0x0F); // default compare all planes
 }
 
 // Call whenever sequencer reg 2 or memory_mode changed
 static inline void vga_update_seq_cache(void) {
-    vga.map_mask32 = plane_mask_from_mapmask(vga.sequencer[2] & 0x0F);
+    vga.map_mask32 = expand_nibble_to_planes(vga.sequencer[2]);
     // memory_mode in seq[4] bit2 typically is chain4
     chain4 = !!(vga.sequencer[4] & 0x04u);
     vga_planar_mode = !(vga.sequencer[4] & 8) || !(vga.sequencer[4] & 6);
@@ -152,12 +161,12 @@ static inline void vga_update_seq_cache(void) {
 // Call whenever GC registers that affect derived masks change
 static inline void vga_update_gc_cache(void) {
     // set_reset: reg 0 (lower 4 bits)
-    vga.set_reset32 = setreset32_from_setreset(vga.graphics_controller[0] & 0x0Fu);
-    vga.enable_set_reset32 = enablesr32_from(vga.graphics_controller[1] & 0x0Fu);
-    vga.color_compare32 = cc32_from(vga.graphics_controller[2] & 0x0Fu);
+    vga.set_reset32 = expand_nibble_to_planes(vga.graphics_controller[0]);
+    vga.enable_set_reset32 = expand_nibble_to_planes(vga.graphics_controller[1]);
+    vga.color_compare32 = expand_nibble_to_planes(vga.graphics_controller[2]);
     // color don't care: reg 7 low 4 bits indicates which planes to consider?
     // In VGA GC reg7 is color_dont_care; typically a 4-bit mask where 1 = compare
-    vga.color_dontcare32 = ndc32_from(vga.graphics_controller[7] & 0x0Fu);
+    vga.color_dontcare32 = expand_nibble_to_planes(vga.graphics_controller[7]);
     vga.data_rotate_counter = vga.graphics_controller[3] & 0x07u;
     vga.logical_operation = (vga.graphics_controller[3] >> 3) & 0x03u; // low 2 bits of upper nibble (func)
     vga.read_map_select = vga.graphics_controller[4] & 0x03u;
@@ -191,110 +200,210 @@ uint8_t vga_mem_read(const uint32_t address) {
 }
 
 // ---------------------- Write path ----------------------
-
-// Core write implementation (CPU writes a byte to VGA memory)
-INLINE void vga_mem_write(uint32_t address, const uint8_t cpu_data) {
+void vga_mem_write_loop(uint32_t address, const uint8_t cpu_data) {
     address &= 0xFFFF;
-    // uint8_t imposed4;
-    // addr_xlate(address, &address, &imposed4);
 
-    // Compose the effective plane mask32
-    const register uint32_t plane_mask32 = vga.map_mask32;;
-    // Compose the effective plane mask32
-    // const uint32_t plane_mask32 = vga_cache.map_mask32;
-
-    // Grab latch (VGA hardware latches on read; on write mode 1 we use the latched value)
-    const register uint32_t latch = vga_latch32;
-    // For other modes latch is still used for ALU combos and blending
-    // Compute bit mask replicated to 32-bit
-    const register uint32_t bitmask32 = vga.bit_mask32;
-
-    // Precompute rotated source and replicated 32-bit source
-    const uint8_t rotated = ror8(cpu_data, vga.data_rotate_counter);
-    uint32_t register data32 = expand_to_u32(rotated);
-
-    uint32_t result32 = VIDEORAM[address]; // read current mem for blending
+    uint32_t new_data;
+    const uint32_t previous_data = VIDEORAM[address]; // read current mem for blending
 
     switch (vga.write_mode) {
+        case 1: // Mode 1: Write latch directly to enabled planes
+            VIDEORAM[address] = (previous_data & ~vga.map_mask32) | (vga_latch32 & vga.map_mask32);
+            return;
+
         case 0: {
-            // Mode 0: normal write using set/reset + ALU function + bitmask + plane map
-            // First apply enable_set_reset: where enable == 1, take set_reset; else take source bits
-            data32 = (data32 & ~vga.enable_set_reset32) | (vga.set_reset32 & vga.enable_set_reset32);
-            uint32_t alu;
-            // ALU function:
-            switch (vga.logical_operation) {
-                default:
-                case 0: alu = data32;
-                    break; // Replace (SRsel)
-                case 1: alu = data32 & latch;
-                    break; // AND with latch
-                case 2: alu = data32 | latch;
-                    break; // OR with latch
-                case 3: alu = data32 ^ latch;
-                    break; // XOR with latch
+            // Mode 0: Normal write with set/reset + ALU
+            new_data = 0;
+            const uint8_t rdata = (ror8(cpu_data, vga.data_rotate_counter));
+
+            for (int i = 0; i < 4; i++) {
+                const uint32_t mask = 1 << i;
+
+                uint8_t value = 0;
+                if ((vga.sequencer[2] & 0xf) & mask) {
+                    if (vga.graphics_controller[1] & mask) {
+                        value = vga.graphics_controller[0] & mask ? 0xFF : 0x00;
+                    } else {
+                        value = ror8(rdata, vga.data_rotate_counter);
+                    }
+
+                    new_data |= value << (i * 8);
+                }
             }
-            // Apply bit mask: where bitmask is 1 -> take from alu, else from latch
-            const uint32_t blended = (alu & bitmask32) | (latch & ~bitmask32);
-            // Finally apply plane enable mask
-            result32 = (result32 & ~plane_mask32) | (blended & plane_mask32);
-            break;
-        }
-        case 1: {
-            // Mode 1: write latch back (no rotate/ALU / data ignored). Write latched 32 bits to enabled planes.
-            result32 = (result32 & ~plane_mask32) | (latch & plane_mask32);
             break;
         }
 
         case 2: {
-            // Mode 2: "color expand" set color to all planes
-            // data32 = expand_to_u32(cpu_data); // e.g. 0xA5 -> 0xA5A5A5A5
-            data32 = expand_nibble_to_planes(cpu_data);
-
-            // Step 3: use src32 as ALU source (set/reset is ignored; rotation ignored)
-            uint32_t alu;
-            switch (vga.logical_operation) {
-                default:
-                case 0: alu = data32;
-                    break; // PASS
-                case 1: alu = data32 & result32;
-                    break; // AND
-                case 2: alu = data32 | result32;
-                    break; // OR
-                case 3: alu = data32 ^ result32;
-                    break; // XOR
+            // Mode 2: Color expands to all planes
+            new_data = 0;
+            for (int i = 0; i < 4; i++) {
+                uint8_t value = 0;
+                const uint32_t mask = 1 << i;
+                if ((vga.sequencer[2] & 0xf) & mask) {
+                    value = cpu_data & mask ? 0xFF : 0x00;
+                }
+                new_data |= value << (i * 8);
             }
-
-            // Step 4: apply GC bitmask (reg 8) — this selects bit positions within bytes
-            const uint32_t blended = (alu & bitmask32) | (result32 & ~bitmask32);
-
-            // Step 5: write only to planes enabled by sequencer map_mask & addressing-imposed mask
-            result32 = (result32 & ~plane_mask32) | (blended & plane_mask32);
-
             break;
         }
 
         case 3: {
-            // Mode 3: Transparent set/reset writes
-            // Selection mask is rot8 & bitmask (only bits with mask=1 affected). We must expand selection mask to 32-bit bytes.
-            const uint8_t sel8 = (uint8_t) (rotated & vga.graphics_controller[8]);
-            // gc[8] is bit_mask, but we already set bitmask32; still compute sel8
-            // Expand sel8 into 32-bit where each byte equals sel8 (and then AND with per-byte 0xFF/0x00)
-            // Simpler: create sel32 = expand_to_u32(sel8) & bitmask32
-            const uint32_t sel32 = expand_to_u32(sel8) & bitmask32;
-            // blend set_reset where sel32=1 else latch
-            const uint32_t blended = (vga.set_reset32 & sel32) | (latch & ~sel32);
-            result32 = (result32 & ~plane_mask32) | (blended & plane_mask32);
+            // Mode 0: Normal write with set/reset + ALU
+            new_data = 0;
+            const uint8_t value = ror8(cpu_data, vga.data_rotate_counter) & vga.graphics_controller[8];
+
+            for (int i = 0; i < 4; i++) {
+                const uint32_t mask = 1 << i;
+
+                if ((vga.sequencer[2] & 0xf) & mask) {
+                    uint8_t set_reset = vga.graphics_controller[0] & mask ? 0xFF : 0x00;
+
+                    new_data |= value << (i * 8);
+                }
+            }
+            VIDEORAM[address] = (vga.set_reset32 & new_data) | (~new_data & vga_latch32);
+            return;
             break;
         }
-        default: {
-            // fallback safe: do nothing
+
+        default:
+            new_data = 0;
+    }
+
+
+    // --- ALU (applies to modes 0, 2, 3) ---
+    //
+    if (vga.logical_operation == 1) {
+        new_data &= vga_latch32;
+    } else if (vga.logical_operation == 2) {
+        new_data |= vga_latch32;
+    } else if (vga.logical_operation == 3) {
+        new_data ^= vga_latch32;
+    }
+
+    new_data = (vga.bit_mask32 & new_data) | (~vga.bit_mask32 & vga_latch32);
+
+    // Смешивание всех изменившихся планов с не изменившимися
+    VIDEORAM[address] = (~vga.map_mask32 & previous_data) | (vga.map_mask32 & new_data);
+}
+
+// Core write implementation (CPU writes a byte to VGA memory)
+void __not_in_flash() vga_mem_write(const uint32_t address, const uint8_t cpu_data) {
+    register uint32_t new_data;
+
+    register const uint32_t map_mask32 = vga.map_mask32;
+    register const uint32_t enable_set_reset32 = vga.enable_set_reset32;
+    register const uint32_t set_reset32 = vga.set_reset32;
+    register uint32_t *videoram_data = &VIDEORAM[address & 0xFFFF]; // current data pointer
+
+    switch (vga.write_mode) {
+        case 0: {
+            // Mode 0: Normal write with set/reset + ALU
+            new_data = masked_merge_xor(expand_to_u32(ror8(cpu_data, vga.data_rotate_counter)), set_reset32, enable_set_reset32);
             break;
+        }
+        case 2: {
+            // Mode 2: Color expands to all planes
+            new_data = expand_nibble_to_planes(cpu_data);
+            // new_data = expand_to_u32(cpu_data);
+            break;
+        }
+
+        case 1: // Mode 1: Write latch directly to enabled planes
+            *videoram_data = masked_merge_xor(*videoram_data, vga_latch32, map_mask32);
+            return;
+
+        case 3: {
+            // Mode 3: Transparent set/reset
+            new_data = expand_to_u32(ror8(cpu_data, vga.data_rotate_counter)) & set_reset32 | vga_latch32 & ~set_reset32;
+            *videoram_data = masked_merge_xor(*videoram_data, new_data, map_mask32);
+            return;
         }
     }
 
-    // Write back
-    VIDEORAM[address] = result32;
-    // Note: hardware doesn't automatically reload latch on write; latch remains last read.
+    // --- ALU (applies to modes 0, 2, 3) ---
+    //
+    if (vga.logical_operation == 1) {
+        new_data &= vga_latch32;
+    } else if (vga.logical_operation == 2) {
+        new_data |= vga_latch32;
+    } else if (vga.logical_operation == 3) {
+        new_data ^= vga_latch32;
+    }
+
+    new_data = masked_merge_xor(vga_latch32, new_data, vga.bit_mask32);
+
+    *videoram_data = masked_merge_xor(*videoram_data, new_data, map_mask32);
+}
+
+// 16-bit fast path: write two consecutive addresses (address, address+1) with one setup
+void __not_in_flash() vga_mem_write16(const uint32_t address, const uint16_t cpu_data_x2) {
+    const uint32_t map_mask32 = vga.map_mask32;
+    const uint32_t enable_set_reset32 = vga.enable_set_reset32;
+    const uint32_t set_reset32 = vga.set_reset32;
+    const uint32_t bit_mask32 = vga.bit_mask32;
+    const uint32_t latch32 = vga_latch32;
+    const uint8_t rotate = vga.data_rotate_counter;
+    const uint8_t logic = vga.logical_operation;
+    const uint8_t wmode = vga.write_mode;
+
+    uint32_t *p0 = &VIDEORAM[address & 0xFFFFu];
+    uint32_t *p1 = p0 + 1;
+
+    if (wmode == 1) {
+        // Mode 1: latch -> enabled planes
+        const uint32_t lat = latch32;
+        *p0 = masked_merge_xor(*p0, lat, map_mask32);
+        *p1 = masked_merge_xor(*p1, lat, map_mask32);
+        return;
+    }
+
+    if (wmode == 3) {
+        // Mode 3: transparent set/reset
+        const uint32_t rot0 = expand_to_u32(ror8((uint8_t) (cpu_data_x2 & 0xFF), rotate));
+        const uint32_t rot1 = expand_to_u32(ror8((uint8_t) (cpu_data_x2 >> 8), rotate));
+        const uint32_t base = latch32 & ~set_reset32;
+
+        const uint32_t new0 = (rot0 & set_reset32) | base;
+        const uint32_t new1 = (rot1 & set_reset32) | base;
+
+        *p0 = masked_merge_xor(*p0, new0, map_mask32);
+        *p1 = masked_merge_xor(*p1, new1, map_mask32);
+        return;
+    }
+
+    // Modes 0 and 2
+    uint32_t new0, new1;
+    if (wmode == 0) {
+        // Mode 0: rotate + set/reset + ALU
+        const uint32_t rot0 = expand_to_u32(ror8((uint8_t) (cpu_data_x2 & 0xFFu), rotate));
+        const uint32_t rot1 = expand_to_u32(ror8((uint8_t) (cpu_data_x2 >> 8), rotate));
+        new0 = masked_merge_xor(rot0, set_reset32, enable_set_reset32);
+        new1 = masked_merge_xor(rot1, set_reset32, enable_set_reset32);
+    } else {
+        // Mode 2: color expand
+        new0 = expand_nibble_to_planes((uint8_t) (cpu_data_x2 & 0xFFu));
+        new1 = expand_nibble_to_planes((uint8_t) (cpu_data_x2 >> 8));
+    }
+
+    // ALU apply (modes 0,2)
+    if (logic == 1) {
+        new0 &= latch32;
+        new1 &= latch32;
+    } else if (logic == 2) {
+        new0 |= latch32;
+        new1 |= latch32;
+    } else if (logic == 3) {
+        new0 ^= latch32;
+        new1 ^= latch32;
+    }
+
+    // Bit mask blend, then final map-mask merge into VRAM
+    new0 = masked_merge_xor(latch32, new0, bit_mask32);
+    new1 = masked_merge_xor(latch32, new1, bit_mask32);
+
+    *p0 = masked_merge_xor(*p0, new0, map_mask32);
+    *p1 = masked_merge_xor(*p1, new1, map_mask32);
 }
 
 static uint8_t seq_index = 0;
@@ -319,10 +428,10 @@ static inline void out_0x3CE_gc_index(const uint8_t value) { gc_index = value & 
 static inline void out_0x3CF_gc_data(const uint8_t value) {
     vga.graphics_controller[gc_index] = value;
     // If register affects derived cache, update
-    if (gc_index <= 8 || gc_index == 0 || gc_index == 1 || gc_index == 2 || gc_index == 3 ||
-        gc_index == 4 || gc_index == 5 || gc_index == 7 || gc_index == 8) {
-        vga_update_gc_cache();
-    }
+    // if (gc_index <= 8 || gc_index == 0 || gc_index == 1 || gc_index == 2 || gc_index == 3 ||
+    // gc_index == 4 || gc_index == 5 || gc_index == 7 || gc_index == 8) {
+    vga_update_gc_cache();
+    // }
 }
 
 static inline uint8_t in_0x3CF_gc_data() { return vga.graphics_controller[gc_index]; }
@@ -351,9 +460,9 @@ void vga_portout(uint16_t portnum, uint16_t value) {
             if (data_mode) {
                 // Palette registers
                 if (vga_register <= 0x0f) {
-                    const uint8_t r = (((value >> 2) & 1) << 1) + (value >> 5 & 1);
-                    const uint8_t g = (((value >> 1) & 1) << 1) + (value >> 4 & 1);
-                    const uint8_t b = (((value >> 0) & 1) << 1) + (value >> 3 & 1);
+                    const uint8_t r = (((value >> 2) & 1) << 1) + ((value >> 5) & 1);
+                    const uint8_t g = (((value >> 1) & 1) << 1) + ((value >> 4) & 1);
+                    const uint8_t b = (((value >> 0) & 1) << 1) + ((value >> 3) & 1);
 
                     vga_palette[vga_register] = rgb(r * 85, g * 85, b * 85);
 #if PICO_ON_DEVICE

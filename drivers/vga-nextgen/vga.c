@@ -74,6 +74,15 @@ static int txt_palette_init = 0;
 enum graphics_mode_t graphics_mode;
 
 extern uint8_t __aligned(4) DEBUG_VRAM[80 * 10];
+// Spread one 8-bit value so its bits land at positions 0,4,8,...,28.
+// Verified for all 256 inputs.
+// ~20-ish simple ops; great on RP2040/RP2350.
+static inline uint32_t spread4_u32(uint32_t b) {
+    b &= 0xFFu;
+    b = (b | (b << 12)) & 0x000F000Fu;
+    b = (b | (b << 6)) & 0x03030303u;
+    return (b | (b << 3)) & 0x11111111u;
+}
 
 void __time_critical_func() dma_handler_VGA() {
     dma_hw->ints0 = 1u << dma_channel_control;
@@ -87,6 +96,7 @@ void __time_critical_func() dma_handler_VGA() {
     }
 
     if (screen_line >= N_lines_visible) {
+	        port3DA = 8; // useful frame is finished
         //заполнение цветом фона
         if (screen_line == N_lines_visible | screen_line == N_lines_visible + 3) {
             uint32_t *output_buffer_32bit = lines_pattern[2 + (screen_line & 1)];
@@ -103,21 +113,16 @@ void __time_critical_func() dma_handler_VGA() {
             dma_channel_set_read_addr(dma_channel_control, &lines_pattern[1], false); //VS SYNC
         else
             dma_channel_set_read_addr(dma_channel_control, &lines_pattern[0], false);
-        return;
+                port3DA |= 1; // no more data shown
+		return;
     }
 
+    port3DA = 0; // activated output
     if (!graphics_framebuffer) {
         dma_channel_set_read_addr(dma_channel_control, &lines_pattern[0], false);
         return;
     } //если нет видеобуфера - рисуем пустую строку
 
-    if (screen_line >= 399)
-        port3DA = 8;
-    else
-        port3DA = 0;
-
-    if (screen_line & 1)
-        port3DA |= 1;
 
     uint32_t * *output_buffer = &lines_pattern[2 + (screen_line & 1)];
     uint16_t *output_buffer_16bit = (uint16_t *) (*output_buffer) + shift_picture / 2;
@@ -145,6 +150,7 @@ void __time_critical_func() dma_handler_VGA() {
             *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
         }
         dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
+		        port3DA |= 1; // no more data shown
         return;
     }
 
@@ -155,7 +161,7 @@ void __time_critical_func() dma_handler_VGA() {
         case TEXTMODE_80x25_BW: {
             // "слой" символа
             uint8_t y_div_16 = screen_line / 16;
-            const uint8_t glyph_line = screen_line % 16;
+            const uint8_t glyph_line = screen_line & 15;
 
             //указатель откуда начать считывать символы
             const uint32_t *text_buffer_line = &VIDEORAM[0x8000 + (vram_offset << 1) + __fast_mul(y_div_16, 160)];
@@ -192,11 +198,18 @@ void __time_critical_func() dma_handler_VGA() {
                 }
             }
             dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
+			        port3DA |= 1; // no more data shown
             return;
         }
     }
 
-    if (screen_line % 2 && (graphics_mode != HERC_640x480x2_90 && graphics_mode != HERC_640x480x2)) return;
+    if (screen_line & 1 && (
+        graphics_mode != HERC_640x480x2_90 &&
+        graphics_mode != HERC_640x480x2 &&
+        graphics_mode != VGA_640x480x2 &&
+        graphics_mode != EGA_640x350x16x4
+        )
+        ) return;
     uint32_t y = screen_line >> 1;
 
     if (screen_line >= 400) {
@@ -319,7 +332,6 @@ void __time_critical_func() dma_handler_VGA() {
             const register uint32_t *vga_row = &VIDEORAM[__fast_mul(screen_line, 80)];
             output_buffer_8bit = (uint8_t *) output_buffer_16bit;
             for (int x = 640 / 8; x--;) {
-                //*output_buffer_16bit++=current_palette[*input_buffer_8bit++];
                 const uint8_t cga_byte = *vga_row++;
 
                 *output_buffer_8bit++ = current_palette[__fast_mul(((cga_byte >> 7) & 1), 15)];
@@ -338,21 +350,23 @@ void __time_critical_func() dma_handler_VGA() {
 
             // Process 40 dwords (320 pixels) in groups
             for (int x = 0; x < 40; x++) {
-                const uint32_t eight_pixels = *ega_row++;
+                uint32_t ega_planes = *ega_row++;
 
-                const uint8_t plane0 = eight_pixels & 0xFF; // plane0
-                const uint8_t plane1 = (eight_pixels >> 8) & 0xFF; // plane1
-                const uint8_t plane2 = (eight_pixels >> 16) & 0xFF; // plane2
-                const uint8_t plane3 = (eight_pixels >> 24); // plane3
+                // Build 8 color nibbles packed into a 32-bit word
+                uint32_t eight_pixels = spread4_u32(ega_planes       & 0xFFu)
+                           | spread4_u32(ega_planes >>  8 & 0xFFu) << 1
+                           | spread4_u32(ega_planes >> 16 & 0xFFu) << 2
+                           | spread4_u32(ega_planes >> 24)         << 3;
 
-#pragma GCC unroll(8)
-                for (int bit = 7; bit >= 0; --bit) {
-                    const uint8_t color_index = ((plane0 >> bit) & 1)
-                                        | (((plane1 >> bit) & 1) << 1)
-                                        | (((plane2 >> bit) & 1) << 2)
-                                        | (((plane3 >> bit) & 1) << 3);
-                    *output_buffer_16bit++ =  current_palette[color_index];;
-                }
+                // Unroll writing 8 pixels, duplicating horizontally
+                *output_buffer_16bit++ = current_palette[eight_pixels >> 28];
+                *output_buffer_16bit++ = current_palette[eight_pixels >> 24 & 0xF];
+                *output_buffer_16bit++ = current_palette[eight_pixels >> 20 & 0xF];
+                *output_buffer_16bit++ = current_palette[eight_pixels >> 16 & 0xF];
+                *output_buffer_16bit++ = current_palette[eight_pixels >> 12 & 0xF];
+                *output_buffer_16bit++ = current_palette[eight_pixels >>  8 & 0xF];
+                *output_buffer_16bit++ = current_palette[eight_pixels >>  4 & 0xF];
+                *output_buffer_16bit++ = current_palette[eight_pixels       & 0xF];
             }
             break;
         }
@@ -360,41 +374,48 @@ void __time_critical_func() dma_handler_VGA() {
             const register uint32_t* ega_row = &VIDEORAM[__fast_mul(y ,80)];
             output_buffer_8bit = (uint8_t *) output_buffer_16bit;
             for (int i = 0; i < 80; ++i) {
-                const uint32_t eight_pixels = *ega_row++;
-                uint8_t plane0 =  eight_pixels        & 0xFF;
-                uint8_t plane1 = (eight_pixels >> 8)  & 0xFF;
-                uint8_t plane2 = (eight_pixels >> 16) & 0xFF;
-                uint8_t plane3 = (eight_pixels >> 24) & 0xFF;
+                uint32_t ega_planes = *ega_row++;
 
-#pragma GCC unroll(8)
-                for (int bit = 7; bit >= 0; --bit) {
-                    const uint8_t color_index = ((plane0 >> bit) & 1)
-                                        | (((plane1 >> bit) & 1) << 1)
-                                        | (((plane2 >> bit) & 1) << 2)
-                                        | (((plane3 >> bit) & 1) << 3);
-                    *output_buffer_8bit++ = current_palette[color_index];
-                }
+                // Build 8 color nibbles packed into a 32-bit word
+                uint32_t eight_pixels = spread4_u32(ega_planes       & 0xFFu)
+                           | spread4_u32(ega_planes >>  8 & 0xFFu) << 1
+                           | spread4_u32(ega_planes >> 16 & 0xFFu) << 2
+                           | spread4_u32(ega_planes >> 24)         << 3;
+
+                // Unroll writing 8 pixels, duplicating horizontally
+                *output_buffer_8bit++ = current_palette[eight_pixels >> 28];
+                *output_buffer_8bit++ = current_palette[eight_pixels >> 24 & 0xF];
+                *output_buffer_8bit++ = current_palette[eight_pixels >> 20 & 0xF];
+                *output_buffer_8bit++ = current_palette[eight_pixels >> 16 & 0xF];
+                *output_buffer_8bit++ = current_palette[eight_pixels >> 12 & 0xF];
+                *output_buffer_8bit++ = current_palette[eight_pixels >>  8 & 0xF];
+                *output_buffer_8bit++ = current_palette[eight_pixels >>  4 & 0xF];
+                *output_buffer_8bit++ = current_palette[eight_pixels       & 0xF];
             }
             break;
         }
         case EGA_640x350x16x4: /* EGA 640x350 16-color */ {
             const register uint32_t* ega_row = &VIDEORAM[__fast_mul(screen_line ,80)];
             output_buffer_8bit = (uint8_t *) output_buffer_16bit;
-            for (int i = 0; i < 80; ++i) {
-                const uint32_t eight_pixels = *ega_row++;
-                uint8_t plane0 =  eight_pixels        & 0xFF;
-                uint8_t plane1 = (eight_pixels >> 8)  & 0xFF;
-                uint8_t plane2 = (eight_pixels >> 16) & 0xFF;
-                uint8_t plane3 = (eight_pixels >> 24) & 0xFF;
 
-#pragma GCC unroll(8)
-                for (int bit = 7; bit >= 0; --bit) {
-                    uint8_t color_index = ((plane0 >> bit) & 1)
-                                        | (((plane1 >> bit) & 1) << 1)
-                                        | (((plane2 >> bit) & 1) << 2)
-                                        | (((plane3 >> bit) & 1) << 3);
-                    *output_buffer_8bit++ = current_palette[color_index];
-                }
+            for (int i = 0; i < 80; ++i) {
+                uint32_t ega_planes = *ega_row++;
+
+                // Build 8 color nibbles packed into a 32-bit word
+                uint32_t eight_pixels = spread4_u32(ega_planes       & 0xFFu)
+                           | spread4_u32(ega_planes >>  8 & 0xFFu) << 1
+                           | spread4_u32(ega_planes >> 16 & 0xFFu) << 2
+                           | spread4_u32(ega_planes >> 24)         << 3;
+
+                // Unroll writing 8 pixels, duplicating horizontally
+                *output_buffer_8bit++ = current_palette[eight_pixels >> 28];
+                *output_buffer_8bit++ = current_palette[eight_pixels >> 24 & 0xF];
+                *output_buffer_8bit++ = current_palette[eight_pixels >> 20 & 0xF];
+                *output_buffer_8bit++ = current_palette[eight_pixels >> 16 & 0xF];
+                *output_buffer_8bit++ = current_palette[eight_pixels >> 12 & 0xF];
+                *output_buffer_8bit++ = current_palette[eight_pixels >>  8 & 0xF];
+                *output_buffer_8bit++ = current_palette[eight_pixels >>  4 & 0xF];
+                *output_buffer_8bit++ = current_palette[eight_pixels       & 0xF];
             }
             break;
         }
@@ -418,6 +439,7 @@ void __time_critical_func() dma_handler_VGA() {
             break;
     }
     dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
+	        port3DA |= 1; // no more data shown
 }
 
 void graphics_set_mode(enum graphics_mode_t mode) {

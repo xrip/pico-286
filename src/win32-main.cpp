@@ -9,6 +9,7 @@
 static uint32_t ALIGN(4, SCREEN[640 * 480]);
 uint8_t ALIGN(4, DEBUG_VRAM[80 * 10]) = {0};
 
+
 int cursor_blink_state = 0;
 uint8_t log_debug = 0;
 
@@ -20,52 +21,9 @@ extern OPL *emu8950_opl;
 #define AUDIO_BUFFER_LENGTH ((SOUND_FREQUENCY / 10))
 static int16_t audio_buffer[AUDIO_BUFFER_LENGTH * 2] = {};
 static int sample_index = 0;
-
 extern "C" void adlib_getsample(int16_t *sndptr, intptr_t numsamples);
 
-static inline void draw_8_pixels_to_rgb(uint32_t vram_word, uint32_t* rgb_out) {
-    // Extract all planes at once
-    uint8_t plane0 = vram_word & 0xFF;
-    uint8_t plane1 = (vram_word >> 8) & 0xFF;
-    uint8_t plane2 = (vram_word >> 16) & 0xFF;
-    uint8_t plane3 = (vram_word >> 24) & 0xFF;
 
-    // Process 8 pixels in parallel using lookup table
-    static uint8_t pixel_extract_lut[256][8];
-    static int lut_initialized = 0;
-
-    if (!lut_initialized) {
-        // Build LUT once - extracts individual bits from byte
-        for (int byte = 0; byte < 256; byte++) {
-            for (int bit = 0; bit < 8; bit++) {
-                pixel_extract_lut[byte][bit] = (byte >> (7-bit)) & 1;
-            }
-        }
-        lut_initialized = 1;
-    }
-
-    // Use LUT to extract and combine all pixels
-    for (int pix = 0; pix < 8; pix++) {
-        uint8_t color = pixel_extract_lut[plane0][pix] |
-                       (pixel_extract_lut[plane1][pix] << 1) |
-                       (pixel_extract_lut[plane2][pix] << 2) |
-                       (pixel_extract_lut[plane3][pix] << 3);
-
-        // Write RGB directly
-        *rgb_out++ = vga_palette[color];
-    }
-}
-extern "C" union vga_sequencer_t {
-    struct __attribute__((packed)) {
-        uint8_t reset; // Reset Register (0x00)
-        uint8_t clocking_mode; // Clocking Mode Register (0x01)
-        uint8_t map_mask; // Map Mask Register (0x02)
-        uint8_t char_map_select; // Character Map Select Register (0x03)
-        uint8_t memory_mode; // Memory Mode Register (0x04)
-    };
-
-    uint8_t registers[5];
-} vga_sequencer;
 
 static INLINE void renderer() {
     // http://www.techhelpmanual.com/114-video_modes.html

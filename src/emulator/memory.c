@@ -43,8 +43,7 @@ void writew86(const uint32_t address, const uint16_t value) {
         if (address < RAM_SIZE) {
             *(uint16_t *) &RAM[address] = value;
         } else if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-            write86(address, (uint8_t) (value & 0xFF));
-            write86(address + 1, (uint8_t) ((value >> 8) & 0xFF));
+            vga_mem_write16(address, value);
         } else if (address >= EMS_START && address < EMS_END) {
             ems_writew(address - EMS_START, value);
         } else if (address >= UMB_START && address < UMB_END) {
