@@ -731,16 +731,13 @@ int main(void) {
     psram_init(gp);
     if (!butter_psram_size) {
         if (init_psram() ) {
-            #if DM
             write86 = write86_mp;
             writew86 = writew86_mp;
             writedw86 = writedw86_mp;
             read86 = read86_mp;
             readw86 = readw86_mp;
             readdw86 = readdw86_mp;
-            #endif
         } else {
-            #if DM
             init_swap();
             write86 = write86_sw;
             writew86 = writew86_sw;
@@ -748,7 +745,6 @@ int main(void) {
             read86 = read86_sw;
             readw86 = readw86_sw;
             readdw86 = readdw86_sw;
-            #endif
         }
     } else {
         write86 = write86_ob;
@@ -793,13 +789,11 @@ int main(void) {
         } else {
             printf("PSRAM max %d MHz [T%p]\n", psram_mhz, qmi_hw->m[1].timing);
         }
-        printf("On-Board PSRAM mode (GP%d)\n", gp);
-    #if DM
+        printf("On-Board-PSRAM mode (GP%d)\n", gp);
     } else if (write86 == write86_mp) {
-        printf("Murmulator-Board PSRAM mode\n");
+        printf("Murmulator-Board-PSRAM mode\n");
     } else {
-        printf("Swap-RAM mode (4MB)\n");
-    #endif
+        printf("Swap-RAM mode (8 MB)\n");
     }
 
     // Initialize audio and reset emulator
