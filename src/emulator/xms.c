@@ -282,8 +282,7 @@ uint8_t __not_in_flash() xms_handler() {
                 xms_move_from(move_data.source_offset, move_data.destination_offset, move_data.length);
             }
 
-#if 0
-            printf(
+            debug_log(
                 "[XMS] Move EMB 0x%06X\r\n\t length 0x%08X \r\n\t src_handle 0x%04X \r\n\t src_offset 0x%08X \r\n\t dest_handle 0x%04X \r\n\t dest_offset 0x%08X \r\n",
                 struct_offset,
                 move_data.length,
@@ -292,7 +291,6 @@ uint8_t __not_in_flash() xms_handler() {
                 move_data.destination_handle,
                 move_data.destination_offset
             );
-#endif
             CPU_AX = 1;
             CPU_BL = 0;
             break;
