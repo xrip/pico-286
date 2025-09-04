@@ -132,23 +132,6 @@ typedef struct {
 
 static vga_cache_t vga;
 
-// Initialize the regs and derived cache
-static inline void vga_reset_cache(void) {
-    memset(&vga, 0, sizeof(vga));
-    // sensible defaults: map_mask = 0x0F (all planes enabled)
-    vga.sequencer[2] = 0x0F; // map mask
-    // vga_cache.graphics_controller[4] = 0x0F; // read map select//
-    vga.graphics_controller[8] = 0xFF; // bit mask
-
-
-    vga.map_mask32 = expand_nibble_to_planes(0x0F);
-    vga.read_map_select = 0;
-    vga.bit_mask32 = expand_to_u32(0xFF); // default all bits allowed
-    vga.set_reset32 = expand_nibble_to_planes(0);
-    vga.enable_set_reset32 = expand_nibble_to_planes(0);
-    vga.color_compare32 = expand_nibble_to_planes(0);
-    vga.color_dontcare32 = expand_nibble_to_planes(0x0F); // default compare all planes
-}
 
 // Call whenever sequencer reg 2 or memory_mode changed
 static inline void vga_update_seq_cache(void) {
@@ -304,9 +287,11 @@ void __not_in_flash() vga_mem_write(const uint32_t address, const uint8_t cpu_da
         }
         case 2: {
             // Mode 2: Color expands to all planes
-            if (vga.chain4) { // In 256 color modes we write full byte to all masked planes
+            if (vga.chain4) {
+                // In 256 color modes we write full byte to all masked planes
                 new_data = expand_to_u32(cpu_data);
-            } else { // In 16 color modes we use it as mask
+            } else {
+                // In 16 color modes we use it as mask
                 new_data = expand_nibble_to_planes(cpu_data);
             }
 
@@ -386,10 +371,12 @@ void __not_in_flash() vga_mem_write16(const uint32_t address, const uint16_t cpu
         new1 = masked_merge_xor(rot1, set_reset32, enable_set_reset32);
     } else {
         // Mode 2: color expand
-        if (vga.chain4) { // In 256 color modes we write full byte to all masked planes
+        if (vga.chain4) {
+            // In 256 color modes we write full byte to all masked planes
             new0 = expand_to_u32((uint8_t) (cpu_data_x2 & 0xFFu));
             new1 = expand_to_u32((uint8_t) (cpu_data_x2 >> 8));
-        } else { // In 16 color modes we use it as mask
+        } else {
+            // In 16 color modes we use it as mask
             new0 = expand_nibble_to_planes((uint8_t) (cpu_data_x2 & 0xFFu));
             new1 = expand_nibble_to_planes((uint8_t) (cpu_data_x2 >> 8));
         }
@@ -418,37 +405,27 @@ void __not_in_flash() vga_mem_write16(const uint32_t address, const uint16_t cpu
 static uint8_t seq_index = 0;
 static uint8_t gc_index = 0;
 
-static inline void out_0x3C4_seq_index(const uint8_t value) { seq_index = value & 0x07u; }
-
-static inline void out_0x3C5_seq_data(const uint8_t value) {
-    // store raw
-    vga.sequencer[seq_index] = value;
-    // update derived cache for changes that matter
-    if (seq_index == 2 || seq_index == 4) {
-        vga_update_seq_cache();
-    }
-    // other seq regs could be handled here if desired
-}
-
-static inline uint8_t in_0x3C5_seq_data() { return vga.sequencer[seq_index]; }
-
-static inline void out_0x3CE_gc_index(const uint8_t value) { gc_index = value & 0x0Fu; }
-
-static inline void out_0x3CF_gc_data(const uint8_t value) {
-    vga.graphics_controller[gc_index] = value;
-    // If register affects derived cache, update
-    // if (gc_index <= 8 || gc_index == 0 || gc_index == 1 || gc_index == 2 || gc_index == 3 ||
-    // gc_index == 4 || gc_index == 5 || gc_index == 7 || gc_index == 8) {
-    vga_update_gc_cache();
-    // }
-}
-
-static inline uint8_t in_0x3CF_gc_data() { return vga.graphics_controller[gc_index]; }
 
 // ---------------------- Initialization ----------------------
 void vga_init(void) {
     // memset(VIDEORAM, 0, sizeof(VIDEORAM));
-    vga_reset_cache();
+
+    // Initialize the regs and derived cache
+    memset(&vga, 0, sizeof(vga));
+    // sensible defaults: map_mask = 0x0F (all planes enabled)
+    vga.sequencer[2] = 0x0F; // map mask
+    // vga_cache.graphics_controller[4] = 0x0F; // read map select//
+    vga.graphics_controller[8] = 0xFF; // bit mask
+
+
+    vga.map_mask32 = expand_nibble_to_planes(0x0F);
+    vga.read_map_select = 0;
+    vga.bit_mask32 = expand_to_u32(0xFF); // default all bits allowed
+    vga.set_reset32 = expand_nibble_to_planes(0);
+    vga.enable_set_reset32 = expand_nibble_to_planes(0);
+    vga.color_compare32 = expand_nibble_to_planes(0);
+    vga.color_dontcare32 = expand_nibble_to_planes(0x0F); // default compare all planes
+
     vga_update_seq_cache();
     vga_update_gc_cache();
     vga_latch32 = 0;
@@ -492,10 +469,16 @@ void vga_portout(uint16_t portnum, uint16_t value) {
         // http://www.osdever.net/FreeVGA/vga/seqreg.htm
         // https://vtda.org/books/Computing/Programming/EGA-VGA-ProgrammersReferenceGuide2ndEd_BradleyDyckKliewer.pdf
         case 0x3C4:
-            out_0x3C4_seq_index(value);
+            seq_index = value & 0x07u;
             break;
         case 0x3C5:
-            out_0x3C5_seq_data(value);
+            // store raw
+            vga.sequencer[seq_index] = value;
+            // update derived cache for changes that matter
+            if (seq_index == 2 || seq_index == 4) {
+                vga_update_seq_cache();
+            }
+            // other seq regs could be handled here if desired
             break;
         case 0x3C7:
             read_color_index = value & 0xff;
@@ -521,10 +504,15 @@ void vga_portout(uint16_t portnum, uint16_t value) {
 
         // http://www.osdever.net/FreeVGA/vga/graphreg.htm
         case 0x3CE:
-            out_0x3CE_gc_index(value);
+            gc_index = value & 0x0Fu;
             break;
         case 0x3CF:
-            out_0x3CF_gc_data(value);
+            vga.graphics_controller[gc_index] = value;
+            // If register affects derived cache, update
+            // if (gc_index <= 8 || gc_index == 0 || gc_index == 1 || gc_index == 2 || gc_index == 3 ||
+            // gc_index == 4 || gc_index == 5 || gc_index == 7 || gc_index == 8) {
+            vga_update_gc_cache();
+            // }
             break;
     }
 }
@@ -533,8 +521,8 @@ uint16_t vga_portin(uint16_t portnum) {
     //printf("vga_portin %x\n", portnum);
 
     switch (portnum) {
-        case 0x3C5: return in_0x3C5_seq_data();
-        case 0x3CF: return in_0x3CF_gc_data();
+        case 0x3C5: return vga.sequencer[seq_index];
+        case 0x3CF: return vga.graphics_controller[gc_index];
         case 0x3C8:
             return read_color_index;
         case 0x3C9: {
