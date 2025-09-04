@@ -510,21 +510,25 @@ void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused co
 int cpu_mhz = CPU_FREQ_MHZ;
 int flash_mhz = FLASH_FREQ_MHZ;
 int psram_mhz = PSRAM_FREQ_MHZ;
+uint new_flash_timings = 0;
 
 void __not_in_flash() flash_timings() {
-    const int max_flash_freq = flash_mhz * MHZ;
-    const int clock_hz = cpu_mhz * MHZ;
-    int divisor = (clock_hz + max_flash_freq - 1) / max_flash_freq;
-    if (divisor == 1 && clock_hz > 100000000) {
-        divisor = 2;
+    if (!new_flash_timings) {
+        const int max_flash_freq = flash_mhz * MHZ;
+        const int clock_hz = cpu_mhz * MHZ;
+        int divisor = (clock_hz + max_flash_freq - 1) / max_flash_freq;
+        if (divisor == 1 && clock_hz > 100000000) {
+            divisor = 2;
+        }
+        int rxdelay = divisor;
+        if (clock_hz / divisor > 100000000) {
+            rxdelay += 1;
+        }
+        new_flash_timings = 0x60007000 |
+                            rxdelay << QMI_M0_TIMING_RXDELAY_LSB |
+                            divisor << QMI_M0_TIMING_CLKDIV_LSB;
     }
-    int rxdelay = divisor;
-    if (clock_hz / divisor > 100000000) {
-        rxdelay += 1;
-    }
-    qmi_hw->m[0].timing = 0x60007000 |
-                          rxdelay << QMI_M0_TIMING_RXDELAY_LSB |
-                          divisor << QMI_M0_TIMING_CLKDIV_LSB;
+    qmi_hw->m[0].timing = new_flash_timings;
 }
 
 void __not_in_flash() psram_timings() {
@@ -619,6 +623,13 @@ static void load_config_286() {
                 int new_flash_mhz = atoi(t);
                 if (flash_mhz != new_flash_mhz) {
                     flash_mhz = new_flash_mhz;
+                    flash_timings();
+                }
+            } else if (strcmp(t, "FLASHT") == 0) {
+                t = next_token(t);
+                char *endptr;
+                new_flash_timings = (uint)strtol(t, &endptr, 16);
+                if (*endptr == 0 && qmi_hw->m[0].timing != new_flash_timings) {
                     flash_timings();
                 }
             } else if (strcmp(t, "PSRAM") == 0) {
