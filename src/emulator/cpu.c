@@ -12,7 +12,8 @@
 #include "disks-rp2350.c.inl"
 #include "network-redirector-rp2350.c.inl"
 #include "graphics.h"
-
+#include "psram_spi.h"
+#include "swap.h"
 #else
 
 #include "disks-win32.c.inl"
@@ -1284,9 +1285,6 @@ static __not_in_flash() void op_grp5() {
     }
 }
 
-#include "psram_spi.h"
-#include "swap.h"
-
 void reset86() {
     CPU_CS = 0xFFFF;
     CPU_SS = 0x0000;
@@ -1325,10 +1323,12 @@ void __not_in_flash() exec86(uint32_t execloops) {
         if (unlikely(ifl && (i8259_controller.interrupt_request_register & (~i8259_controller.interrupt_mask_register)))) {
             intcall86(nextintr()); // get next interrupt from the i8259, if any d
         }
+#if PICO_ON_DEVICE
         if (ask_to_blast) {
             ask_to_blast = false;
             last_sb_sample = blaster_sample();
         }
+#endif
         reptype = 0;
         segoverride = 0;
         useseg = CPU_DS;

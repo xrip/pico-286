@@ -3,7 +3,10 @@
 #include "includes/bios.h"
 #include "emulator.h"
 #include "ems.c.inl"
-
+#if PICO_ON_DEVICE
+#include "psram_spi.h"
+#include "swap.h"
+#endif
 uint32_t __attribute__((aligned (4)))  VIDEORAM[VIDEORAM_SIZE] = {0};
 uint8_t __attribute__((aligned (4), section(".psram"))) RAM[RAM_SIZE] = {0};
 uint8_t __attribute__((aligned (4), section(".psram"))) UMB[UMB_END - UMB_START] = {0};
@@ -204,7 +207,7 @@ uint32_t readdw86_ob(const uint32_t address) {
     return 0xFFFFFFFF;
 }
 
-#include "psram_spi.h"
+#if PICO_ON_DEVICE
 // using UMB as low-RAM, and psram start space as UMB instead
 #define LO_MEM (SRAM_BLOCK_SIZE)
 #define RAM (DO_NOT_USE_IN_THIS_BLOCK)
@@ -413,7 +416,7 @@ uint32_t readdw86_mp(const uint32_t address) {
     return 0xFFFFFFFF;
 }
 
-#include "swap.h"
+
 
 // Writes a byte to the virtual memory
 void write86_sw(const uint32_t address, const uint8_t value) {
@@ -601,3 +604,4 @@ uint32_t readdw86_sw(const uint32_t address) {
     }
     return 0xFFFFFFFF;
 }
+#endif

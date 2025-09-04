@@ -556,6 +556,7 @@ DWORD WINAPI TicksThread(LPVOID lpParam) {
 
         // Sound Blaster
         if (elapsedTime - last_sb_tick >= hostfreq / sb_samplerate) {
+
             last_sb_sample = blaster_sample();
             last_sb_tick = elapsedTime;
         }

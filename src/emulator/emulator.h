@@ -35,6 +35,7 @@ extern bool PSRAM_AVAILABLE;
 #define VIDEORAM_SIZE (64 << 10)
 #define RAM_SIZE (640 << 10)
 #define butter_psram_size 1
+#define PSRAM_AVAILABLE 1
 #endif
 #ifdef HARDWARE_SOUND
 #define SOUND_FREQUENCY (44100)

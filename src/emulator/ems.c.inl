@@ -1,8 +1,9 @@
 // The Lo-tech EMS board driver is hardcoded to 2MB.
 #pragma once
+#if PICO_ON_DEVICE
 #include "psram_spi.h"
 #include "swap.h"
-
+#endif
 #define EMS_PSRAM_OFFSET (2048 << 10)
 
 static uint8_t ems_pages[4] = {0};
