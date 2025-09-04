@@ -31,8 +31,8 @@ SET(BUILD_NAME "${PROJECT_NAME}")
 #set(m1p2launcher ON)
 set(ENABLE_VGA ON)
 set(ENABLE_PWM_SOUND ON)
-set(FLASH_FREQ_MHZ "88")
-set(PSRAM_FREQ_MHZ "88")
+set(FLASH_FREQ_MHZ "100")
+set(PSRAM_FREQ_MHZ "166")
 
 # =========================
 # OUTPUT DIRECTORIES
@@ -94,7 +94,7 @@ else ()
     option(ENABLE_HARDWARE_SOUND "Enable hardware audio output" OFF)
 
     # CPU Configuration
-    set(CPU_FREQ_MHZ "378")
+    set(CPU_FREQ_MHZ "500")
 
     # =========================
     # VALIDATION
