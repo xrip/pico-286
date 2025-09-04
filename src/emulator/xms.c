@@ -96,7 +96,7 @@ uint8_t xms_handles = 0;
 
 int a20_enabled = 0;
 
-uint8_t __attribute__((section(".psram"))) XMS[XMS_MEMORY_SIZE] = {0};
+uint8_t __attribute__((aligned (4), section(".psram"))) XMS[XMS_MEMORY_SIZE] = {0};
 
 void init_umb() {
     for (int i = 0; i < UMB_BLOCKS_COUNT; ++i) {
