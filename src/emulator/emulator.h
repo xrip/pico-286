@@ -12,8 +12,8 @@ extern "C" {
 #endif
 
 #ifdef PICO_ON_DEVICE
-    extern uint32_t butter_psram_size;
-    extern bool PSRAM_AVAILABLE;
+extern uint32_t butter_psram_size;
+extern bool PSRAM_AVAILABLE;
 #include "psram_spi.h"
 #define VIDEORAM_SIZE (64 << 10)
 #if PICO_RP2350
@@ -34,6 +34,7 @@ extern "C" {
 #include "printf/printf.h"
 #define VIDEORAM_SIZE (64 << 10)
 #define RAM_SIZE (640 << 10)
+#define butter_psram_size 0
 #endif
 #ifdef HARDWARE_SOUND
 #define SOUND_FREQUENCY (44100)

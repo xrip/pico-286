@@ -1196,7 +1196,12 @@ int main(int argc, char **argv) {
         }
         Sleep(10);
     }
-
+    write86 = write86_ob;
+    writew86 = writew86_ob;
+    writedw86 = writedw86_ob;
+    read86 = read86_ob;
+    readw86 = readw86_ob;
+    readdw86 = readdw86_ob;
     //    adlib_init(SOUND_FREQUENCY);
     memset(SCREEN, 0, sizeof (SCREEN));
     emu8950_opl = OPL_new(3579552, SOUND_FREQUENCY);
