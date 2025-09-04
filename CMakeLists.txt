@@ -1,20 +1,21 @@
 if (NOT (DEFINED PICO_PLATFORM AND PICO_PLATFORM STREQUAL "host"))
-    # == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
-    if (WIN32)
-        set(USERHOME $ENV{USERPROFILE})
-    else ()
-        set(USERHOME $ENV{HOME})
-    endif ()
-    set(sdkVersion 2.2.0)
-    set(toolchainVersion 14_2_Rel1)
-    set(picotoolVersion 2.2.0)
-    set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
-    if (EXISTS ${picoVscode})
-        include(${picoVscode})
-    endif ()
-    # ====================================================================================
-endif ()
+# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+if(WIN32)
+    set(USERHOME $ENV{USERPROFILE})
+else()
+    set(USERHOME $ENV{HOME})
+endif()
+set(sdkVersion 2.2.0)
+set(toolchainVersion 14_2_Rel1)
+set(picotoolVersion 2.2.0)
+set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+if (EXISTS ${picoVscode})
+    include(${picoVscode})
+endif()
+# ====================================================================================
+endif()
 cmake_minimum_required(VERSION 3.13)
+set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 20)
@@ -25,6 +26,13 @@ include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(286 C CXX ASM)
 SET(BUILD_NAME "${PROJECT_NAME}")
+
+#set(MURM20 ON)
+#set(m1p2launcher ON)
+set(ENABLE_VGA ON)
+set(ENABLE_PWM_SOUND ON)
+set(FLASH_FREQ_MHZ "88")
+set(PSRAM_FREQ_MHZ "88")
 
 # =========================
 # OUTPUT DIRECTORIES
@@ -85,37 +93,8 @@ else ()
     option(ENABLE_PWM_SOUND "Enable PWM audio output" OFF)
     option(ENABLE_HARDWARE_SOUND "Enable hardware audio output" OFF)
 
-    #    set(TOTAL_VIRTUAL_MEMORY_KBS "0" CACHE STRING "Total virtual memory in KBS. Set to 0 to use PSRAM instead (if PSRAM is otherwise enabled). Set to >0 to use virtual memory and disable all PSRAM.")
-    # Determine if Virtual Memory is used instead of PSRAM
-    if (TOTAL_VIRTUAL_MEMORY_KBS GREATER 0)
-        set(USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM TRUE)
-    else ()
-        set(USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM FALSE)
-    endif ()
-
-    # PSRAM Configuration (onboard only available for RP2350)
-    if (NOT PICO_PLATFORM STREQUAL "rp2040")
-        option(ONBOARD_PSRAM "Enable onboard PSRAM support" ON)
-        if (PIMO)
-            set(ONBOARD_PSRAM_GPIO "47" CACHE STRING "GPIO pin for onboard PSRAM")
-        elseif (MURM20)
-            set(ONBOARD_PSRAM_GPIO "8" CACHE STRING "GPIO pin for onboard PSRAM")
-        else ()
-            set(ONBOARD_PSRAM_GPIO "19" CACHE STRING "GPIO pin for onboard PSRAM")
-        endif ()
-    endif ()
-
     # CPU Configuration
-    set(CPU_FREQ_MHZ "366" CACHE STRING "CPU frequency in MHz")
-
-    if (USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
-        message(STATUS "TOTAL_VIRTUAL_MEMORY_KBS = ${TOTAL_VIRTUAL_MEMORY_KBS}KB. Virtual Memory enabled, PSRAM will be disabled.")
-        if (NOT PICO_PLATFORM STREQUAL "rp2040")
-            # If ONBOARD_PSRAM was an option, ensure it's off when virtual memory is active.
-            # The option itself is defined earlier, here we just force its value if virtual mem is on.
-            set(ONBOARD_PSRAM OFF CACHE BOOL "Enable onboard PSRAM support" FORCE)
-        endif ()
-    endif ()
+    set(CPU_FREQ_MHZ "378")
 
     # =========================
     # VALIDATION
@@ -187,7 +166,7 @@ else ()
     endif ()
 
     # Add frequency
-    set(BUILD_NAME "${BUILD_NAME}-${CPU_FREQ_MHZ}MHz")
+    set(BUILD_NAME "${BUILD_NAME}-F${FLASH_FREQ_MHZ}-P${PSRAM_FREQ_MHZ}-${CPU_FREQ_MHZ}MHz")
 
     # Add display type
     if (ENABLE_TFT)
@@ -207,27 +186,6 @@ else ()
         set(BUILD_NAME "${BUILD_NAME}-PWM")
     elseif (ENABLE_HARDWARE_SOUND)
         set(BUILD_NAME "${BUILD_NAME}-HW")
-    endif ()
-
-    # Add PSRAM or Virtual Memory info
-    if (USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM)
-        set(BUILD_NAME "${BUILD_NAME}-SWAP${TOTAL_VIRTUAL_MEMORY_KBS}KB")
-        # Message for this case already handled when USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM was set
-    else ()
-        # This means TOTAL_VIRTUAL_MEMORY_KBS is 0, so PSRAM (if configured) is used.
-        # ONBOARD_PSRAM will be OFF if platform is RP2040 or if user set it OFF.
-        # It's only ON if platform is RP2350 and user set it ON (or default ON).
-        if (ONBOARD_PSRAM AND NOT PICO_PLATFORM STREQUAL "rp2040")
-            set(BUILD_NAME "${BUILD_NAME}-ONBOARD_PSRAM_PIN_${ONBOARD_PSRAM_GPIO}")
-            message(STATUS "Onboard PSRAM enabled on GPIO ${ONBOARD_PSRAM_GPIO}.")
-        else ()
-            # Potentially generic PSRAM is active if drivers/psram was included.
-            # We can check if psram target exists as a proxy or rely on ONBOARD_PSRAM being the main named feature.
-            # For now, keep it simple: if not ONBOARD_PSRAM, no specific PSRAM string is added here by default,
-            # unless drivers/psram itself adds something or we want a generic "-PSRAM" tag.
-            # The original file only added ONBOARD_PSRAM specifics.
-            message(STATUS "External PSRAM ON 18/19/20/21 pins")
-        endif ()
     endif ()
 
     # =========================
@@ -332,6 +290,8 @@ else ()
             PICO_PANIC_FUNCTION=
             EMU8950_ASM=1
             CPU_FREQ_MHZ=${CPU_FREQ_MHZ}
+            FLASH_FREQ_MHZ=${FLASH_FREQ_MHZ}
+            PSRAM_FREQ_MHZ=${PSRAM_FREQ_MHZ}
             PICO_FLASH_SIZE_BYTES=16777216
 
             # Display type
@@ -345,11 +305,7 @@ else ()
             $<$<BOOL:${ENABLE_PWM_SOUND}>:PWM_SOUND>
             $<$<BOOL:${ENABLE_HARDWARE_SOUND}>:HARDWARE_SOUND>
 
-            # PSRAM / Virtual Memory Definitions
-            $<$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>:TOTAL_VIRTUAL_MEMORY_KBS=${TOTAL_VIRTUAL_MEMORY_KBS}>
-            # PSRAM related definitions (only if NOT using virtual memory)
-            $<$<NOT:$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>>:PSRAM>
-            $<$<NOT:$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>>:$<$<AND:$<NOT:$<STREQUAL:${PICO_PLATFORM},rp2040>>,$<BOOL:${ONBOARD_PSRAM}>>:ONBOARD_PSRAM_GPIO=${ONBOARD_PSRAM_GPIO}>>
+            PSRAM
     )
     if (MURM20)
         target_compile_definitions(${PROJECT_NAME} PRIVATE
@@ -380,6 +336,14 @@ else ()
         )
     endif ()
     pico_add_extra_outputs(${PROJECT_NAME})
+
+    if (m1p2launcher)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E rename
+            "${OUTPUT_DIR}/${BUILD_NAME}.uf2"
+            "${OUTPUT_DIR}/${BUILD_NAME}"
+        )
+    endif ()
 endif ()
 
 # =========================
@@ -401,4 +365,3 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
         EMU8950_NO_PERCUSSION_MODE=1
         EMU8950_LINEAR=1
 )
-

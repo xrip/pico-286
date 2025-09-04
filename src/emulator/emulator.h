@@ -10,15 +10,13 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+extern uint32_t butter_psram_size;
+extern bool PSRAM_AVAILABLE;
 #ifdef PICO_ON_DEVICE
 #define VIDEORAM_SIZE (64 << 10)
 #if PICO_RP2350
 
-#ifdef TOTAL_VIRTUAL_MEMORY_KBS
-#define RAM_SIZE (200 << 10)
-#else
 #define RAM_SIZE (640 << 10)
-#endif
 
 #else
 //#define RAM_SIZE (146 << 10)

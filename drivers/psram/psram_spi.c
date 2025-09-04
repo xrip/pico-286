@@ -2,7 +2,7 @@
 #include "psram_spi.h"
 #include <stdio.h>
 psram_spi_inst_t psram_spi;
-
+bool PSRAM_AVAILABLE;
 
 #if defined(PSRAM_ASYNC) && defined(PSRAM_ASYNC_SYNCHRONIZE)
 void __isr psram_dma_complete_handler() {
