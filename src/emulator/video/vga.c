@@ -125,11 +125,11 @@ typedef struct {
     uint8_t read_map_select; // which plane byte to return on read mode 0
     uint8_t write_mode; // write mode 0..3
     uint8_t read_mode; // read mode 0 or 1
+    uint8_t chain4;
 
     // any other cached flags...
 } vga_cache_t;
 
-volatile uint8_t chain4; // sequencer memory_mode bit for chain4
 static vga_cache_t vga;
 
 // Initialize the regs and derived cache
@@ -154,7 +154,7 @@ static inline void vga_reset_cache(void) {
 static inline void vga_update_seq_cache(void) {
     vga.map_mask32 = expand_nibble_to_planes(vga.sequencer[2]);
     // memory_mode in seq[4] bit2 typically is chain4
-    chain4 = !!(vga.sequencer[4] & 0x04u);
+    vga.chain4 = !!(vga.sequencer[4] & 0x04u);
     vga_planar_mode = !(vga.sequencer[4] & 8) || !(vga.sequencer[4] & 6);
 }
 
@@ -304,8 +304,12 @@ void __not_in_flash() vga_mem_write(const uint32_t address, const uint8_t cpu_da
         }
         case 2: {
             // Mode 2: Color expands to all planes
-            new_data = expand_nibble_to_planes(cpu_data);
-            // new_data = expand_to_u32(cpu_data);
+            if (vga.chain4) { // In 256 color modes we write full byte to all masked planes
+                new_data = expand_to_u32(cpu_data);
+            } else { // In 16 color modes we use it as mask
+                new_data = expand_nibble_to_planes(cpu_data);
+            }
+
             break;
         }
 
@@ -382,8 +386,13 @@ void __not_in_flash() vga_mem_write16(const uint32_t address, const uint16_t cpu
         new1 = masked_merge_xor(rot1, set_reset32, enable_set_reset32);
     } else {
         // Mode 2: color expand
-        new0 = expand_nibble_to_planes((uint8_t) (cpu_data_x2 & 0xFFu));
-        new1 = expand_nibble_to_planes((uint8_t) (cpu_data_x2 >> 8));
+        if (vga.chain4) { // In 256 color modes we write full byte to all masked planes
+            new0 = expand_to_u32((uint8_t) (cpu_data_x2 & 0xFFu));
+            new1 = expand_to_u32((uint8_t) (cpu_data_x2 >> 8));
+        } else { // In 16 color modes we use it as mask
+            new0 = expand_nibble_to_planes((uint8_t) (cpu_data_x2 & 0xFFu));
+            new1 = expand_nibble_to_planes((uint8_t) (cpu_data_x2 >> 8));
+        }
     }
 
     // ALU apply (modes 0,2)
