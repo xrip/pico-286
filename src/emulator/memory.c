@@ -6,7 +6,7 @@
 
 uint32_t __attribute__((aligned (4)))  VIDEORAM[VIDEORAM_SIZE] = {0};
 uint8_t __attribute__((aligned (4), section(".psram"))) RAM[RAM_SIZE] = {0};
-uint8_t __attribute__((aligned (4), section(".psram"))) UMB[UMB_END - UMB_START] = {0};
+uint8_t UMB[UMB_END - UMB_START] = {0}; // shared used block (should NOT be in .psram)
 uint8_t __attribute__((aligned (4), section(".psram"))) HMA[HMA_END - HMA_START] = {0};
 
 #define VIDEORAM_MASK 0xFFFF
