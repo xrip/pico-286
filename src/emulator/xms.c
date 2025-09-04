@@ -401,8 +401,9 @@ uint8_t __not_in_flash() xms_handler() {
             break;
         }
         default: {
-            if (CPU_AH > 0x7 && CPU_AH < 0x10)
+            if (CPU_AH > 0x7 && CPU_AH < 0x10) {
                 debug_log("[XMS] %02X\n", CPU_AH);
+            }
             // Unhandled function
             CPU_AX = 0x0000; // Function not supported
             CPU_BL = 0x80; // Function not implemented
