@@ -10,9 +10,11 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-extern uint32_t butter_psram_size;
-extern bool PSRAM_AVAILABLE;
+
 #ifdef PICO_ON_DEVICE
+    extern uint32_t butter_psram_size;
+    extern bool PSRAM_AVAILABLE;
+#include "psram_spi.h"
 #define VIDEORAM_SIZE (64 << 10)
 #if PICO_RP2350
 
@@ -336,7 +338,7 @@ extern void get_sound_sample(int16_t other_sample, int16_t *samples);
 #ifdef __cplusplus
 }
 #endif
-#include "psram_spi.h"
+
 
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
 #include "swap.h"
@@ -360,6 +362,7 @@ static INLINE uint32_t read32psram(uint32_t address) {
 }
 #endif
 
+void vga_init(void);
 void vga_mem_write(uint32_t address, uint8_t cpu_data);
 void vga_mem_write16(uint32_t address, uint16_t cpu_data_x2);
 uint8_t vga_mem_read(uint32_t address);
