@@ -588,6 +588,10 @@ static char* next_token(char* t) {
     return t1 - 1;
 }
 
+static int new_cpu_mhz = CPU_FREQ_MHZ;
+static int vreg = VREG_VOLTAGE_1_60;
+static int new_vreg = VREG_VOLTAGE_1_60;
+
 static void load_config_286() {
     UINT br;
     char* buff = open_config(&br);
@@ -597,23 +601,18 @@ static void load_config_286() {
         while (t - buff < br) {
             if (strcmp(t, "CPU") == 0) {
                 t = next_token(t);
-                cpu_mhz = atoi(t);
-                if (clock_get_hz(clk_sys) != cpu_mhz * MHZ) {
-                    if (!set_sys_clock_hz(cpu_mhz * MHZ, 0) ) {
-                        printf("Failed to overclock to %d MHz\n", cpu_mhz);
-                        cpu_mhz = clock_get_hz(clk_sys) / MHZ;
-                    } else {
-                        printf("CPU: %d MHz\n", cpu_mhz);
+                new_cpu_mhz = atoi(t);
+                if (clock_get_hz(clk_sys) != new_cpu_mhz * MHZ) {
+                    if (set_sys_clock_hz(new_cpu_mhz * MHZ, 0) ) {
+                        cpu_mhz = new_cpu_mhz;
                     }
                 }
             } else if (strcmp(t, "VREG") == 0) {
                 t = next_token(t);
-                int vreg = atoi(t);
-                if (vreg < VREG_VOLTAGE_0_55 || vreg > VREG_VOLTAGE_3_30) {
-                    printf("Unexpected VREG value: %d\n", vreg);
-                } else {
+                new_vreg = atoi(t);
+                if (new_vreg != vreg && new_vreg >= VREG_VOLTAGE_0_55 && new_vreg <= VREG_VOLTAGE_3_30) {
+                    vreg = new_vreg;
                     vreg_set_voltage(vreg);
-                    printf("VREG: %d\n", vreg);
                 }
             } else if (strcmp(t, "FLASH") == 0) {
                 t = next_token(t);
@@ -621,7 +620,6 @@ static void load_config_286() {
                 if (flash_mhz != new_flash_mhz) {
                     flash_mhz = new_flash_mhz;
                     flash_timings();
-                    printf("FLASH: %d MHz\n", flash_mhz);
                 }
             } else if (strcmp(t, "PSRAM") == 0) {
                 t = next_token(t);
@@ -629,7 +627,6 @@ static void load_config_286() {
                 if (psram_mhz != new_psram_mhz) {
                     psram_mhz = new_psram_mhz;
                     psram_timings();
-                    printf("PSRAM: %d MHz\n", psram_mhz);
                 }
             } else { // unknown token
                 t = next_token(t);
@@ -644,7 +641,7 @@ int main(void) {
     // Platform-specific initialization
 #if PICO_RP2350
     vreg_disable_voltage_limit();
-    vreg_set_voltage(VREG_VOLTAGE_1_60);
+    vreg_set_voltage(vreg);
     flash_timings();
     sleep_ms(100);
     if (!set_sys_clock_hz(cpu_mhz * MHZ, 0) ) {
@@ -674,23 +671,6 @@ int main(void) {
 
     sleep_ms(50);
 
-    // Initialize peripherals
-    keyboard_init();
-    nespad_begin(NES_GPIO_CLK, NES_GPIO_DATA, NES_GPIO_LAT);
-    sleep_ms(5);
-    nespad_read();
-
-    // Check for mouse availability
-#ifndef MURM2
-    const uint8_t mouse_available = nespad_state;
-    if (mouse_available)
-#endif
-        mouse_init();
-
-    // Initialize semaphore and launch second core
-    sem_init(&vga_start_semaphore, 0, 1);
-    multicore_launch_core1(second_core);
-    sem_release(&vga_start_semaphore);
 #if 0 // for future save settings in flash
     if (cmos[0] == 0) {
         printf("Empty CMOS\n");
@@ -698,11 +678,23 @@ int main(void) {
 #endif
     // Mount SD card filesystem
     if (FR_OK != f_mount(&fs, "0", 1)) {
+        sem_init(&vga_start_semaphore, 0, 1);
+        multicore_launch_core1(second_core);
+        sem_release(&vga_start_semaphore);
         printf("SD Card not inserted or SD Card error!");
+        keyboard_init();
         while (1);
     }
 
-    load_config_286();
+    nespad_begin(NES_GPIO_CLK, NES_GPIO_DATA, NES_GPIO_LAT);
+    sleep_ms(5);
+    nespad_read();
+
+    if (nespad_state & DPAD_SELECT) {
+        // skip config
+    } else {
+        load_config_286();
+    }
 
     // Initialize PSRAM
     rp2350a = (*((io_ro_32*)(SYSINFO_BASE + SYSINFO_PACKAGE_SEL_OFFSET)) & 1);
@@ -739,7 +731,32 @@ int main(void) {
         readdw86 = readdw86_ob;
     }
 
+    // Initialize peripherals
+    keyboard_init();
+
+    // Check for mouse availability
+#ifndef MURM2
+    const uint8_t mouse_available = nespad_state;
+    if (mouse_available)
+#endif
+        mouse_init();
+
+    // Initialize semaphore and launch second core
+    sem_init(&vga_start_semaphore, 0, 1);
+    multicore_launch_core1(second_core);
+    sem_release(&vga_start_semaphore);
+
+    if (new_cpu_mhz != cpu_mhz) {
+        printf("Failed to overclock to %d MHz\n", new_cpu_mhz);
+    }
+    printf("CPU: %d MHz\n", cpu_mhz);
+    if (new_vreg < VREG_VOLTAGE_0_55 || new_vreg > VREG_VOLTAGE_3_30) {
+        printf("Unexpected VREG value: %d\n", new_vreg);
+    }
+    printf("VREG: %d\n", vreg);
+    printf("FLASH: %d MHz\n", flash_mhz);
     if (write86 == write86_ob) {
+        printf("PSRAM: %d MHz\n", psram_mhz);
         printf("On-Board PSRAM mode (GP%d)\n", gp);
     } else if (write86 == write86_mp) {
         printf("Murmulator-Board PSRAM mode\n");
