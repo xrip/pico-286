@@ -79,7 +79,6 @@ extern uint8_t HMA[HMA_END - HMA_START];
 // for non-butter-psram modes
 #define SRAM_BLOCK_SIZE 0x2C000
 extern uint8_t SRAM[SRAM_BLOCK_SIZE];
-
 #define FIRST_RAM_PAGE (butter_psram_size ? RAM : SRAM)
 
 extern uint32_t dwordregs[8];
@@ -151,8 +150,8 @@ uint8_t in8259(uint16_t portnum);
 
 // Video
 extern int videomode;
-#define CURSOR_X RAM[0x450]
-#define CURSOR_Y RAM[0x451]
+#define CURSOR_X FIRST_RAM_PAGE[0x450]
+#define CURSOR_Y FIRST_RAM_PAGE[0x451]
 extern uint8_t cursor_start, cursor_end;
 extern uint32_t vga_palette[256];
 
@@ -189,30 +188,49 @@ extern uint8_t vga_planar_mode;
 
 void OpFpu(uint8_t opcode);
 
-void vga_portout(uint16_t portnum, uint16_t value);
-
-uint16_t vga_portin(uint16_t portnum);
-
 // Memory
-extern void writew86(uint32_t address, uint16_t value);
-extern void writedw86(uint32_t address, uint32_t value);
-
-extern void write86(uint32_t address, uint8_t value);
-
-extern uint16_t readw86(uint32_t address);
-extern uint32_t readdw86(uint32_t address);
-
-extern uint8_t read86(uint32_t address);
-
-extern void portout(uint16_t portnum, uint16_t value);
-
-extern void portout16(uint16_t portnum, uint16_t value);
-
-extern uint16_t portin(uint16_t portnum);
-
-extern uint16_t portin16(uint16_t portnum);
+typedef void (*write86_t)(uint32_t address, uint8_t value);
+typedef void (*write86w_t)(uint32_t address, uint16_t value);
+typedef void (*write86dw_t)(uint32_t address, uint32_t value);
+typedef uint8_t (*read86_t)(uint32_t address);
+typedef uint16_t (*read86w_t)(uint32_t address);
+typedef uint32_t (*read86dw_t)(uint32_t address);
+extern read86_t read86;
+extern read86w_t readw86;
+extern read86dw_t readdw86;
+extern write86_t write86;
+extern write86w_t writew86;
+extern write86dw_t writedw86;
+// on-board (butter) psram
+void write86_ob(const uint32_t address, const uint8_t value);
+void writew86_ob(uint32_t address, uint16_t value);
+void writedw86_ob(uint32_t address, uint32_t value);
+uint8_t read86_ob(uint32_t address);
+uint16_t readw86_ob(uint32_t address);
+uint32_t readdw86_ob(uint32_t address);
+// murmulator-psram
+void write86_mp(const uint32_t address, const uint8_t value);
+void writew86_mp(uint32_t address, uint16_t value);
+void writedw86_mp(uint32_t address, uint32_t value);
+uint8_t read86_mp(uint32_t address);
+uint16_t readw86_mp(uint32_t address);
+uint32_t readdw86_mp(uint32_t address);
+// swap
+void write86_sw(const uint32_t address, const uint8_t value);
+void writew86_sw(uint32_t address, uint16_t value);
+void writedw86_sw(uint32_t address, uint32_t value);
+uint8_t read86_sw(uint32_t address);
+uint16_t readw86_sw(uint32_t address);
+uint32_t readdw86_sw(uint32_t address);
 
 // Ports
+void vga_portout(uint16_t portnum, uint16_t value);
+uint16_t vga_portin(uint16_t portnum);
+extern void portout(uint16_t portnum, uint16_t value);
+extern void portout16(uint16_t portnum, uint16_t value);
+extern uint16_t portin(uint16_t portnum);
+extern uint16_t portin16(uint16_t portnum);
+
 extern uint8_t port60, port61, port64;
 extern volatile uint8_t port3DA;
 extern uint32_t vram_offset;

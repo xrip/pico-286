@@ -11,9 +11,15 @@ uint8_t __attribute__((aligned (4), section(".psram"))) HMA[HMA_END - HMA_START]
 uint8_t __attribute__((aligned (4))) SRAM[SRAM_BLOCK_SIZE] = {0};
 
 #define VIDEORAM_MASK 0xFFFF
+read86_t read86;
+read86w_t readw86;
+read86dw_t readdw86;
+write86_t write86;
+write86w_t writew86;
+write86dw_t writedw86;
 
 // Writes a byte to the virtual memory
-void write86(const uint32_t address, const uint8_t value) {
+void write86_ob(const uint32_t address, const uint8_t value) {
     if (address < RAM_SIZE) {
         RAM[address] = value;
     } else if (address >= VIDEORAM_START && address < VIDEORAM_END) {
@@ -36,7 +42,7 @@ void write86(const uint32_t address, const uint8_t value) {
 }
 
 // Writes a word to the virtual memory
-void writew86(const uint32_t address, const uint16_t value) {
+void writew86_ob(const uint32_t address, const uint16_t value) {
     if (address & 1) {
         write86(address, (uint8_t) (value & 0xFF));
         write86(address + 1, (uint8_t) ((value >> 8) & 0xFF));
@@ -61,7 +67,7 @@ void writew86(const uint32_t address, const uint16_t value) {
     }
 }
 
-void writedw86(const uint32_t address, const uint32_t value) {
+void writedw86_ob(const uint32_t address, const uint32_t value) {
     if (address & 1) {
         write86(address, (uint8_t) (value & 0xFF));
         write86(address + 1, (uint8_t) ((value >> 8) & 0xFF));
@@ -92,7 +98,7 @@ void writedw86(const uint32_t address, const uint32_t value) {
 }
 
 // Reads a byte from the virtual memory
-uint8_t read86(const uint32_t address) {
+uint8_t read86_ob(const uint32_t address) {
     if (address < RAM_SIZE) {
         return RAM[address];
     }
@@ -127,7 +133,7 @@ uint8_t read86(const uint32_t address) {
 }
 
 // Reads a word from the virtual memory
-uint16_t readw86(const uint32_t address) {
+uint16_t readw86_ob(const uint32_t address) {
     if (address & 1) {
         return (uint16_t) read86(address) | ((uint16_t) read86(address + 1) << 8);
     }
@@ -161,7 +167,7 @@ uint16_t readw86(const uint32_t address) {
     return 0xFFFF;
 }
 
-uint32_t readdw86(const uint32_t address) {
+uint32_t readdw86_ob(const uint32_t address) {
     if (address & 3) {
         return (uint32_t) read86(address)
                | ((uint32_t) read86(address + 1) << 8)
