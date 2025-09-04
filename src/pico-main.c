@@ -624,28 +624,28 @@ static void load_config_286() {
                     vreg = new_vreg;
                     vreg_set_voltage(vreg);
                 }
-            } else if (strcmp(t, "FLASH") == 0) {
+            } else if (!new_flash_timings && strcmp(t, "FLASH") == 0) {
                 t = next_token(t);
                 int new_flash_mhz = atoi(t);
                 if (flash_mhz != new_flash_mhz) {
                     flash_mhz = new_flash_mhz;
                     flash_timings();
                 }
-            } else if (strcmp(t, "FLASHT") == 0) {
+            } else if (strcmp(t, "FLASH_T") == 0) {
                 t = next_token(t);
                 char *endptr;
                 new_flash_timings = (uint)strtol(t, &endptr, 16);
                 if (*endptr == 0 && qmi_hw->m[0].timing != new_flash_timings) {
                     flash_timings();
                 }
-            } else if (strcmp(t, "PSRAM") == 0) {
+            } else if (!new_psram_timings && strcmp(t, "PSRAM") == 0) {
                 t = next_token(t);
                 int new_psram_mhz = atoi(t);
                 if (psram_mhz != new_psram_mhz) {
                     psram_mhz = new_psram_mhz;
                     psram_timings();
                 }
-            } else if (strcmp(t, "PSRAMT") == 0) {
+            } else if (strcmp(t, "PSRAM_T") == 0) {
                 t = next_token(t);
                 char *endptr;
                 new_psram_timings = (uint)strtol(t, &endptr, 16);
