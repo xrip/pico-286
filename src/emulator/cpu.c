@@ -1284,6 +1284,9 @@ static __not_in_flash() void op_grp5() {
     }
 }
 
+#include "psram_spi.h"
+#include "swap.h"
+
 void reset86() {
     CPU_CS = 0xFFFF;
     CPU_SS = 0x0000;
@@ -1296,6 +1299,11 @@ void reset86() {
         memset(HMA, 0, sizeof(HMA));
     } else {
         memset(SRAM, 0, sizeof(SRAM));
+        if (PSRAM_AVAILABLE) {
+            for (uint32_t a = HMA_START; a < HMA_END; a += 4) write32psram(a, 0);
+        } else {
+            for (uint32_t a = HMA_START; a < HMA_END; a += 4) swap_write32(a, 0);
+        }
     }
     init_umb();
     ip = 0x0000;

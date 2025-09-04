@@ -1,13 +1,5 @@
 #pragma once
 
-#define SWAP_PAGE_SIZE (2048)
-#define RAM_IN_PAGE_ADDR_MASK (0x000007FF)
-#define SHIFT_AS_DIV (11)
-
-#define SWAP_BLOCKS (RAM_SIZE / SWAP_PAGE_SIZE)
-
-
-
 bool init_swap();
 uint8_t swap_read(uint32_t address);
 uint16_t swap_read16(uint32_t addr32);
