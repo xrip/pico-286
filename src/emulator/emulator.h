@@ -76,6 +76,11 @@ extern uint8_t RAM[RAM_SIZE];
 extern uint32_t VIDEORAM[VIDEORAM_SIZE];
 extern uint8_t UMB[UMB_END - UMB_START];
 extern uint8_t HMA[HMA_END - HMA_START];
+// for non-butter-psram modes
+#define SRAM_BLOCK_SIZE 0x2C000
+extern uint8_t SRAM[SRAM_BLOCK_SIZE];
+
+#define FIRST_RAM_PAGE (butter_psram_size ? RAM : SRAM)
 
 extern uint32_t dwordregs[8];
 #define byteregs ((uint8_t*)dwordregs)

@@ -497,10 +497,10 @@ void intcall86(uint8_t intnum) {
 
                     videomode = CPU_AL & 0x7F;
 
-                    RAM[0x449] = CPU_AL;
-                    RAM[0x44A] = videomode <= 2 || (videomode >= 0x8 && videomode <= 0xa) ? 40 : 80;
-                    RAM[0x44B] = 0;
-                    RAM[0x484] = (25 - 1);
+                    FIRST_RAM_PAGE[0x449] = CPU_AL;
+                    FIRST_RAM_PAGE[0x44A] = videomode <= 2 || (videomode >= 0x8 && videomode <= 0xa) ? 40 : 80;
+                    FIRST_RAM_PAGE[0x44B] = 0;
+                    FIRST_RAM_PAGE[0x484] = (25 - 1);
 
                     if ((CPU_AL & 0x80) == 0x00) {
                         memset(VIDEORAM, 0x0, sizeof(VIDEORAM));
@@ -511,7 +511,7 @@ void intcall86(uint8_t intnum) {
                     break;
                 case 0x05: /* Select Active Page */ {
                     if (CPU_AL >= 0x80) {
-                        uint8_t CRTCPU = RAM[BIOS_CRTCPU_PAGE];
+                        uint8_t CRTCPU = FIRST_RAM_PAGE[BIOS_CRTCPU_PAGE];
                         switch (CPU_AL) {
                             case 0x80: /* read CRT/CPU page registers */
                                 CPU_BH = CRTCPU & 7;
@@ -528,7 +528,7 @@ void intcall86(uint8_t intnum) {
                                 break;
                         }
                         tga_portout(0x3df, CRTCPU);
-                        RAM[BIOS_CRTCPU_PAGE] = CRTCPU;
+                        FIRST_RAM_PAGE[BIOS_CRTCPU_PAGE] = CRTCPU;
                         return;
                     }
 
@@ -1289,10 +1289,14 @@ void reset86() {
     CPU_SS = 0x0000;
     CPU_SP = 0x0000;
 
-    memset(RAM, 0, sizeof(RAM));
     memset(VIDEORAM, 0x00, sizeof(VIDEORAM));
-    memset(UMB, 0, sizeof(UMB));
-    memset(HMA, 0, sizeof(HMA));
+    if (butter_psram_size) {
+        memset(RAM, 0, sizeof(RAM));
+        memset(UMB, 0, sizeof(UMB));
+        memset(HMA, 0, sizeof(HMA));
+    } else {
+        memset(SRAM, 0, sizeof(SRAM));
+    }
     init_umb();
     ip = 0x0000;
     i8237_reset();
