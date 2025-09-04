@@ -72,6 +72,8 @@ extern uint8_t log_debug;
 
 extern uint8_t RAM[RAM_SIZE];
 extern uint32_t VIDEORAM[VIDEORAM_SIZE];
+extern uint8_t UMB[UMB_END - UMB_START];
+extern uint8_t HMA[HMA_END - HMA_START];
 
 extern uint32_t dwordregs[8];
 #define byteregs ((uint8_t*)dwordregs)
@@ -334,15 +336,9 @@ extern void get_sound_sample(int16_t other_sample, int16_t *samples);
 #ifdef __cplusplus
 }
 #endif
-
-#ifndef TOTAL_VIRTUAL_MEMORY_KBS
-#if PICO_ON_DEVICE && !ONBOARD_PSRAM_GPIO
 #include "psram_spi.h"
 
-#else
-
-#endif
-#else
+#ifdef TOTAL_VIRTUAL_MEMORY_KBS
 #include "swap.h"
 static INLINE void write8psram(uint32_t address, uint8_t value) {
     swap_write(address, value);

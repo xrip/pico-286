@@ -1296,29 +1296,8 @@ void reset86() {
 
     memset(RAM, 0, sizeof(RAM));
     memset(VIDEORAM, 0x00, sizeof(VIDEORAM));
-#if !PICO_ON_DEVICE
     memset(UMB, 0, sizeof(UMB));
     memset(HMA, 0, sizeof(HMA));
-    //memset(EMS, 0, sizeof(EMS));
-    //memset(XMS, 0, sizeof(XMS));
-#else
-#ifdef ONBOARD_PSRAM_GPIO
-#ifndef TOTAL_VIRTUAL_MEMORY_KBS
-    // memset(RAM + UMB_START, 0, (UMB_END - UMB_START) + 4);
-    // memset(RAM + HMA_START, 0, (HMA_END - HMA_START) + 4);
-#else
-    for (uint32_t a = UMB_START; a < ((UMB_END - UMB_START) + 4); a += 4) write32psram(a, 0);
-    for (uint32_t a = HMA_START; a < ((HMA_END - HMA_START) + 4); a += 4) write32psram(a, 0);
-#endif
-#else
-    for (uint32_t a = UMB_START; a < ((UMB_END - UMB_START) + 4); a += 4) {
-        write32psram(a, 0);
-    }
-    for (uint32_t a = HMA_START; a < ((HMA_END - HMA_START) + 4); a += 4) {
-        write32psram(a, 0);
-    }
-#endif
-#endif
     init_umb();
     ip = 0x0000;
     i8237_reset();

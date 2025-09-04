@@ -760,9 +760,9 @@ int main(void) {
         printf("Unexpected VREG value: %d\n", new_vreg);
     }
     printf("VREG: %d\n", vreg);
-    printf("FLASH: %d MHz\n", flash_mhz);
+    printf("FLASH: %d MHz [T%p]\n", flash_mhz, qmi_hw->m[0].timing);
     if (butter_psram_size) {
-        printf("PSRAM: %d MHz\n", psram_mhz);
+        printf("PSRAM: %d MHz [T%p]\n", psram_mhz, qmi_hw->m[0].timing);
         printf("On-Board PSRAM mode (GP%d)\n", gp);
     #if DM
     } else if (write86 == write86_mp) {
