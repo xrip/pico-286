@@ -15,7 +15,6 @@ endif()
 # ====================================================================================
 endif()
 cmake_minimum_required(VERSION 3.13)
-set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 20)
@@ -31,8 +30,10 @@ SET(BUILD_NAME "${PROJECT_NAME}")
 #set(m1p2launcher ON)
 set(ENABLE_VGA ON)
 set(ENABLE_PWM_SOUND ON)
-set(FLASH_FREQ_MHZ "88")
-set(PSRAM_FREQ_MHZ "88")
+# CPU Configuration
+set(CPU_FREQ_MHZ "500")
+set(FLASH_FREQ_MHZ "100")
+set(PSRAM_FREQ_MHZ "166")
 
 # =========================
 # OUTPUT DIRECTORIES
@@ -92,9 +93,6 @@ else ()
     option(ENABLE_I2S_SOUND "Enable I2S audio output" OFF)
     option(ENABLE_PWM_SOUND "Enable PWM audio output" OFF)
     option(ENABLE_HARDWARE_SOUND "Enable hardware audio output" OFF)
-
-    # CPU Configuration
-    set(CPU_FREQ_MHZ "378")
 
     # =========================
     # VALIDATION
