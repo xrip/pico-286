@@ -156,7 +156,64 @@ void __time_critical_func() dma_handler_VGA() {
 
     switch (graphics_mode) {
         case TEXTMODE_40x25_COLOR:
-        case TEXTMODE_40x25_BW:
+        case TEXTMODE_40x25_BW: {
+            // "слой" символа
+            uint8_t y_div_16 = screen_line / 16;
+            register uint8_t glyph_line = screen_line & 15;
+
+            //указатель откуда начать считывать символы
+            register uint32_t *text_buffer_line = &VIDEORAM[0x8000 + (vram_offset << 1) + __fast_mul(y_div_16, 80)];
+
+            for (uint8_t column = 0; column < 40; column++) {
+                register uint8_t glyph_pixels = font_8x16[(*text_buffer_line++ & 0xFF) * 16 + glyph_line];
+                const uint8_t color = *text_buffer_line++;
+                const uint16_t *palette_color = &txt_palette_fast[4 * (color & cga_blinking)];
+
+                const uint8_t cursor_active =
+                        cursor_blink_state && y_div_16 == CURSOR_Y && column == CURSOR_X &&
+                        (cursor_start > cursor_end
+                             ? !(glyph_line >= cursor_end << 1 && glyph_line <= cursor_start << 1)
+                             : glyph_line >= cursor_start << 1 && glyph_line <= cursor_end << 1);
+
+                if (cga_blinking == 0x7F && (color & 0x80) && cursor_blink_state) {
+                    glyph_pixels = 0;
+                }
+                
+                if (cursor_active) {
+                    *output_buffer_16bit++ = palette_color[3];
+                    *output_buffer_16bit++ = palette_color[3];
+                    *output_buffer_16bit++ = palette_color[3];
+                    *output_buffer_16bit++ = palette_color[3];
+                    *output_buffer_16bit++ = palette_color[3];
+                    *output_buffer_16bit++ = palette_color[3];
+                    *output_buffer_16bit++ = palette_color[3];
+                    *output_buffer_16bit++ = palette_color[3];
+                } else {
+                    register uint32_t hi_pix = palette_color[glyph_pixels & 3];
+                    register uint32_t lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
+                    *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
+                    *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+                    glyph_pixels >>= 2;
+                    hi_pix = palette_color[glyph_pixels & 3];
+                    lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
+                    *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
+                    *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+                    glyph_pixels >>= 2;
+                    hi_pix = palette_color[glyph_pixels & 3];
+                    lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
+                    *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
+                    *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+                    glyph_pixels >>= 2;
+                    hi_pix = palette_color[glyph_pixels & 3];
+                    lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
+                    *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
+                    *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+                }
+            }
+            dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
+            port3DA |= 1; // no more data shown
+            return;
+        }
         case TEXTMODE_80x25_COLOR:
         case TEXTMODE_80x25_BW: {
             // "слой" символа
@@ -174,8 +231,7 @@ void __time_critical_func() dma_handler_VGA() {
                 const uint8_t cursor_active =
                         cursor_blink_state && y_div_16 == CURSOR_Y && column == CURSOR_X &&
                         (cursor_start > cursor_end
-                             ? !(glyph_line >= cursor_end << 1 &&
-                                 glyph_line <= cursor_start << 1)
+                             ? !(glyph_line >= cursor_end << 1 && glyph_line <= cursor_start << 1)
                              : glyph_line >= cursor_start << 1 && glyph_line <= cursor_end << 1);
 
                 if (cga_blinking == 0x7F && (color & 0x80) && cursor_blink_state) {
@@ -194,7 +250,7 @@ void __time_critical_func() dma_handler_VGA() {
                     glyph_pixels >>= 2;
                     *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
                     glyph_pixels >>= 2;
-                    *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
+                    *output_buffer_16bit++ = palette_color[glyph_pixels];
                 }
             }
             dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
