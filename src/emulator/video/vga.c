@@ -107,13 +107,13 @@ static inline uint32_t masked_merge_xor(const uint32_t dst, const uint32_t src, 
     return (dst & ~mask) | (src & mask);
 }
 
-// Precomputed derived register cache to accelerate hot path
+// Precomputed derived register cache to speed up a hot path
 typedef struct {
     // raw registers (we keep raw bytes for reads and debug)
     uint8_t sequencer[8]; // sequencer indices we care about (0..4)
     uint8_t graphics_controller[16]; // graphics controller registers 0..8 used; keep up to 15 for future use
 
-    // derived frequently-used masks/values
+    // derived frequently used masks/values
     uint32_t map_mask32; // plane enable mask replicated to bytes
     uint32_t set_reset32; // set/reset expanded
     uint32_t enable_set_reset32; // ESR expanded
@@ -425,6 +425,7 @@ void vga_init(void) {
     vga.enable_set_reset32 = expand_nibble_to_planes(0);
     vga.color_compare32 = expand_nibble_to_planes(0);
     vga.color_dontcare32 = expand_nibble_to_planes(0x0F); // default compare all planes
+
 
     vga_update_seq_cache();
     vga_update_gc_cache();

@@ -337,7 +337,7 @@ static INLINE void renderer() {
                     break;
                 }
                 case 0x11: /* VGA 640x480 2-color */ {
-                    uint8_t *cga_row = (uint8_t *) (VIDEORAM + y * 80);
+                    uint32_t *cga_row = &VIDEORAM[y * 80];
                     // Each byte containing 8 pixels
                     for (int x = 640 / 8; x--;) {
                         uint8_t cga_byte = *cga_row++;
