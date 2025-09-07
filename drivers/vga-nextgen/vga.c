@@ -560,16 +560,39 @@ void graphics_set_mode(enum graphics_mode_t mode) {
         case CGA_640x200x2:
         case CGA_320x200x4:
         case CGA_320x200x4_BW:
-        case HERC_640x480x2:
+
         case TGA_160x200x16:
         case TGA_640x200x16:
         case VGA_320x200x256:
-        case VGA_640x480x2:
         case VGA_320x200x256x4:
         case EGA_320x200x16x4:
         case TGA_320x200x16:
         case COMPOSITE_160x200x16:
         case COMPOSITE_160x200x16_force:
+            if (0)
+            {
+                TMPL_LINE8 = 0b11000000;
+                HS_SHIFT = 328 * 2;
+                HS_SIZE = 48 * 2;
+
+                line_size = 400 * 2;
+
+                shift_picture = line_size - HS_SHIFT;
+
+                palette16_mask = 0xc0c0;
+
+                visible_line_size = 320;
+
+                N_lines_total = 449;
+                N_lines_visible = 400;
+                line_VS_begin = 412;
+                line_VS_end = 413;
+
+                fdiv = clock_get_hz(clk_sys) / 25175000.0; //частота пиксельклока
+                break;
+            }
+        case VGA_640x480x2:
+            case HERC_640x480x2:
             TMPL_LINE8 = 0b11000000;
             HS_SHIFT = 328 * 2;
             HS_SIZE = 48 * 2;

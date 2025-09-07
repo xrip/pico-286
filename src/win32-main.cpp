@@ -70,7 +70,7 @@ static INLINE void renderer() {
                     uint32_t *text_buffer_line = &VIDEORAM[0x8000 + y_div_16 * 80];
 
                     for (int column = 0; column < 40; column++) {
-                        uint8_t glyph_pixels = font_8x8[*text_buffer_line++ * 8 + glyph_line]; // Glyph row from font
+                        uint8_t glyph_pixels = font_8x8[(*text_buffer_line++ & 0xFF) * 8 + glyph_line]; // Glyph row from font
                         uint8_t color = *text_buffer_line++; // Color attribute
 
                         // Cursor blinking check
