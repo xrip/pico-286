@@ -661,6 +661,9 @@ static void load_config_286() {
     }
 }
 
+void cpu_set(void);
+extern void (*cpu_exec)(int32_t cycs);
+
 int main(void) {
     // Platform-specific initialization
 #if PICO_RP2350
@@ -799,7 +802,8 @@ int main(void) {
     // Initialize audio and reset emulator
     // adlib_init(SOUND_FREQUENCY);
     sn76489_reset();
-    reset86();
+   /// reset86();
+   cpu_set();
 
     // Initialize mouse control variables
     nespad_read();
@@ -811,7 +815,8 @@ int main(void) {
 
     // Main emulation loop
     while (true) {
-        exec86(tormoz);
+        cpu_exec(tormoz);
+///        exec86(tormoz);
 #if !PICO_RP2040
         if (delay) sleep_us(delay);
 #endif
@@ -847,4 +852,22 @@ int main(void) {
         tight_loop_contents();
     }
     __unreachable();
+}
+
+void __wrap_abort(void) {
+    // остановка на месте — можно повесить бесконечный цикл
+    while (1) { }
+}
+
+int __wrap_vprintf(const char *fmt, va_list args) {
+    // пример: перенаправляем на стандартный UART/USB CDC
+    return vprintf(fmt, args); // или своя функция печати
+}
+
+int __wrap_printf(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    int ret = __wrap_vprintf(fmt, args);
+    va_end(args);
+    return ret;
 }

@@ -98,6 +98,13 @@ int a20_enabled = 0;
 
 uint8_t __attribute__((aligned (4), section(".psram"))) XMS[XMS_MEMORY_SIZE] = {0};
 
+void     plat_munmap(void *ptr, size_t size) {
+    /// TODO:
+}
+void    *plat_mmap(size_t size, uint8_t executable) {
+    return XMS;
+}
+
 void init_umb() {
     for (int i = 0; i < UMB_BLOCKS_COUNT; ++i) {
         umb_blocks[i].allocated_paragraphs = 0;

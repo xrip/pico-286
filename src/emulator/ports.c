@@ -536,10 +536,20 @@ void portout16(uint16_t portnum, uint16_t value) {
     portout(portnum + 1, (uint8_t) (value >> 8));
 }
 
+void portout32(uint16_t portnum, uint32_t value) {
+    portout(portnum, (uint8_t) value);
+    portout(portnum + 1, (uint8_t) (value >> 8));
+    portout(portnum + 2, (uint8_t) (value >> 16));
+    portout(portnum + 3, (uint8_t) (value >> 24));
+}
+
 uint16_t portin16(uint16_t portnum) {
     return portin(portnum) | portin(portnum + 1) << 8;
 }
 
+uint32_t portin32(uint16_t portnum) {
+    return (uint32_t)portin(portnum) | (uint32_t)portin(portnum + 1) << 8 | (uint32_t)portin(portnum + 2) << 16 | (uint32_t)portin(portnum + 3) << 24;
+}
 
 void get_sound_sample(const int16_t other_sample, int16_t *samples) {
 #if HARDWARE_SOUND

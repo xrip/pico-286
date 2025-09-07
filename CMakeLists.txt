@@ -53,6 +53,9 @@ foreach (SRC_FILE IN LISTS SRC)
 endforeach ()
 message(STATUS "")
 
+# from 86Box
+add_subdirectory(drivers/cpu)
+
 # =========================
 # HOST BUILD (Windows/Linux)
 # =========================
@@ -68,6 +71,7 @@ if (PICO_PLATFORM STREQUAL "host")
         target_link_libraries(${PROJECT_NAME} PRIVATE X11 pthread)
         target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf findfirst/)
     endif ()
+    target_link_libraries(${PROJECT_NAME} PRIVATE cpu)
 
     target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)
 else ()
@@ -207,6 +211,7 @@ else ()
     )
 
     add_executable(${PROJECT_NAME} ${SRC} src/pico-main.c src/printf/printf.c src/74hc595/74hc595.c)
+    target_link_libraries(${PROJECT_NAME} PRIVATE cpu)
     target_include_directories(${PROJECT_NAME} PRIVATE src/74hc595 src src/emu8950 src/printf)
     target_sources(${PROJECT_NAME} PRIVATE src/emu8950/slot_render_pico.S)
 
