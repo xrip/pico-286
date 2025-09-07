@@ -24,6 +24,7 @@
 #include "audio.h"
 #include "graphics.h"
 #include "ps2.h"
+#include "cpu.h"
 #include "ff.h"
 #include "nespad.h"
 #include "emu8950.h"
@@ -799,7 +800,12 @@ int main(void) {
     // Initialize audio and reset emulator
     // adlib_init(SOUND_FREQUENCY);
     sn76489_reset();
-    reset86();
+    ///reset86();
+    /// TODO: machine_init...
+    wrcache_init();
+    memory_init();
+    cpu_reset();
+    ports_init();
 
     // Initialize mouse control variables
     nespad_read();
@@ -811,7 +817,8 @@ int main(void) {
 
     // Main emulation loop
     while (true) {
-        exec86(tormoz);
+///        exec86(tormoz);
+        cpu_exec(tormoz);
 #if !PICO_RP2040
         if (delay) sleep_us(delay);
 #endif

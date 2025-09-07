@@ -551,5 +551,333 @@ void get_sound_sample(const int16_t other_sample, int16_t *samples) {
     samples[1] = samples[0] += (int32_t)(speaker_sample() + other_sample + covox_sample + sn76489_sample() + midi_sample());
     cms_samples(samples);
 #endif
+}
 
+struct ports_s {
+	uint32_t start;
+	uint32_t size;
+	uint8_t(*readcb)(void* udata, uint16_t addr);
+	uint16_t(*readcbW)(void* udata, uint16_t addr);
+	uint32_t(*readcbL)(void* udata, uint16_t addr);
+	void (*writecb)(void* udata, uint16_t addr, uint8_t value);
+	void (*writecbW)(void* udata, uint16_t addr, uint16_t value);
+	void (*writecbL)(void* udata, uint16_t addr, uint32_t value);
+	void* udata;
+	int used;
+} ports[64];
+
+int lastportmap = -1;
+
+FUNC_INLINE int getportmap(uint32_t addr32) {
+	int i;
+	for (i = lastportmap; i >= 0; i--) {
+		if (ports[i].used) {
+			if ((addr32 >= ports[i].start) && (addr32 < (ports[i].start + ports[i].size))) {
+				return i;
+			}
+		}
+	}
+	return -1;
+}
+
+void port_write(uint16_t portnum, uint8_t value) {
+	int map;
+#ifdef DEBUG_PORTS
+	debug_log(DEBUG_DETAIL, "port_write @ %03X <- %02X\r\n", portnum, value);
+#endif
+	//portnum &= 0x0FFF;
+
+	map = getportmap(portnum);
+
+	/*if (portnum == 0x80) {
+		debug_log(DEBUG_DETAIL, "Diagnostic port out: %02X\r\n", value);
+		//if (value == 0xA) showops = 1;
+	}
+	else*/ if (portnum == 0x92) {
+		a20_enabled = (value & 2) ? 1 : 0;
+		return;
+	}
+	/*if (ports_cbWriteB[portnum] != NULL) {
+		(*ports_cbWriteB[portnum])(ports_udata[portnum], portnum, value);
+		return;
+	}*/
+
+	if (map != -1) {
+		if (ports[map].writecb != NULL) {
+			(*ports[map].writecb)(ports[map].udata, portnum, value);
+			return;
+		}
+	}
+
+}
+
+void port_writew(uint16_t portnum, uint16_t value) {
+	int map;
+	//portnum &= 0x0FFF;
+	map = getportmap(portnum);
+
+	if (portnum == 0x80) {
+		debug_log(DEBUG_DETAIL, "Diagnostic port out: %04X\r\n", value);
+	}
+	/*if (ports_cbWriteW[portnum] != NULL) {
+		(*ports_cbWriteW[portnum])(ports_udata[portnum], portnum, value);
+		return;
+	}*/
+	if (map != -1) {
+		if (ports[map].writecbW != NULL) {
+			(*ports[map].writecbW)(ports[map].udata, portnum, value);
+			return;
+		}
+	}
+
+	port_write(portnum, (uint8_t)value);
+	port_write(portnum + 1, (uint8_t)(value >> 8));
+}
+
+void port_writel(uint16_t portnum, uint32_t value) {
+	int map;
+	//portnum &= 0x0FFF;
+	map = getportmap(portnum);
+
+	if (portnum == 0x80) {
+		debug_log(DEBUG_DETAIL, "Diagnostic port out: %08X\r\n", value);
+	}
+	/*if (ports_cbWriteL[portnum] != NULL) {
+		(*ports_cbWriteL[portnum])(ports_udata[portnum], portnum, value);
+		return;
+	}*/
+
+	if (map != -1) {
+		if (ports[map].writecbL != NULL) {
+			(*ports[map].writecbL)(ports[map].udata, portnum, value);
+			return;
+		}
+	}
+
+
+#ifdef FAKE_PCI
+	if (portnum == 0xCF8) {
+		pci_write_0xcf8(value);
+		return;
+	}
+#endif
+
+	port_write(portnum, (uint8_t)value);
+	port_write(portnum + 1, (uint8_t)(value >> 8));
+	port_write(portnum + 2, (uint8_t)(value >> 16));
+	port_write(portnum + 3, (uint8_t)(value >> 24));
+}
+
+uint8_t port_read(uint16_t portnum) {
+	int map;
+#ifdef DEBUG_PORTS
+	if ((portnum != 0x3BA) && (portnum != 0x3DA)) debug_log(DEBUG_DETAIL, "port_read @ %03X\r\n", portnum);
+#endif
+	if (showops) {
+		if ((portnum != 0x3BA) && (portnum != 0x3DA)) debug_log(DEBUG_DETAIL, "port_read @ %03X\r\n", portnum);
+	}
+	//portnum &= 0x0FFF;
+	map = getportmap(portnum);
+
+#ifdef FAKE_PCI
+	if (portnum == 0x92) {
+		return cpu->a20_gate ? 2 : 0;
+	}
+	if (portnum == 0xCFC) {
+		return pci_read_0xcfc() & 0xFF;
+	}
+	if (portnum == 0xCFD) {
+		return pci_read_0xcfc() >> 8;
+	}
+	if (portnum == 0xCFE) {
+		return pci_read_0xcfc() >> 16;
+	}
+	if (portnum == 0xCFF) {
+		return pci_read_0xcfc() >> 24;
+	}
+#endif
+
+	/*if (ports_cbReadB[portnum] != NULL) {
+		return (*ports_cbReadB[portnum])(ports_udata[portnum], portnum);
+	}*/
+	if (map != -1) {
+		if (ports[map].readcb != NULL) {
+			return (*ports[map].readcb)(ports[map].udata, portnum);
+		}
+	}
+
+	return 0xFF;
+}
+
+uint16_t port_readw(uint16_t portnum) {
+	int map;
+	uint16_t ret;
+	//portnum &= 0x0FFF;
+	map = getportmap(portnum);
+
+	/*if (ports_cbReadW[portnum] != NULL) {
+		return (*ports_cbReadW[portnum])(ports_udata[portnum], portnum);
+	}*/
+	if (map != -1) {
+		if (ports[map].readcbW != NULL) {
+			return (*ports[map].readcbW)(ports[map].udata, portnum);
+		}
+	}
+
+#ifdef FAKE_PCI
+	if (portnum == 0xCFC) {
+		return pci_read_0xcfc() & 0xFFFF;
+	}
+	if (portnum == 0xCFE) {
+		return pci_read_0xcfc() >> 16;
+	}
+#endif
+
+	ret = port_read(portnum);
+	ret |= (uint16_t)port_read(portnum + 1) << 8;
+	return ret;
+}
+
+uint32_t port_readl(uint16_t portnum) {
+	int map;
+	uint32_t ret;
+	//portnum &= 0x0FFF;
+	map = getportmap(portnum);
+
+	/*if (ports_cbReadL[portnum] != NULL) {
+		return (*ports_cbReadL[portnum])(ports_udata[portnum], portnum);
+	}*/
+	if (map != -1) {
+		if (ports[map].readcbL != NULL) {
+			return (*ports[map].readcbL)(ports[map].udata, portnum);
+		}
+	}
+
+
+#ifdef FAKE_PCI
+	if (portnum == 0xCF8) {
+		return pci_read_0xcf8();
+	}
+	else if (portnum == 0xCFC) {
+		return pci_read_0xcfc();
+	}
+#endif
+
+	ret = port_read(portnum);
+	ret |= (uint32_t)port_read(portnum + 1) << 8;
+	ret |= (uint32_t)port_read(portnum + 2) << 16;
+	ret |= (uint32_t)port_read(portnum + 3) << 24;
+	return ret;
+}
+
+void ports_cbRegister(uint32_t start, uint32_t count, uint8_t (*readb)(void*, uint16_t), uint16_t (*readw)(void*, uint16_t), void (*writeb)(void*, uint16_t, uint8_t), void (*writew)(void*, uint16_t, uint16_t), void* udata) {
+/*	uint32_t i;
+	for (i = 0; i < count; i++) {
+		if ((start + i) >= PORTS_COUNT) {
+			break;
+		}
+		ports_cbReadB[start + i] = readb;
+		ports_cbReadW[start + i] = readw;
+		ports_cbWriteB[start + i] = writeb;
+		ports_cbWriteW[start + i] = writew;
+		ports_udata[start + i] = udata;
+	}*/
+
+	uint8_t i;
+	uint32_t j;
+	for (i = 0; i < 64; i++) {
+		if (ports[i].used == 0) break;
+	}
+	if (i == 64) {
+		debug_log(DEBUG_ERROR, "[PORTS] Out of port map structs!\n");
+		while(1);
+	}
+	ports[i].readcb = readb;
+	ports[i].writecb = writeb;
+	ports[i].readcbW = readw;
+	ports[i].writecbW = writew;
+	ports[i].readcbL = NULL;
+	ports[i].writecbL = NULL;
+	ports[i].start = start;
+	ports[i].size = count;
+	ports[i].udata = udata;
+	ports[i].used = 1;
+	lastportmap = i;
+
+	/*for (int j = 0; j < 64; j++) {
+		if (!ports[j].used) continue;
+
+		uint16_t start_a = ports[j].start;
+		uint16_t end_a = start_a + ports[j].size - 1;
+		uint16_t start_b = start;
+		uint16_t end_b = start + count - 1;
+
+		if ((start_b <= end_a) && (end_b >= start_a)) {
+			printf("[PORTS WARNING] Port range %04X-%04X overlaps with existing %04X-%04X\n",
+				start_b, end_b, start_a, end_a);
+		}
+	}*/
+
+}
+
+void ports_init() {
+	uint32_t i;
+	/*for (i = 0; i < PORTS_COUNT; i++) {
+		ports_cbReadB[i] = NULL;
+		ports_cbReadW[i] = NULL;
+		ports_cbReadL[i] = NULL;
+		ports_cbWriteB[i] = NULL;
+		ports_cbWriteW[i] = NULL;
+		ports_cbWriteL[i] = NULL;
+		ports_udata[i] = NULL;
+	}*/
+	for (i = 0; i < 64; i++) {
+		ports[i].readcb = NULL;
+		ports[i].writecb = NULL;
+		ports[i].readcbW = NULL;
+		ports[i].writecbW = NULL;
+		ports[i].readcbL = NULL;
+		ports[i].writecbL = NULL;
+		ports[i].used = 0;
+	}
+
+	//memcpy(pci_config_space, piix4_config, 64);
+
+/*	pci_config_space[0] = 0x86;
+	pci_config_space[1] = 0x80;
+	pci_config_space[2] = 0x11;
+	pci_config_space[3] = 0x71;
+	pci_config_space[4] = 0x05;
+	pci_config_space[8] = 0x81;
+	pci_config_space[9] = 0x80;
+	pci_config_space[0xA] = 0x01;
+	pci_config_space[0xB] = 0x01;
+
+	// BAR0 = 0x000001F1 (I/O)
+	pci_config_space[0x10] = 0xF1;
+	pci_config_space[0x11] = 0x01;
+	pci_config_space[0x12] = 0x00;
+	pci_config_space[0x13] = 0x00;
+
+	// BAR1 = 0x000003F5
+	pci_config_space[0x14] = 0xF5;
+	pci_config_space[0x15] = 0x03;
+	pci_config_space[0x16] = 0x00;
+	pci_config_space[0x17] = 0x00;
+
+	// BAR2 = 0x00000171
+	pci_config_space[0x18] = 0x71;
+	pci_config_space[0x19] = 0x01;
+	pci_config_space[0x1A] = 0x00;
+	pci_config_space[0x1B] = 0x00;
+
+	// BAR3 = 0x00000375
+	pci_config_space[0x1C] = 0x75;
+	pci_config_space[0x1D] = 0x03;
+	pci_config_space[0x1E] = 0x00;
+	pci_config_space[0x1F] = 0x00;
+
+	pci_config_space[0x3C] = 0x0E; // IRQ line = 14
+	pci_config_space[0x3D] = 0x01; // IRQ pin = INTA#
+	*/
 }

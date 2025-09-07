@@ -4,6 +4,7 @@
 
 // #define DEBUG_MIDI
 
+#undef debug_log
 #if defined(DEBUG_MIDI)
 #define debug_log(...) printf(__VA_ARGS__)
 #else

@@ -9,6 +9,7 @@
 // http://www.techhelpmanual.com/698-int_2fh_43xxh__himem_sys__extended_memory_manager__services.html
 
 //#define DEBUG_XMS
+#undef debug_log
 #if defined(DEBUG_XMS)
 #define debug_log(...) printf(__VA_ARGS__)
 #else
@@ -93,8 +94,6 @@ static int umb_blocks_allocated = 0;
 
 uint32_t xms_available = XMS_MEMORY_SIZE;
 uint8_t xms_handles = 0;
-
-int a20_enabled = 0;
 
 uint8_t __attribute__((aligned (4), section(".psram"))) XMS[XMS_MEMORY_SIZE] = {0};
 
