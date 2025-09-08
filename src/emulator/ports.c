@@ -158,8 +158,8 @@ void portout(uint16_t portnum, uint16_t value) {
 
 // A20 Gate
         case 0x92:
-            a20_enabled = value & 1;
-            printf("A20 W: %d\n", a20_enabled);
+            a20_gate = value & 1;
+            printf("A20 W: %d\n", a20_gate);
             return;
 // Tandy 3-Voice Sound
         case 0x1E0:
@@ -339,12 +339,11 @@ if (sound_chips_clock) {
 
 // Screen offset
                 case 0x0C: // Start address (MSB)
-                    vram_offset = (value & 0xff) << 8;
-                    // printf("vram offset %04X\n", vram_offset);
+                    vram_offset = value;
                     break;
                 case 0x0D: // Start address (LSB)
-                    vram_offset |= (value & 0xff);
-                    // printf("vram offset %04X\n", vram_offset);
+                    vram_offset = (uint32_t) vram_offset << 8 | (uint32_t) value;
+                    //printf("vram offset %04X\n", vram_offset);
                     break;
             }
 
@@ -422,8 +421,8 @@ uint16_t portin(uint16_t portnum) {
             return i8237_readpage(portnum);
 // A20 Gate
         case 0x92:
-            printf("A20 R: %d\n", a20_enabled);
-            return a20_enabled;
+            printf("A20 R: %d\n", a20_gate);
+            return a20_gate;
         case 0x201:
 // Joystick
             return joystick_in();

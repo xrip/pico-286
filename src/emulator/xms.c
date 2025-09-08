@@ -94,8 +94,6 @@ static int umb_blocks_allocated = 0;
 uint32_t xms_available = XMS_MEMORY_SIZE;
 uint8_t xms_handles = 0;
 
-int a20_enabled = 0;
-
 uint8_t __attribute__((aligned (4), section(".psram"))) XMS[XMS_MEMORY_SIZE] = {0};
 
 void init_umb() {
@@ -251,7 +249,7 @@ uint8_t __not_in_flash() xms_handler() {
             // Local Enable A20
             CPU_AX = 1; // Success
             CPU_BL = 0;
-            a20_enabled = 1;
+            a20_gate = 1;
             break;
         }
         case GLOBAL_DISABLE_A20:
@@ -259,12 +257,12 @@ uint8_t __not_in_flash() xms_handler() {
             // Local Disable A20
             CPU_AX = 1; // Success
             CPU_BL = 0;
-            a20_enabled = 0;
+            a20_gate = 0;
             break;
         }
         case QUERY_A20: {
             // Query A20 (Function 07h):
-            CPU_AX = a20_enabled; // Success
+            CPU_AX = a20_gate; // Success
             break;
         }
 

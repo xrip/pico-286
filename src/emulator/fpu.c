@@ -58,9 +58,6 @@
   case x:          \
     return y
 
-extern uint8_t mode, reg, rm;
-extern uint32_t ea;
-
 #ifdef MIN
 #undef MIN
 #endif
@@ -1024,7 +1021,7 @@ static void OpFstswMw() {
 
 static void OpFstswAx() {
     //Write16(m->ax, fpu.sw);
-    CPU_AX = fpu.sw;
+    regs.wordregs[regax] = fpu.sw;
 }
 
 static void SetFpuEnv(u8 p[28]) {
@@ -1153,7 +1150,7 @@ void OpFpu(uint8_t opcode) {
     bool ismemory;
     //printf("FPU op %02X\n", opcode);
     op = opcode & 7; //Opcode(rde) & 7;
-    fpu.ip64 = CPU_IP - 1;
+    fpu.ip64 = ip - 1;
     modregrm();
     ismemory = mode != 3;
     fpu.op = op << 8 | mode << 6 | reg << 3 | rm;

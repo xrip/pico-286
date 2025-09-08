@@ -34,12 +34,12 @@ void write86_ob(const uint32_t address, const uint8_t value) {
     } else if (address >= UMB_START && address < UMB_END) {
         UMB[address - UMB_START] = value;
     } else if (address >= HMA_START && address < HMA_END) {
-        if (a20_enabled) {
+        if (a20_gate) {
             HMA[address - HMA_START] = value;
         } else {
             RAM[address - HMA_START] = value;
         }
-    } else if (!a20_enabled && address >= HMA_END) {
+    } else if (!a20_gate && address >= HMA_END) {
         write86(address - HMA_START, value);
     }
 }
@@ -59,12 +59,12 @@ void writew86_ob(const uint32_t address, const uint16_t value) {
         } else if (address >= UMB_START && address < UMB_END) {
             *(uint16_t *) &UMB[address - UMB_START] = value;
         } else if (address >= HMA_START && address < HMA_END) {
-            if (a20_enabled) {
+            if (a20_gate) {
                 *(uint16_t *) &HMA[address - HMA_START] = value;
             } else {
                 *(uint16_t *) &RAM[address - HMA_START] = value;
             }
-        } else if (!a20_enabled && address >= HMA_END) {
+        } else if (!a20_gate && address >= HMA_END) {
             writew86(address - HMA_START, value);
         }
     }
@@ -89,12 +89,12 @@ void writedw86_ob(const uint32_t address, const uint32_t value) {
         } else if (address >= UMB_START && address < UMB_END) {
             *(uint32_t *) &UMB[address - UMB_START] = value;
         } else if (address >= HMA_START && address < HMA_END) {
-            if (a20_enabled) {
+            if (a20_gate) {
                 *(uint32_t *) &HMA[address - HMA_START] = value;
             } else {
                 *(uint32_t *) &RAM[address - HMA_START] = value;
             }
-        } else if (!a20_enabled && address >= HMA_END) {
+        } else if (!a20_gate && address >= HMA_END) {
             writedw86(address - HMA_START, value);
         }
     }
@@ -124,12 +124,12 @@ uint8_t read86_ob(const uint32_t address) {
         return BIOS[address - BIOS_START];
     }
     if (address >= HMA_START && address < HMA_END) {
-        if (a20_enabled) {
+        if (a20_gate) {
             return HMA[address - HMA_START];
         }
         return RAM[address - HMA_START];
     }
-    if (!a20_enabled && address >= HMA_END) {
+    if (!a20_gate && address >= HMA_END) {
         return read86(address - HMA_START);
     }
     return 0xFF;
@@ -159,12 +159,12 @@ uint16_t readw86_ob(const uint32_t address) {
         return *(uint16_t *) &BIOS[address - BIOS_START];
     }
     if (address >= HMA_START && address < HMA_END) {
-        if (a20_enabled) {
+        if (a20_gate) {
             return *(uint16_t *) &HMA[address - HMA_START];
         }
         return *(uint16_t *) &RAM[address - HMA_START];
     }
-    if (!a20_enabled && address >= HMA_END) {
+    if (!a20_gate && address >= HMA_END) {
         return readw86(address - HMA_START);
     }
     return 0xFFFF;
@@ -196,12 +196,12 @@ uint32_t readdw86_ob(const uint32_t address) {
         return *(uint32_t *) &BIOS[address - BIOS_START];
     }
     if (address >= HMA_START && address < HMA_END) {
-        if (a20_enabled) {
+        if (a20_gate) {
             return *(uint32_t *) &HMA[address - HMA_START];
         }
         return *(uint32_t *) &RAM[address - HMA_START];
     }
-    if (!a20_enabled && address >= HMA_END) {
+    if (!a20_gate && address >= HMA_END) {
         return readdw86(address - HMA_START);
     }
     return 0xFFFFFFFF;
@@ -229,12 +229,12 @@ void write86_mp(const uint32_t address, const uint8_t value) {
     } else if (address >= UMB_START && address < UMB_END) {
         write8psram(address - UMB_START, value);
     } else if (address >= HMA_START && address < HMA_END) {
-        if (a20_enabled) {
+        if (a20_gate) {
             write8psram(address, value);
         } else {
             SRAM[address - HMA_START] = value;
         }
-    } else if (!a20_enabled && address >= HMA_END) {
+    } else if (!a20_gate && address >= HMA_END) {
         write86(address - HMA_START, value);
     }
 }
@@ -257,12 +257,12 @@ void writew86_mp(const uint32_t address, const uint16_t value) {
         } else if (address >= UMB_START && address < UMB_END) {
             write16psram(address - UMB_START, value);
         } else if (address >= HMA_START && address < HMA_END) {
-            if (a20_enabled) {
+            if (a20_gate) {
                 write16psram(address, value);
             } else {
                 *(uint16_t *) &SRAM[address - HMA_START] = value;
             }
-        } else if (!a20_enabled && address >= HMA_END) {
+        } else if (!a20_gate && address >= HMA_END) {
             writew86(address - HMA_START, value);
         }
     }
@@ -289,12 +289,12 @@ void writedw86_mp(const uint32_t address, const uint32_t value) {
         } else if (address >= UMB_START && address < UMB_END) {
             write32psram(address - UMB_START, value);
         } else if (address >= HMA_START && address < HMA_END) {
-            if (a20_enabled) {
+            if (a20_gate) {
                 write32psram(address, value);
             } else {
                 *(uint32_t *) &SRAM[address - HMA_START] = value;
             }
-        } else if (!a20_enabled && address >= HMA_END) {
+        } else if (!a20_gate && address >= HMA_END) {
             writedw86(address - HMA_START, value);
         }
     }
@@ -327,12 +327,12 @@ uint8_t read86_mp(const uint32_t address) {
         return BIOS[address - BIOS_START];
     }
     if (address >= HMA_START && address < HMA_END) {
-        if (a20_enabled) {
+        if (a20_gate) {
             return read8psram(address);
         }
         return SRAM[address - HMA_START];
     }
-    if (!a20_enabled && address >= HMA_END) {
+    if (!a20_gate && address >= HMA_END) {
         return read86_mp(address - HMA_START);
     }
     return 0xFF;
@@ -365,12 +365,12 @@ uint16_t readw86_mp(const uint32_t address) {
         return *(uint16_t *) &BIOS[address - BIOS_START];
     }
     if (address >= HMA_START && address < HMA_END) {
-        if (a20_enabled) {
+        if (a20_gate) {
             return read16psram(address);
         }
         return *(uint16_t *) &SRAM[address - HMA_START];
     }
-    if (!a20_enabled && address >= HMA_END) {
+    if (!a20_gate && address >= HMA_END) {
         return readw86_mp(address - HMA_START);
     }
     return 0xFFFF;
@@ -405,12 +405,12 @@ uint32_t readdw86_mp(const uint32_t address) {
         return *(uint32_t *) &BIOS[address - BIOS_START];
     }
     if (address >= HMA_START && address < HMA_END) {
-        if (a20_enabled) {
+        if (a20_gate) {
             return read32psram(address);
         }
         return *(uint32_t *) &SRAM[address - HMA_START];
     }
-    if (!a20_enabled && address >= HMA_END) {
+    if (!a20_gate && address >= HMA_END) {
         return readdw86_mp(address - HMA_START);
     }
     return 0xFFFFFFFF;
@@ -431,12 +431,12 @@ void write86_sw(const uint32_t address, const uint8_t value) {
     } else if (address >= UMB_START && address < UMB_END) {
         swap_write(address, value);
     } else if (address >= HMA_START && address < HMA_END) {
-        if (a20_enabled) {
+        if (a20_gate) {
             swap_write(address, value);
         } else {
             swap_write(address - HMA_START, value);
         }
-    } else if (!a20_enabled && address >= HMA_END) {
+    } else if (!a20_gate && address >= HMA_END) {
         write86(address - HMA_START, value);
     }
 }
@@ -457,12 +457,12 @@ void writew86_sw(const uint32_t address, const uint16_t value) {
         } else if (address >= UMB_START && address < UMB_END) {
             swap_write16(address, value);
         } else if (address >= HMA_START && address < HMA_END) {
-            if (a20_enabled) {
+            if (a20_gate) {
                 swap_write16(address, value);
             } else {
                 swap_write16(address - HMA_START, value);
             }
-        } else if (!a20_enabled && address >= HMA_END) {
+        } else if (!a20_gate && address >= HMA_END) {
             writew86(address - HMA_START, value);
         }
     }
@@ -487,12 +487,12 @@ void writedw86_sw(const uint32_t address, const uint32_t value) {
         } else if (address >= UMB_START && address < UMB_END) {
             swap_write32(address, value);
         } else if (address >= HMA_START && address < HMA_END) {
-            if (a20_enabled) {
+            if (a20_gate) {
                 swap_write32(address, value);
             } else {
                 swap_write32(address - HMA_START, value);
             }
-        } else if (!a20_enabled && address >= HMA_END) {
+        } else if (!a20_gate && address >= HMA_END) {
             writedw86(address - HMA_START, value);
         }
     }
@@ -522,12 +522,12 @@ uint8_t read86_sw(const uint32_t address) {
         return BIOS[address - BIOS_START];
     }
     if (address >= HMA_START && address < HMA_END) {
-        if (a20_enabled) {
+        if (a20_gate) {
             return swap_read(address);
         }
         return swap_read(address - HMA_START);
     }
-    if (!a20_enabled && address >= HMA_END) {
+    if (!a20_gate && address >= HMA_END) {
         return read86_sw(address - HMA_START);
     }
     return 0xFF;
@@ -557,12 +557,12 @@ uint16_t readw86_sw(const uint32_t address) {
         return *(uint16_t *) &BIOS[address - BIOS_START];
     }
     if (address >= HMA_START && address < HMA_END) {
-        if (a20_enabled) {
+        if (a20_gate) {
             return swap_read16(address);
         }
         return swap_read16(address - HMA_START);
     }
-    if (!a20_enabled && address >= HMA_END) {
+    if (!a20_gate && address >= HMA_END) {
         return readw86_sw(address - HMA_START);
     }
     return 0xFFFF;
@@ -594,12 +594,12 @@ uint32_t readdw86_sw(const uint32_t address) {
         return *(uint32_t *) &BIOS[address - BIOS_START];
     }
     if (address >= HMA_START && address < HMA_END) {
-        if (a20_enabled) {
+        if (a20_gate) {
             return swap_read32(address);
         }
         return swap_read32(address - HMA_START);
     }
-    if (!a20_enabled && address >= HMA_END) {
+    if (!a20_gate && address >= HMA_END) {
         return readdw86_sw(address - HMA_START);
     }
     return 0xFFFFFFFF;
