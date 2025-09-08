@@ -7958,7 +7958,7 @@ void exec86(uint32_t execloops) {
 		}
 
 		totalexec++;
-printf("[%p] %02x\n", ip, opcode);
+///printf("[%04X:%04X] %02x\n", savecs, saveip, opcode);
 		(*opcode_table[opcode])();
 
 		//if (startcpl == 3) showops = 1; else showops = 0;

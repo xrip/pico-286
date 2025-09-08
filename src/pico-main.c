@@ -800,7 +800,7 @@ int main(void) {
     // adlib_init(SOUND_FREQUENCY);
     sn76489_reset();
     reset86();
-printf("reset86\n");
+
     // Initialize mouse control variables
     nespad_read();
     float mouse_throttle = 3.0f;
