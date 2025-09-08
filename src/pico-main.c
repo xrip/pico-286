@@ -789,7 +789,7 @@ int main(void) {
         } else {
             printf("PSRAM max %d MHz [T%p]\n", psram_mhz, qmi_hw->m[1].timing);
         }
-        printf("On-Board-PSRAM mode (GP%d)\n", gp);
+        printf("On-Board-PSRAM mode (GP%d) %d MB\n", gp, butter_psram_size >> 20);
     } else if (write86 == write86_mp) {
         printf("Murmulator-Board-PSRAM mode\n");
     } else {
@@ -800,7 +800,7 @@ int main(void) {
     // adlib_init(SOUND_FREQUENCY);
     sn76489_reset();
     reset86();
-
+printf("reset86\n");
     // Initialize mouse control variables
     nespad_read();
     float mouse_throttle = 3.0f;

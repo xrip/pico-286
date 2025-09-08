@@ -7821,9 +7821,9 @@ void exec86(uint32_t execloops) {
 	uint32_t loopcount;
 	uint8_t docontinue;
 	uint8_t bufop[12];
-	uint8_t regscopy[512];
-	uint8_t segscopy[512];
-	uint8_t cachecopy[512];
+	uint8_t regscopy[sizeof(regs)];
+	uint8_t segscopy[sizeof(segregs)];
+	uint8_t cachecopy[sizeof(segcache)];
 	//uint8_t crcopy[512];
 	uint32_t flagscopy;
 
@@ -7958,7 +7958,7 @@ void exec86(uint32_t execloops) {
 		}
 
 		totalexec++;
-
+printf("[%p] %02x\n", ip, opcode);
 		(*opcode_table[opcode])();
 
 		//if (startcpl == 3) showops = 1; else showops = 0;
