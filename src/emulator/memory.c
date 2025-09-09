@@ -144,7 +144,7 @@ uint16_t readw86_ob(const uint32_t address) {
         return *(uint16_t *) &RAM[address];
     }
     if (address >= VIDEORAM_START && address < VIDEORAM_END) {
-        return (uint16_t) read86(address) | ((uint16_t) read86(address + 1) << 8);
+        return  vga_mem_read16(address);
     }
     // if (address >= VBIOS_START && address < VBIOS_END) {
         // return *(uint16_t *) &VGABIOS[address - VBIOS_START];

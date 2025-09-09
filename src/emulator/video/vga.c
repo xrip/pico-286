@@ -164,13 +164,13 @@ static inline void vga_update_gc_cache(void) {
 
 // Read a byte from VGA memory (emulates CPU byte read from VGA window).
 // Performs latch update on read.
-uint8_t vga_mem_read(const uint32_t address) {
+uint8_t __not_in_flash() vga_mem_read(const uint32_t address) {
     vga_latch32 = VIDEORAM[address & 0xFFFF];
 
     if (vga.read_mode == 0) {
         // return the selected byte from latch
         const uint32_t shift = (vga.read_map_select & 3u) << 3;
-        return (uint8_t) (vga_latch32 >> shift & 0xFF);
+        return (uint8_t) (vga_latch32 >> shift);
     }
 
     // read mode 1: color compare against color_compare + color_dont_care
@@ -179,7 +179,44 @@ uint8_t vga_mem_read(const uint32_t address) {
     const uint32_t tmp = ((vga_latch32 ^ vga.color_compare32) & vga.color_dontcare32);
     // OR across plane-bytes into single byte: (tmp | tmp>>8 | tmp>>16 | tmp>>24) & 0xFF
     const uint32_t folded = (tmp | tmp >> 8 | tmp >> 16 | tmp >> 24) & 0xFFu;
-    return (uint8_t) (~folded & 0xFFu);
+    return (uint8_t)~folded;
+}
+
+uint16_t __not_in_flash() vga_mem_read16(uint32_t address) {
+    address &= 0xFFFF;
+
+    // Load two DWORDs from VRAM
+    const uint32_t plane_lo = VIDEORAM[address];
+    const uint32_t plane_hi = VIDEORAM[address + 1];
+
+    // VGA latches the last value read
+    vga_latch32 = plane_hi;
+
+    if (vga.read_mode == 0) {
+        // --- Mode 0: direct plane byte read ---
+        const unsigned shift = (vga.read_map_select & 3u) << 3;
+        const uint16_t byte_low = (plane_lo >> shift) & 0xFF;
+        const uint16_t byte_high = (plane_hi >> shift) & 0xFF;
+        return byte_low | byte_high << 8;
+    }
+
+    // --- Mode 1: color compare ---
+    const uint32_t cmp  = vga.color_compare32;
+    const uint32_t mask = vga.color_dontcare32;
+
+    uint32_t m0 = (plane_lo ^ cmp) & mask;
+    uint32_t m1 = (plane_hi ^ cmp) & mask;
+
+    // Optimized fold: OR into single byte
+    m0 |= m0 >> 8;
+    m0 |= m0 >> 16;
+    m1 |= m1 >> 8;
+    m1 |= m1 >> 16;
+
+    const uint8_t r0 = ~m0;
+    const uint8_t r1 = ~m1;
+
+    return (uint16_t)r0 | (uint16_t)r1 << 8;
 }
 
 // ---------------------- Write path ----------------------

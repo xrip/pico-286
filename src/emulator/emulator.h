@@ -391,3 +391,4 @@ void vga_init(void);
 void vga_mem_write(uint32_t address, uint8_t cpu_data);
 void vga_mem_write16(uint32_t address, uint16_t cpu_data_x2);
 uint8_t vga_mem_read(uint32_t address);
+uint16_t vga_mem_read16(uint32_t address);
