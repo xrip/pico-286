@@ -320,7 +320,7 @@ void __time_critical_func() second_core(void) {
 
         // Video frame rendering (~60Hz)
         if (tick >= last_frame_tick + 16667) {
-            static uint8_t old_video_mode;
+            static uint8_t old_video_mode = 0;
 
             // Handle video mode changes
             if (old_video_mode != videomode) {

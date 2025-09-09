@@ -74,36 +74,36 @@ uint32_t port_readl(uint16_t portnum) {
 #endif
 #define debug_log(X, ...) printf(__VA_ARGS__)
 
-	union _bytewordregs_ regs;
-	uint8_t	opcode, segoverride, reptype, hltstate, isaddr32, isoper32, isCS32, iopl, nt, tr, cpl, startcpl, protected, paging, usegdt, nowrite, currentseg;
-	uint8_t sib, sib_scale, sib_index, sib_base;
-	uint16_t segregs[6];
-	uint32_t segcache[6];
-	uint8_t segis32[6];
-	uint32_t seglimit[6];
-	uint8_t doexception, exceptionval;
-	uint32_t exceptionerr, exceptionip;
-	uint32_t savecs, saveip, ip, useseg, oldsp;
+	union _bytewordregs_ regs = {0};
+	uint8_t	opcode, segoverride, reptype, hltstate, isaddr32, isoper32, isCS32, iopl, nt, tr, cpl, startcpl, protected, paging, usegdt, nowrite, currentseg = 0;
+	uint8_t sib, sib_scale, sib_index, sib_base = 0;
+	uint16_t segregs[6] = { 0 };
+	uint32_t segcache[6] = { 0 };
+	uint8_t segis32[6] = { 0 };
+	uint32_t seglimit[6] = { 0 };
+	uint8_t doexception, exceptionval = 0;
+	uint32_t exceptionerr, exceptionip = 0;
+	uint32_t savecs, saveip, ip, useseg, oldsp = 0;
 	uint8_t a20_gate = 0;
-	uint32_t cr[8], dr[8];
-	uint8_t	tempcf, oldcf, cf, pf, af, zf, sf, tf, ifl, df, of, rf, v86f, acf, idf, mode, reg, rm;
-	uint16_t oper1, oper2, res16, disp16, temp16, dummy, stacksize, frametemp;
-	uint32_t oper1_32, oper2_32, res32, disp32;
-	uint8_t	oper1b, oper2b, res8, disp8, temp8, nestlev, addrbyte;
-	uint32_t sib_val, temp1, temp2, temp3, temp4, temp5, temp32, tempaddr32, frametemp32, ea;
-	uint32_t gdtr, gdtl;
-	uint32_t idtr, idtl;
-	uint32_t ldtr, ldtl;
-	uint32_t trbase, trlimit;
-	uint32_t shadow_esp;
-	uint8_t trtype;
-	uint8_t have387;
-	uint8_t bypass_paging;
-	uint16_t ldt_selector, tr_selector;
-	int32_t	result;
-	uint16_t trap_toggle;
-	uint64_t totalexec, temp64, temp64_2, temp64_3;
-	void (*int_callback[256])(uint8_t);
+	uint32_t cr[8], dr[8] = { 0 };
+	uint8_t	tempcf, oldcf, cf, pf, af, zf, sf, tf, ifl, df, of, rf, v86f, acf, idf, mode, reg, rm = 0;
+	uint16_t oper1, oper2, res16, disp16, temp16, dummy, stacksize, frametemp = 0;
+	uint32_t oper1_32, oper2_32, res32, disp32 = 0;
+	uint8_t	oper1b, oper2b, res8, disp8, temp8, nestlev, addrbyte = 0;
+	uint32_t sib_val, temp1, temp2, temp3, temp4, temp5, temp32, tempaddr32, frametemp32, ea = 0;
+	uint32_t gdtr, gdtl = 0;
+	uint32_t idtr, idtl = 0;
+	uint32_t ldtr, ldtl = 0;
+	uint32_t trbase, trlimit = 0;
+	uint32_t shadow_esp = 0;
+	uint8_t trtype = 0;
+	uint8_t have387 = 1;
+	uint8_t bypass_paging = 0;
+	uint16_t ldt_selector, tr_selector = 0;
+	int32_t	result = 0;
+	uint16_t trap_toggle = 0;
+	uint64_t totalexec, temp64, temp64_2, temp64_3 = 0;
+	void (*int_callback[256])(uint8_t) = { 0 };
 
 const uint8_t byteregtable[8] = { regal, regcl, regdl, regbl, regah, regch, regdh, regbh };
 
@@ -1246,6 +1246,7 @@ FUNC_INLINE uint32_t pop() {
 }
 
 void reset86() {
+	i8259_controller.interrupt_mask_register = 0xFF;
 	uint16_t i;
 	static uint8_t firstreset = 1;
 	if (firstreset) for (i = 0; i < 256; i++) {
@@ -1256,6 +1257,7 @@ void reset86() {
 	protected = 0;
 	paging = 0;
 	memset(segis32, 0, sizeof(segis32));
+	memset(RAM, 0, sizeof(RAM));
 	memset(HMA, 0, sizeof(HMA));
 	a20_gate = 0;
 	putsegreg(regcs, 0xFFFF);
@@ -2285,6 +2287,7 @@ void cpu_int15_handler() {
 }
 
 FUNC_INLINE void cpu_intcall(uint8_t intnum, uint8_t source, uint32_t err) {
+	printf("INT %02xh\n", intnum);
     switch (intnum) {
         case 0x10: {
             switch (CPU_AH) {
@@ -7958,7 +7961,18 @@ void exec86(uint32_t execloops) {
 		}
 
 		totalexec++;
-///printf("[%04X:%04X] %02x\n", savecs, saveip, opcode);
+	if (savecs < 0xF000)	
+printf("[%04X:%04X]%x %02x %02x %02x %02x  %02x %02x %02x %02x  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
+	 savecs, saveip & 0xFFF0, saveip & 0xF,
+	 getmem8(segcache[regcs], ip), getmem8(segcache[regcs], ip + 1),
+	 getmem8(segcache[regcs], ip + 2), getmem8(segcache[regcs], ip + 3),
+	 getmem8(segcache[regcs], ip + 4), getmem8(segcache[regcs], ip + 5),
+	 getmem8(segcache[regcs], ip + 6), getmem8(segcache[regcs], ip + 6),
+	 getmem8(segcache[regcs], ip + 8), getmem8(segcache[regcs], ip + 9),
+	 getmem8(segcache[regcs], ip + 10), getmem8(segcache[regcs], ip + 11),
+	 getmem8(segcache[regcs], ip + 12), getmem8(segcache[regcs], ip + 13),
+	 getmem8(segcache[regcs], ip + 14), getmem8(segcache[regcs], ip + 15)
+	);
 		(*opcode_table[opcode])();
 
 		//if (startcpl == 3) showops = 1; else showops = 0;

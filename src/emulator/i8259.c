@@ -6,7 +6,8 @@
 #include "emulator.h"
 
 struct i8259_s i8259_controller = {
-        .interrupt_vector_offset = 8
+    .interrupt_mask_register = 0xFF,
+    .interrupt_vector_offset = 8
 };
 
 uint8_t in8259(uint16_t port_number) {

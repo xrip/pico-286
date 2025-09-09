@@ -85,7 +85,7 @@ extern uint8_t SRAM[SRAM_BLOCK_SIZE];
 #define FIRST_RAM_PAGE (butter_psram_size ? RAM : SRAM)
 
 // i8259
-extern struct i8259_s {
+struct i8259_s {
     uint8_t interrupt_mask_register; //mask register
     uint8_t interrupt_request_register; //request register
     uint8_t in_service_register; //service register
@@ -96,7 +96,8 @@ extern struct i8259_s {
     uint8_t automatic_end_of_interrupt; //automatic EOI mode
     uint8_t register_read_mode; //remember what to return on read register from OCW3
     uint8_t controller_enabled;
-} i8259_controller;
+}
+extern i8259_controller;
 
 #define doirq(irqnum) (i8259_controller.interrupt_request_register |= (1 << (irqnum)) & (~i8259_controller.interrupt_mask_register))
 
