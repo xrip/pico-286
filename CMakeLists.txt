@@ -28,8 +28,6 @@ SET(BUILD_NAME "${PROJECT_NAME}")
 
 #set(MURM20 ON)
 #set(m1p2launcher ON)
-set(ENABLE_VGA ON)
-set(ENABLE_PWM_SOUND ON)
 # CPU Configuration
 set(CPU_FREQ_MHZ "500")
 set(FLASH_FREQ_MHZ "100")
