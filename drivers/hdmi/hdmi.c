@@ -188,6 +188,16 @@ static inline void pio_set_x_register(PIO pio, const int state_machine, const ui
     pio_sm_exec(pio, state_machine, mov);
 }
 
+// Spread one 8-bit value so its bits land at positions 0,4,8,...,28.
+// Verified for all 256 inputs.
+// ~20-ish simple ops; great on RP2040/RP2350.
+static inline uint32_t spread4_u32(uint32_t b) {
+    b &= 0xFFu;
+    b = (b | (b << 12)) & 0x000F000Fu;
+    b = (b | (b << 6)) & 0x03030303u;
+    return (b | (b << 3)) & 0x11111111u;
+}
+
 static void __time_critical_func() hdmi_scanline_interrupt_handler() {
     static uint8_t buffer_index = 0;
     static uint16_t current_scanline = 0;
@@ -217,16 +227,15 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
         //область изображения
         uint8_t *output_buffer = current_scanline_buffer + 72; //для выравнивания синхры;
         const uint8_t y = current_scanline / 2;
-        const uint8_t *input_buffer_8bit;
 
         switch (graphics_mode) {
             case TEXTMODE_80x25_COLOR: {
                 const uint8_t y_div_6 = y / 6;
                 const uint8_t glyph_line = y - y_div_6 * 6; // Optimized modulo
-                const uint8_t *text_buffer_line = text_buffer + __fast_mul(y_div_6, 160);
+                const uint32_t *text_buffer_line = &VIDEORAM[0x8000 + (vram_offset << 1) + __fast_mul(y_div_6, 160)];
 
                 for (unsigned int column = 0; column < TEXTMODE_COLS; column++) {
-                    uint8_t glyph_pixels = font_4x6[__fast_mul(*text_buffer_line++, 6) + glyph_line];
+                    uint8_t glyph_pixels = font_4x6[__fast_mul(*text_buffer_line++ & 0xFF, 6) + glyph_line];
                     const uint8_t color = *text_buffer_line++; // TODO: cga_blinking
 
                     if (color & 0x80 && cursor_blink_state) {
@@ -269,81 +278,84 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
             }
             case CGA_320x200x4:
             case CGA_320x200x4_BW: {
-                input_buffer_8bit = graphics_framebuffer + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                const register uint32_t *cga_row = &VIDEORAM[0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13)];
                 //2bit buf
-                for (int x = 320 / 4; x--;) {
-                    const uint8_t cga_byte = *input_buffer_8bit++;
+                for (int x = 320 / 4;; x--) {
+                    const uint8_t cga_byte = *cga_row++ & 0xFF;
 
-                    uint8_t color = cga_byte >> 6 & 3;
-                    *output_buffer++ = color ? color : cga_foreground_color;
-                    color = cga_byte >> 4 & 3;
-                    *output_buffer++ = color ? color : cga_foreground_color;
-                    color = cga_byte >> 2 & 3;
-                    *output_buffer++ = color ? color : cga_foreground_color;
-                    color = cga_byte >> 0 & 3;
-                    *output_buffer++ = color ? color : cga_foreground_color;
+                    uint8_t color = cga_byte >> 6;
+                    *output_buffer++ = color;
+                    color = (cga_byte >> 4) & 3;
+                    *output_buffer++ = color;
+                    color = (cga_byte >> 2) & 3;
+                    *output_buffer++ = color;
+                    color = (cga_byte >> 0) & 3;
+                    *output_buffer++ = color;
                 }
                 break;
             }
             case COMPOSITE_160x200x16_force:
             case COMPOSITE_160x200x16:
-            case TGA_160x200x16:
-                input_buffer_8bit = tga_offset + graphics_framebuffer + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+            case TGA_160x200x16: {
+                const register uint32_t *tga_row = &VIDEORAM[tga_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)];
+                uint32_t *output_buffer32 = (uint32_t *)output_buffer;
                 for (int x = 320 / 4; x--;) {
-                    const uint8_t cga_byte = *input_buffer_8bit++; // Fetch 8 pixels from TGA memory
-                    uint8_t color1 = cga_byte >> 4;
-                    uint8_t color2 = cga_byte & 15;
-
-                    if (videomode == 0x8) {
-                        if (!color1) color1 = cga_foreground_color;
-                        if (!color2) color2 = cga_foreground_color;
-                    }
-
-                    *output_buffer++ = color1;
-                    *output_buffer++ = color1;
-                    *output_buffer++ = color2;
-                    *output_buffer++ = color2;
+                    uint8_t two_pixels = *tga_row++; // Fetch 2 pixels from TGA memory
+                    uint8_t pixel1_color = two_pixels >> 4;
+                    uint8_t pixel2_color = two_pixels & 15;
+                    *output_buffer32++ = pixel1_color | (pixel1_color << 8) | (pixel2_color << 16) | (pixel2_color << 24);
                 }
                 break;
+            }
+
             case TGA_320x200x16: {
                 //4bit buf
-                input_buffer_8bit = tga_offset + graphics_framebuffer + (y & 3) * 8192 + __fast_mul(y >> 2, 160);
-                for (int x = SCREEN_WIDTH / 2; x--;) {
-                    *output_buffer++ = *input_buffer_8bit >> 4;
-                    *output_buffer++ = *input_buffer_8bit & 15;
-                    input_buffer_8bit++;
+                const register uint32_t *tga_row = &VIDEORAM[tga_offset + (y & 3) * 8192 + __fast_mul(y >> 2, 160)];
+                for (int x = 320 / 2;; x--) {
+                    const uint8_t two_pixels = *tga_row++; // Fetch 2 pixels from TGA memory
+                    *output_buffer++ = two_pixels >> 4;
+                    *output_buffer++ = two_pixels & 15;
                 }
                 break;
             }
-            case VGA_320x200x256x4:
-                input_buffer_8bit = graphics_framebuffer + __fast_mul(y, 80);
-                for (int x = 640 / 4; x--;) {
-                    //*output_buffer_16bit++=current_palette[*input_buffer_8bit++];
-                    *output_buffer++ = *input_buffer_8bit;
-                    *output_buffer++ = *(input_buffer_8bit + 16000);
-                    *output_buffer++ = *(input_buffer_8bit + 32000);
-                    *output_buffer++ = *(input_buffer_8bit + 48000);
-                    input_buffer_8bit++;
-                }
-                break;
             case EGA_320x200x16x4: {
-                input_buffer_8bit = graphics_framebuffer + __fast_mul(y, 40);
+                const register uint32_t *ega_row = &VIDEORAM[__fast_mul(y, 40)];
+
+                // Process 40 dwords (320 pixels) in groups
                 for (int x = 0; x < 40; x++) {
-                    for (int bit = 7; bit--;) {
-                        *output_buffer++ = input_buffer_8bit[0] >> bit & 1 |
-                                           (input_buffer_8bit[16000] >> bit & 1) << 1 |
-                                           (input_buffer_8bit[32000] >> bit & 1) << 2 |
-                                           (input_buffer_8bit[48000] >> bit & 1) << 3;
-                    }
-                    input_buffer_8bit++;
+                    uint32_t ega_planes = *ega_row++;
+
+                    // Build 8 color nibbles packed into a 32-bit word
+                    uint32_t eight_pixels = spread4_u32(ega_planes & 0xFFu)
+                                            | spread4_u32(ega_planes >> 8 & 0xFFu) << 1
+                                            | spread4_u32(ega_planes >> 16 & 0xFFu) << 2
+                                            | spread4_u32(ega_planes >> 24) << 3;
+
+                    // Unroll writing 8 pixels, duplicating horizontally
+                    *output_buffer++ = eight_pixels >> 28;
+                    *output_buffer++ = eight_pixels >> 24 & 0xF;
+                    *output_buffer++ = eight_pixels >> 20 & 0xF;
+                    *output_buffer++ = eight_pixels >> 16 & 0xF;
+                    *output_buffer++ = eight_pixels >> 12 & 0xF;
+                    *output_buffer++ = eight_pixels >> 8 & 0xF;
+                    *output_buffer++ = eight_pixels >> 4 & 0xF;
+                    *output_buffer++ = eight_pixels & 0xF;
                 }
                 break;
             }
-            default:
-            case VGA_320x200x256: {
-                input_buffer_8bit = graphics_framebuffer + __fast_mul(y, 320);
-                for (unsigned int x = 320; x--;) {
-                    const uint8_t color = *input_buffer_8bit++;
+            case VGA_320x200x256x4: {
+                const register uint32_t *vga_row = &VIDEORAM[__fast_mul(y, 80)];
+                uint32_t *output_buffer32 = (uint32_t *)output_buffer;
+                for (int x = 0; x < 80; x++) {
+                    *output_buffer32++ = *vga_row++;
+                }
+                break;
+            }
+            case VGA_320x200x256:
+            default: {
+                const uint32_t *vga_row = &VIDEORAM[__fast_mul(y, 320)];
+                for (int x = 320; x--;) {
+                    const uint8_t color = *vga_row++ & 0xFF;
                     *output_buffer++ = color >= HDMI_CTRL_BASE_INDEX ? 0 : color;
                 }
                 break;
