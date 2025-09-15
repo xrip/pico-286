@@ -121,25 +121,34 @@ extern uint16_t ntsc_palette[4 * 256] __attribute__ ((aligned (4)));
 
 // DMA channel handles for ping-pong operation
 static uint ntsc_dma_chan_primary, ntsc_dma_chan_secondary;
-
+// Spread one 8-bit value so its bits land at positions 0,4,8,...,28.
+// Verified for all 256 inputs.
+// ~20-ish simple ops; great on RP2040/RP2350.
+static inline uint32_t spread4_u32(uint32_t b) {
+    b &= 0xFFu;
+    b = (b | (b << 12)) & 0x000F000Fu;
+    b = (b | (b << 6)) & 0x03030303u;
+    return (b | (b << 3)) & 0x11111111u;
+}
 static const uint8_t cga_brightness[16] = {
     2, // 0 black
     3, // 1 blue
-    4, // 2 green
-    5, // 3 cyan
-    3, // 4 red
+    5, // 2 green
+    6, // 3 cyan
+    4, // 4 red
     4, // 5 magenta
-    4, // 6 brown
-    5, // 7 light gray
-    3, // 8 dark gray
-    4, // 9 light blue
-    5, // 10 light green
-    6, // 11 light cyan
+    6, // 6 brown
+    7, // 7 light gray
+    4, // 8 dark gray
+    5, // 9 light blue
+    6, // 10 light green
+    7, // 11 light cyan
     5, // 12 light red
     6, // 13 light magenta
-    6, // 14 yellow
-    7 // 15 white
+    8, // 14 yellow
+    9  // 15 white
 };
+
 
 /* ===========================================================================
  * Function: ntsc_generate_scanline
@@ -151,8 +160,10 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
     // Generate equalizing pulses for the first two scanlines
     if (scanline_number < 2) {
         // Fill most of the line with sync level (black)
+
         for (int j = 0; j < NTSC_SAMPLES_PER_LINE - NTSC_HSYNC_WIDTH; j++)
             *buffer_ptr++ = NTSC_LEVEL_SYNC;
+
 
         // Add horizontal sync pulse at the end
         while (buffer_ptr < output_buffer + NTSC_SAMPLES_PER_LINE)
@@ -200,7 +211,7 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
             case TEXTMODE_40x25_COLOR: {
                 const uint8_t glyph_line = y & 7;
 
-                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + __fast_mul(y >> 3, 80);
+                uint32_t *input_buffer_8bit = &VIDEORAM[0x8000 + __fast_mul(y >> 3, 80)];
 
                 uint8_t phase = 0;
                 for (int col = 0; col < 40; ++col) {
@@ -225,15 +236,15 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
             case TEXTMODE_80x25_BW: {
                 const uint8_t glyph_line = y & 7;
 
-                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + __fast_mul(y >> 3, 160);
+                uint32_t *text_row = &VIDEORAM[0x8000 + __fast_mul(y >> 3, 160)];
                 uint8_t y_div_8 = y / 8;
 
                 const bool cursor_on_line = cursor_blink_state && (y_div_8 == CURSOR_Y) && (glyph_line >= 4);
                 const int cursor_col = cursor_on_line ? CURSOR_X : -1;
 
                 for (int column = 0; column < TEXTMODE_COLS; ++column) {
-                    const uint8_t ch = *input_buffer_8bit++;
-                    const uint8_t color = *input_buffer_8bit++;
+                    const uint8_t ch = *text_row++;
+                    const uint8_t color = *text_row++;
 
                     if (cursor_col == column) {
                             *(uint64_t *) buffer_ptr = 0x5050505050505050;
@@ -265,7 +276,7 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
             case COMPOSITE_160x200x16:
             case CGA_320x200x4:
             case CGA_320x200x4_BW: {
-                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                uint32_t *input_buffer_8bit = &VIDEORAM[0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13)];
 
                 for (int x = 0; x < 320 / 4; x++) {
                     uint8_t four_pixels = *input_buffer_8bit++;
@@ -289,7 +300,7 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
                 break;
             }
             case CGA_640x200x2: {
-                uint8_t *input_buffer_8bit = VIDEORAM + 0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                uint32_t *input_buffer_8bit =  &VIDEORAM[0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13)];
 
                 static const uint8_t brightness[2] = {NTSC_LEVEL_BLANK, 6};
                 for (int x = 80; x--;) {
@@ -308,7 +319,7 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
             }
 
             case TGA_160x200x16: {
-                const uint8_t *input_buffer_8bit = tga_offset + VIDEORAM + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
+                const uint32_t *input_buffer_8bit =  &VIDEORAM[tga_offset +  __fast_mul(y >> 1, 80) + ((y & 1) << 13)];
 
                 for (int x = 0; x < 320 / 4; x++) {
                     const uint8_t two_pixels = *input_buffer_8bit++; // Fetch 2 pixels from TGA memory
@@ -334,7 +345,7 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
                 break;
             }
             case TGA_320x200x16: {
-                uint8_t *input_buffer_8bit = tga_offset + VIDEORAM + ((y & 3) << 13) + __fast_mul(y >> 2, 160);
+                uint32_t *input_buffer_8bit =  &VIDEORAM[tga_offset + ((y & 3) << 13) + __fast_mul(y >> 2, 160)];
                 for (int x = 0; x < 320 / 2; x++) {
                     uint8_t two_pixels = *input_buffer_8bit++;
 
@@ -348,9 +359,48 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
                 }
                 break;
             }
+            case EGA_320x200x16x4: {
+                const register uint32_t *ega_row = &VIDEORAM[__fast_mul(y, 40)];
+                uint32_t *buffer32 = (uint32_t *)output_buffer;
+                // Process 40 dwords (320 pixels) in groups
+                for (int x = 0; x < 40; x++) {
+                    uint32_t ega_planes = *ega_row++;
+
+                    // Build 8 color nibbles packed into a 32-bit word
+                    uint32_t eight_pixels = spread4_u32(ega_planes & 0xFFu)
+                                            | spread4_u32(ega_planes >> 8 & 0xFFu) << 1
+                                            | spread4_u32(ega_planes >> 16 & 0xFFu) << 2
+                                            | spread4_u32(ega_planes >> 24) << 3;
+
+                    // Unroll writing 8 pixels, duplicating horizontally
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + (eight_pixels >> 28)  * 4 + 0); // phase 0
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + ((eight_pixels >> 24) & 0xF)  * 4 + 2); // phase 2
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + ((eight_pixels >> 20) & 0xF)  * 4 + 0); // phase 0
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + ((eight_pixels >> 16) & 0xF)   * 4 + 2); // phase 2
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + ((eight_pixels >> 12) & 0xF) * 4 + 0); // phase 0
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + ((eight_pixels >> 8) & 0xF)  * 4 + 2); // phase 2
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + ((eight_pixels >> 4) & 0xF) * 4 + 0); // phase 0
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + (eight_pixels & 0xF)  * 4 + 2); // phase 2
+                }
+                break;
+            }
+            case VGA_320x200x256x4: {
+                const register uint32_t *vga_row = &VIDEORAM[__fast_mul(y, 80)];
+                uint32_t *buffer32 = (uint32_t *)buffer_ptr;
+                for (int x = 0; x < 80; x++) {
+                    const uint32_t four_pixels = *vga_row++;
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + (four_pixels & 0xFF) * 4 + 0); // phase 0
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + (four_pixels >> 8 & 0xFF) * 4 + 2); // phase 2
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + (four_pixels >> 16 & 0xFF) * 4 + 0); // phase 0
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + (four_pixels >> 24) * 4 + 2); // phase 2
+                }
+                break;
+            }
+
             case VGA_320x200x256:
             default: {
-                uint8_t *line_buffer = VIDEORAM + __fast_mul(y, 320);
+                uint32_t *line_buffer = &VIDEORAM[__fast_mul(y, 320)];
+                uint32_t *buffer32 = (uint32_t *)buffer_ptr;
                 for (int x = 0; x < 320; x++) {
                     const uint8_t color = *line_buffer++;
 
@@ -358,8 +408,7 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
                     // Using 32-bit writes for efficiency (2 phase values at once)
                     // Phase offset alternates: 0,2,0,2... for proper color encoding
                     const uint32_t phase_offset = (x & 1) << 1;
-                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + phase_offset);
-                    buffer_ptr += 2;
+                    *buffer32++ = *(uint32_t *) (ntsc_palette + color * 4 + phase_offset);
                 }
             }
         }
