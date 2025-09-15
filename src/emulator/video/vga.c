@@ -1,13 +1,22 @@
+// vga.d  -- minimal VGA planar memory handling (packed as uint32_t per offset).
+// Target: RP2040 / RP2350 (32-bit), optimized hot path using bitwise and multiplications.
+// Each vram entry: 0xP3P2P1P0 (plane0 in lowest byte).
+
 #pragma GCC optimize("Ofast")
 #include "emulator/emulator.h"
 #if PICO_ON_DEVICE
 #include "graphics.h"
 #endif
 
-static uint8_t color_index = 0, read_color_index = 0, vga_register, sequencer_register = 0, graphics_control_register =
-                0;
+static uint8_t sequencer_register = 0;
+static uint8_t graphics_control_register = 0;
+
+static uint8_t color_index = 0, read_color_index = 0, vga_register;
 uint32_t vga_plane_offset = 0;
 uint8_t vga_planar_mode = 0;
+
+// Latches (32-bit).
+static uint32_t vga_latch32 = 0;
 
 // https://wiki.osdev.org/VGA_Hardware
 static const uint32_t plane_expand_lut[16] = {
@@ -55,14 +64,6 @@ uint32_t vga_palette[256] = {
 #if PICO_ON_DEVICE
 bool ega_vga_enabled = true;
 #endif
-
-// vga_mem.h  -- minimal VGA planar memory handling (packed as uint32_t per offset).
-// Target: RP2040 / RP2350 (32-bit), optimized hot path using bitwise and multiplications.
-// Each vram entry: 0xP3P2P1P0 (plane0 in lowest byte).
-
-
-// Latches (32-bit).
-static uint32_t vga_latch32 = 0;
 
 // Utility: replicate an 8-bit value into all four bytes of a 32-bit word
 inline static uint32_t expand_to_u32(const uint8_t value) {
@@ -219,6 +220,7 @@ uint16_t __not_in_flash() vga_mem_read16(uint32_t address) {
     return (uint16_t)r0 | (uint16_t)r1 << 8;
 }
 
+#if VGA_DEBUGGING
 // ---------------------- Write path ----------------------
 void vga_mem_write_loop(uint32_t address, const uint8_t cpu_data) {
     address &= 0xFFFF;
@@ -306,15 +308,15 @@ void vga_mem_write_loop(uint32_t address, const uint8_t cpu_data) {
     // Смешивание всех изменившихся планов с не изменившимися
     VIDEORAM[address] = (~vga.map_mask32 & previous_data) | (vga.map_mask32 & new_data);
 }
-
+#endif
 // Core write implementation (CPU writes a byte to VGA memory)
 void __not_in_flash() vga_mem_write(const uint32_t address, const uint8_t cpu_data) {
-    register uint32_t new_data;
+    uint32_t new_data;
 
-    register const uint32_t map_mask32 = vga.map_mask32;
-    register const uint32_t enable_set_reset32 = vga.enable_set_reset32;
-    register const uint32_t set_reset32 = vga.set_reset32;
-    register uint32_t *videoram_data = &VIDEORAM[address & 0xFFFF]; // current data pointer
+    const uint32_t map_mask32 = vga.map_mask32;
+    const uint32_t enable_set_reset32 = vga.enable_set_reset32;
+    const uint32_t set_reset32 = vga.set_reset32;
+    uint32_t *videoram_data = &VIDEORAM[address & 0xFFFF]; // current data pointer
 
     switch (vga.write_mode) {
         case 0: {
@@ -347,7 +349,7 @@ void __not_in_flash() vga_mem_write(const uint32_t address, const uint8_t cpu_da
         }
     }
 
-    // --- ALU (applies to modes 0, 2, 3) ---
+    // --- ALU (applies to modes 0, 2) ---
     //
     if (vga.logical_operation == 1) {
         new_data &= vga_latch32;
@@ -439,10 +441,6 @@ void __not_in_flash() vga_mem_write16(const uint32_t address, const uint16_t cpu
     *p1 = masked_merge_xor(*p1, new1, map_mask32);
 }
 
-static uint8_t seq_index = 0;
-static uint8_t gc_index = 0;
-
-
 // ---------------------- Initialization ----------------------
 void vga_init(void) {
     // memset(VIDEORAM, 0, sizeof(VIDEORAM));
@@ -467,7 +465,7 @@ void vga_init(void) {
     vga_update_seq_cache();
     vga_update_gc_cache();
     vga_latch32 = 0;
-    seq_index = gc_index = 0;
+    sequencer_register = graphics_control_register = 0;
 }
 
 
@@ -507,13 +505,13 @@ void vga_portout(uint16_t portnum, uint16_t value) {
         // http://www.osdever.net/FreeVGA/vga/seqreg.htm
         // https://vtda.org/books/Computing/Programming/EGA-VGA-ProgrammersReferenceGuide2ndEd_BradleyDyckKliewer.pdf
         case 0x3C4:
-            seq_index = value & 0x07u;
+            sequencer_register = value & 7;
             break;
         case 0x3C5:
             // store raw
-            vga.sequencer[seq_index] = value;
+            vga.sequencer[sequencer_register] = value;
             // update derived cache for changes that matter
-            if (seq_index == 2 || seq_index == 4) {
+            if (sequencer_register == 2 || sequencer_register == 4) {
                 vga_update_seq_cache();
             }
             // other seq regs could be handled here if desired
@@ -542,10 +540,10 @@ void vga_portout(uint16_t portnum, uint16_t value) {
 
         // http://www.osdever.net/FreeVGA/vga/graphreg.htm
         case 0x3CE:
-            gc_index = value & 0x0Fu;
+            graphics_control_register = value & 15;
             break;
         case 0x3CF:
-            vga.graphics_controller[gc_index] = value;
+            vga.graphics_controller[graphics_control_register] = value;
             // If register affects derived cache, update
             // if (gc_index <= 8 || gc_index == 0 || gc_index == 1 || gc_index == 2 || gc_index == 3 ||
             // gc_index == 4 || gc_index == 5 || gc_index == 7 || gc_index == 8) {
@@ -559,8 +557,8 @@ uint16_t vga_portin(uint16_t portnum) {
     //printf("vga_portin %x\n", portnum);
 
     switch (portnum) {
-        case 0x3C5: return vga.sequencer[seq_index];
-        case 0x3CF: return vga.graphics_controller[gc_index];
+        case 0x3C5: return vga.sequencer[sequencer_register];
+        case 0x3CF: return vga.graphics_controller[graphics_control_register];
         case 0x3C8:
             return read_color_index;
         case 0x3C9: {
