@@ -74,14 +74,22 @@ static int txt_palette_init = 0;
 enum graphics_mode_t graphics_mode;
 
 extern uint8_t __aligned(4) DEBUG_VRAM[80 * 10];
-// Spread one 8-bit value so its bits land at positions 0,4,8,...,28.
-// Verified for all 256 inputs.
-// ~20-ish simple ops; great on RP2040/RP2350.
-static inline uint32_t spread4_u32(uint32_t b) {
-    b &= 0xFFu;
-    b = (b | (b << 12)) & 0x000F000Fu;
-    b = (b | (b << 6)) & 0x03030303u;
-    return (b | (b << 3)) & 0x11111111u;
+// Spread 8 bits of a byte into positions 0,4,8,...28
+static inline uint32_t spread8(uint32_t plane) {
+    plane = (plane | (plane << 12)) & 0x000F000Fu;
+    plane = (plane | (plane <<  6)) & 0x03030303u;
+    plane = (plane | (plane <<  3)) & 0x11111111u;
+    return plane;
+}
+
+// Merge 4 plane bytes [P3|P2|P1|P0] into 8 nibbles (pixel color indices).
+static inline uint32_t ega_pack8_from_planes(const uint32_t ega_planes) {
+    const uint32_t pixel1 = spread8(ega_planes        & 0xFFu);
+    const uint32_t pixel2 = spread8((ega_planes >> 8) & 0xFFu);
+    const uint32_t pixel3 = spread8((ega_planes >>16) & 0xFFu);
+    const uint32_t pixel4 = spread8(ega_planes >>24);
+
+    return pixel1 | pixel2 << 1 | pixel3 << 2 | pixel4 << 3;
 }
 
 void __time_critical_func() dma_handler_VGA() {
@@ -410,10 +418,7 @@ void __time_critical_func() dma_handler_VGA() {
                 uint32_t ega_planes = *ega_row++;
 
                 // Build 8 color nibbles packed into a 32-bit word
-                uint32_t eight_pixels = spread4_u32(ega_planes & 0xFFu)
-                                        | spread4_u32(ega_planes >> 8 & 0xFFu) << 1
-                                        | spread4_u32(ega_planes >> 16 & 0xFFu) << 2
-                                        | spread4_u32(ega_planes >> 24) << 3;
+                uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
 
                 // Unroll writing 8 pixels, duplicating horizontally
                 *output_buffer_16bit++ = current_palette[eight_pixels >> 28];
@@ -434,10 +439,7 @@ void __time_critical_func() dma_handler_VGA() {
                 uint32_t ega_planes = *ega_row++;
 
                 // Build 8 color nibbles packed into a 32-bit word
-                uint32_t eight_pixels = spread4_u32(ega_planes & 0xFFu)
-                                        | spread4_u32(ega_planes >> 8 & 0xFFu) << 1
-                                        | spread4_u32(ega_planes >> 16 & 0xFFu) << 2
-                                        | spread4_u32(ega_planes >> 24) << 3;
+                uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
 
                 // Unroll writing 8 pixels, duplicating horizontally
                 *output_buffer_8bit++ = current_palette[eight_pixels >> 28];
@@ -460,10 +462,7 @@ void __time_critical_func() dma_handler_VGA() {
                 uint32_t ega_planes = *ega_row++;
 
                 // Build 8 color nibbles packed into a 32-bit word
-                uint32_t eight_pixels = spread4_u32(ega_planes & 0xFFu)
-                                        | spread4_u32(ega_planes >> 8 & 0xFFu) << 1
-                                        | spread4_u32(ega_planes >> 16 & 0xFFu) << 2
-                                        | spread4_u32(ega_planes >> 24) << 3;
+                uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
 
                 // Unroll writing 8 pixels, duplicating horizontally
                 *output_buffer_8bit++ = current_palette[eight_pixels >> 28];

@@ -182,14 +182,22 @@ static inline void pio_set_x_register(PIO pio, int sm, uint32_t value) {
     pio_sm_exec(pio, sm, pio_encode_mov(pio_x, pio_osr));
 }
 
-// Spread one 8-bit value so its bits land at positions 0,4,8,...,28.
-// Verified for all 256 inputs.
-// ~20-ish simple ops; great on RP2040/RP2350.
-static inline uint32_t spread4_u32(uint32_t b) {
-    b &= 0xFFu;
-    b = (b | (b << 12)) & 0x000F000Fu;
-    b = (b | (b << 6)) & 0x03030303u;
-    return (b | (b << 3)) & 0x11111111u;
+// Spread 8 bits of a byte into positions 0,4,8,...28
+static inline uint32_t spread8(uint32_t plane) {
+    plane = (plane | (plane << 12)) & 0x000F000Fu;
+    plane = (plane | (plane <<  6)) & 0x03030303u;
+    plane = (plane | (plane <<  3)) & 0x11111111u;
+    return plane;
+}
+
+// Merge 4 plane bytes [P3|P2|P1|P0] into 8 nibbles (pixel color indices).
+static inline uint32_t ega_pack8_from_planes(const uint32_t ega_planes) {
+    const uint32_t pixel1 = spread8(ega_planes        & 0xFFu);
+    const uint32_t pixel2 = spread8((ega_planes >> 8) & 0xFFu);
+    const uint32_t pixel3 = spread8((ega_planes >>16) & 0xFFu);
+    const uint32_t pixel4 = spread8(ega_planes >>24);
+
+    return pixel1 | pixel2 << 1 | pixel3 << 2 | pixel4 << 3;
 }
 
 static void __time_critical_func() hdmi_scanline_interrupt_handler() {
@@ -274,8 +282,8 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
             case CGA_320x200x4_BW: {
                 const register uint32_t *cga_row = &VIDEORAM[0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13)];
                 //2bit buf
-                for (int x = 320 / 4;; x--) {
-                    const uint8_t cga_byte = *cga_row++ & 0xFF;
+                for (int x = 320 / 4; x--;) {
+                    const uint8_t cga_byte = *cga_row++;
 
                     uint8_t color = cga_byte >> 6;
                     *output_buffer++ = color;
@@ -305,7 +313,7 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
             case TGA_320x200x16: {
                 //4bit buf
                 const register uint32_t *tga_row = &VIDEORAM[tga_offset + (y & 3) * 8192 + __fast_mul(y >> 2, 160)];
-                for (int x = 320 / 2;; x--) {
+                for (int x = 320 / 2; x--;) {
                     const uint8_t two_pixels = *tga_row++; // Fetch 2 pixels from TGA memory
                     *output_buffer++ = two_pixels >> 4;
                     *output_buffer++ = two_pixels & 15;
@@ -317,13 +325,10 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
 
                 // Process 40 dwords (320 pixels) in groups
                 for (int x = 0; x < 40; x++) {
-                    uint32_t ega_planes = *ega_row++;
+                    const uint32_t ega_planes = *ega_row++;
 
                     // Build 8 color nibbles packed into a 32-bit word
-                    uint32_t eight_pixels = spread4_u32(ega_planes & 0xFFu)
-                                            | spread4_u32(ega_planes >> 8 & 0xFFu) << 1
-                                            | spread4_u32(ega_planes >> 16 & 0xFFu) << 2
-                                            | spread4_u32(ega_planes >> 24) << 3;
+                    const uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
 
                     // Unroll writing 8 pixels, duplicating horizontally
                     *output_buffer++ = eight_pixels >> 28;

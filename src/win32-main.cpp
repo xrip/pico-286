@@ -24,14 +24,26 @@ static int sample_index = 0;
 
 extern "C" void adlib_getsample(int16_t *sndptr, intptr_t numsamples);
 
-// Spread one 8-bit value so its bits land at positions 0,4,8,...,28.
-// Verified for all 256 inputs.
-// ~20-ish simple ops; great on RP2040/RP2350.
-static inline uint32_t spread4_u32(uint32_t b) {
-    b &= 0xFFu;
-    b = (b | (b << 12)) & 0x000F000Fu;
-    b = (b | (b << 6)) & 0x03030303u;
-    return (b | (b << 3)) & 0x11111111u;
+// Merge 4 plane bytes (packed in a uint32_t: [P3|P2|P1|P0]) into 8 nibbles (packed in uint32_t),
+// where each nibble is a pixel color index: bit0 from P0, bit1 from P1, bit2 from P2, bit3 from P3.
+// Layout matches existing usage: top nibble is leftmost pixel (pixel 0), then next nibble (pixel 1), etc.
+// Merge 4 plane bytes into 8 nibbles, each nibble is a 4-bit pixel index.
+// Spread 8 bits of a byte into positions 0,4,8,...28
+static inline uint32_t spread8(uint32_t plane) {
+    plane = (plane | (plane << 12)) & 0x000F000Fu;
+    plane = (plane | (plane <<  6)) & 0x03030303u;
+    plane = (plane | (plane <<  3)) & 0x11111111u;
+    return plane;
+}
+
+// Merge 4 plane bytes [P3|P2|P1|P0] into 8 nibbles (pixel color indices).
+static inline uint32_t ega_pack8_from_planes(const uint32_t ega_planes) {
+    const uint32_t pixel1 = spread8(ega_planes        & 0xFFu);
+    const uint32_t pixel2 = spread8((ega_planes >> 8) & 0xFFu);
+    const uint32_t pixel3 = spread8((ega_planes >>16) & 0xFFu);
+    const uint32_t pixel4 = spread8(ega_planes >>24);
+
+    return pixel1 | pixel2 << 1 | pixel3 << 2 | pixel4 << 3;
 }
 
 
@@ -271,10 +283,7 @@ static INLINE void renderer() {
                         uint32_t ega_planes = *ega_row++;
 
                         // Build 8 color nibbles packed into a 32-bit word
-                        uint32_t eight_pixels = spread4_u32(ega_planes & 0xFFu)
-                                                | spread4_u32(ega_planes >> 8 & 0xFFu) << 1
-                                                | spread4_u32(ega_planes >> 16 & 0xFFu) << 2
-                                                | spread4_u32(ega_planes >> 24) << 3;
+                        uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
 
                         // Unroll writing 8 pixels, duplicating horizontally
                         *pixels++ = *pixels++ = vga_palette[eight_pixels >> 28];
@@ -294,10 +303,7 @@ static INLINE void renderer() {
                         uint32_t ega_planes = *ega_row++;
 
                         // Build 8 color nibbles packed into a 32-bit word
-                        uint32_t eight_pixels = spread4_u32(ega_planes & 0xFFu)
-                                                | spread4_u32(ega_planes >> 8 & 0xFFu) << 1
-                                                | spread4_u32(ega_planes >> 16 & 0xFFu) << 2
-                                                | spread4_u32(ega_planes >> 24) << 3;
+                        uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
 
                         // Unroll writing 8 pixels, duplicating horizontally
                         *pixels++ = vga_palette[eight_pixels >> 28];
@@ -319,10 +325,7 @@ static INLINE void renderer() {
                         uint32_t ega_planes = *ega_row++;
 
                         // Build 8 color nibbles packed into a 32-bit word
-                        uint32_t eight_pixels = spread4_u32(ega_planes & 0xFFu)
-                                                | spread4_u32(ega_planes >> 8 & 0xFFu) << 1
-                                                | spread4_u32(ega_planes >> 16 & 0xFFu) << 2
-                                                | spread4_u32(ega_planes >> 24) << 3;
+                        uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
 
                         // Unroll writing 8 pixels, duplicating horizontally
                         *pixels++ = vga_palette[eight_pixels >> 28];
