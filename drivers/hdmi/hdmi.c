@@ -174,18 +174,12 @@ static uint tmds_encode_8b10b(const uint8_t input_byte) {
  * Set PIO state machine X register to 32-bit value
  * Used to set base address for palette lookup
  */
-static inline void pio_set_x_register(PIO pio, const int state_machine, const uint32_t value) {
-    const uint in = pio_encode_in(pio_x, 4);
-    const uint mov = pio_encode_mov(pio_x, pio_isr);
-
-    // Load 32-bit value as eight 4-bit nibbles
-    for (int i = 0; i < 8; i++) {
-        const uint32_t nibble = (value >> (i * 4)) & 0xf;
-        pio_sm_exec(pio, state_machine, pio_encode_set(pio_x, nibble));
-        pio_sm_exec(pio, state_machine, in);
-    }
-
-    pio_sm_exec(pio, state_machine, mov);
+static inline void pio_set_x_register(PIO pio, int sm, uint32_t value) {
+    pio_sm_exec(pio, sm, pio_encode_set(pio_x, 0));    // Clear X
+    pio_sm_exec(pio, sm, pio_encode_mov(pio_isr, pio_null));
+    pio_sm_put_blocking(pio, sm, value);
+    pio_sm_exec(pio, sm, pio_encode_pull(false, false));
+    pio_sm_exec(pio, sm, pio_encode_mov(pio_x, pio_osr));
 }
 
 // Spread one 8-bit value so its bits land at positions 0,4,8,...,28.
