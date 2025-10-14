@@ -258,6 +258,22 @@ else ()
     set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${BUILD_NAME}")
     target_link_options(${PROJECT_NAME} PRIVATE -Xlinker --print-memory-usage --data-sections --function-sections)
 
+    # Partial workaround for undefined symbol __wrap_foo -- see https://github.com/raspberrypi/pico-sdk/issues/97 
+    target_link_options(${PROJECT_NAME} PRIVATE 
+        -Wl,--undefined=__wrap_puts
+        -Wl,--undefined=__wrap_Putchar
+        -Wl,--undefined=__wrap_getchar
+        -Wl,--undefined=__wrap_vprintf
+        -Wl,--undefined=__wrap_printf
+        -Wl,--undefined=__wrap_trunc
+        -Wl,--undefined=__wrap_ceil
+        -Wl,--undefined=__wrap_floor
+        -Wl,--undefined=__wrap_ldexp
+        -Wl,--undefined=__wrap_exp2
+        -Wl,--undefined=__wrap_fmod
+        -Wl,--undefined=__wrap_remainder
+    )
+
     pico_set_program_name(286 "PC 8086/8088/186/286 emulator")
     pico_set_program_version(${PROJECT_NAME} "1.1.0")
     pico_set_boot_stage2(${PROJECT_NAME} slower_boot2)
