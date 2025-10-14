@@ -272,6 +272,8 @@ else ()
         -Wl,--undefined=__wrap_exp2
         -Wl,--undefined=__wrap_fmod
         -Wl,--undefined=__wrap_remainder
+        -Wl,--undefined=__wrap_round
+        -Wl,--undefined=__wrap_remquo
     )
 
     pico_set_program_name(286 "PC 8086/8088/186/286 emulator")
