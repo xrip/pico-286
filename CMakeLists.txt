@@ -319,9 +319,9 @@ else ()
             pico_runtime pico_stdlib pico_multicore pico_stdio
             hardware_dma hardware_pio hardware_i2c hardware_exception
             hardware_interp hardware_timer hardware_clocks hardware_pwm hardware_flash
-            -Wl,--wrap=atexit,--wrap=abort,--strip-all,--gc-sections # size optimizations
+            -Wl,--wrap=atexit,--wrap=abort,--gc-sections # size optimizations
     )
-    pico_set_printf_implementation(${PROJECT_NAME} none)
+    # pico_set_printf_implementation(${PROJECT_NAME} none)
 
     # =========================
     # COMPILE DEFINITIONS

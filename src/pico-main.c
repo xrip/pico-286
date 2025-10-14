@@ -452,12 +452,14 @@ void sigbus(void) {
     // reset_usb_boot(0, 0);
 }
 
+#if 0
 void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused const char *fmt, ...) {
-    printf("*** PANIC ***");
+    puts("*** PANIC ***");
     if (fmt) {
-        printf(fmt);
+        puts(fmt);
     }
 }
+#endif
 
 int main(void) {
     // Platform-specific initialization

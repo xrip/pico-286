@@ -47,19 +47,14 @@ i2s_config_t i2s_get_default_config(void) {
     i2s_config_t i2s_config = {
             .sample_freq = 44100,
             .channel_count = 2,
-#ifdef MURM2
-    		.data_pin = PWM_BEEPER,
-	    	.clock_pin_base = PWM_LEFT_CHANNEL,
-#else
-            .data_pin = PWM_LEFT_CHANNEL,
-            .clock_pin_base = PWM_RIGHT_CHANNEL,
-#endif
+            .data_pin = PCM_PIN,
+            .clock_pin_base = CLOCK_PIN,
             .pio = pio1,
-            .sm = 0,
-            .dma_channel = 0,
-            .dma_buf = NULL,
-            .dma_trans_count = 0,
-            .volume = 0,
+            // .sm = 0, // filled by claim_unused_sm
+            // .dma_channel = 0, // filled by dma_claim_unused_channel 
+            // .dma_buf = NULL, // filled by malloc
+            // .dma_trans_count = 0, // filled in main()
+            // .volume = 0, // filled by call to i2s_volume() in main
     };
 
     return i2s_config;
