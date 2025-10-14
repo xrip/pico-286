@@ -21,11 +21,12 @@ jobs:
     - uses: actions/checkout@v4
       with:
         persist-credentials: false
+        filter: 'blob:none'
 
     - name: Install ARM GCC
       uses: carlosperate/arm-none-eabi-gcc-action@v1
       with:
-        release: '13.2.Rel1'
+        release: '14.2.Rel1'
 
     - name: build targets
       run: |
