@@ -212,6 +212,8 @@ void __time_critical_func() second_core(void) {
 #endif
 
 #if I2S_SOUND
+    audio_dac_init();
+
     i2s_config = i2s_get_default_config();
     i2s_config.sample_freq = SOUND_FREQUENCY;
     i2s_config.dma_trans_count = 1;
