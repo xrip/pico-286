@@ -16,12 +16,14 @@ if (NOT (DEFINED PICO_PLATFORM AND PICO_PLATFORM STREQUAL "host"))
 endif ()
 cmake_minimum_required(VERSION 3.13)
 
+message(STATUS "PICO_SDK_PATH=${PICO_SDK_PATH}")
+message(STATUS "ENV{PICO_SDK_PATH}=$ENV{PICO_SDK_PATH}")
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Pull in Raspberry Pi Pico SDK (must be before project, but after PICO_BOARD)
-include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
+include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(286 C CXX ASM)
 SET(BUILD_NAME "${PROJECT_NAME}")
@@ -77,11 +79,11 @@ else ()
     # Display Options (mutually exclusive)
     option(ENABLE_TFT "Enable TFT display output" OFF)
     option(ENABLE_VGA "Enable VGA display output" OFF)
-    option(ENABLE_HDMI "Enable HDMI display output" OFF)
+    option(ENABLE_HDMI "Enable HDMI display output" ON)
     option(ENABLE_NTSC-TV "Enable NTSC TV output" OFF)
 
     # Audio Options (mutually exclusive)
-    option(ENABLE_I2S_SOUND "Enable I2S audio output" OFF)
+    option(ENABLE_I2S_SOUND "Enable I2S audio output" ON)
     option(ENABLE_PWM_SOUND "Enable PWM audio output" OFF)
     option(ENABLE_HARDWARE_SOUND "Enable hardware audio output" OFF)
 
@@ -96,13 +98,7 @@ else ()
     # PSRAM Configuration (onboard only available for RP2350)
     if (NOT PICO_PLATFORM STREQUAL "rp2040")
         option(ONBOARD_PSRAM "Enable onboard PSRAM support" ON)
-        if (PIMO)
-            set(ONBOARD_PSRAM_GPIO "47" CACHE STRING "GPIO pin for onboard PSRAM")
-        elseif (MURM20)
-            set(ONBOARD_PSRAM_GPIO "8" CACHE STRING "GPIO pin for onboard PSRAM")
-        else ()
-            set(ONBOARD_PSRAM_GPIO "19" CACHE STRING "GPIO pin for onboard PSRAM")
-        endif ()
+        set(ONBOARD_PSRAM_GPIO "47" CACHE STRING "CS pin for onboard PSRAM")
     endif ()
 
     # CPU Configuration
@@ -169,22 +165,7 @@ else ()
     # =========================
     # BUILD NAME GENERATION
     # =========================
-    set(BUILD_NAME "${PROJECT_NAME}")
-
-    # Add platform
-    if (PICO_PLATFORM STREQUAL "rp2040")
-        if (MURM20)
-            set(BUILD_NAME "m2p1-${BUILD_NAME}")
-        else ()
-            set(BUILD_NAME "m1p1-${BUILD_NAME}")
-        endif ()
-    else ()
-        if (MURM20)
-            set(BUILD_NAME "m2p2-${BUILD_NAME}")
-        else ()
-            set(BUILD_NAME "m1p2-${BUILD_NAME}")
-        endif ()
-    endif ()
+    set(BUILD_NAME "fruitjam-${PROJECT_NAME}")
 
     # Add frequency
     set(BUILD_NAME "${BUILD_NAME}-${CPU_FREQ_MHZ}MHz")
@@ -317,7 +298,7 @@ else ()
     # =========================
     target_link_libraries(${PROJECT_NAME} PRIVATE
             ps2 sdcard audio graphics nespad psram
-            pico_runtime pico_stdlib pico_multicore
+            pico_runtime pico_stdlib pico_multicore pico_stdio
             hardware_dma hardware_pio hardware_i2c hardware_exception
             hardware_interp hardware_timer hardware_clocks hardware_pwm hardware_flash
             -Wl,--wrap=atexit,--wrap=abort,--strip-all,--gc-sections # size optimizations
@@ -351,35 +332,22 @@ else ()
             $<$<NOT:$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>>:PSRAM>
             $<$<NOT:$<BOOL:${USE_VIRTUAL_MEMORY_INSTEAD_OF_PSRAM}>>:$<$<AND:$<NOT:$<STREQUAL:${PICO_PLATFORM},rp2040>>,$<BOOL:${ONBOARD_PSRAM}>>:ONBOARD_PSRAM_GPIO=${ONBOARD_PSRAM_GPIO}>>
     )
-    if (MURM20)
-        target_compile_definitions(${PROJECT_NAME} PRIVATE
-                MURM2=1
-                # Pin configurations
-                MOUSE_CLOCK_PIN=0 MOUSE_DATA_PIN=1
-                KBD_CLOCK_PIN=2 KBD_DATA_PIN=3
-                VGA_BASE_PIN=12 HDMI_BASE_PIN=12
-                TFT_CS_PIN=12 TFT_RST_PIN=14 TFT_LED_PIN=15 TFT_DC_PIN=16 TFT_DATA_PIN=18 TFT_CLK_PIN=19
-                SDCARD_PIN_SPI0_CS=5 SDCARD_PIN_SPI0_SCK=6 SDCARD_PIN_SPI0_MOSI=7 SDCARD_PIN_SPI0_MISO=4
-                PSRAM_SPINLOCK=1 PSRAM_ASYNC=1 PSRAM_PIN_CS=18 PSRAM_PIN_SCK=19 PSRAM_PIN_MOSI=20 PSRAM_PIN_MISO=21
-                USE_NESPAD NES_GPIO_CLK=20 NES_GPIO_DATA=21 NES_GPIO_LAT=26
-                CLOCK_PIN=27 PCM_PIN=22
-                PWM_BEEPER=9 PWM_LEFT_CHANNEL=10 PWM_RIGHT_CHANNEL=11
-        )
-    else ()
-        target_compile_definitions(${PROJECT_NAME} PRIVATE
-                # Pin configurations
-                MOUSE_CLOCK_PIN=14 MOUSE_DATA_PIN=15
-                KBD_CLOCK_PIN=0 KBD_DATA_PIN=1
-                VGA_BASE_PIN=6 HDMI_BASE_PIN=6
-                TFT_CS_PIN=6 TFT_RST_PIN=8 TFT_LED_PIN=9 TFT_DC_PIN=10 TFT_DATA_PIN=12 TFT_CLK_PIN=13
-                SDCARD_PIN_SPI0_CS=5 SDCARD_PIN_SPI0_SCK=2 SDCARD_PIN_SPI0_MOSI=3 SDCARD_PIN_SPI0_MISO=4
-                PSRAM_SPINLOCK=1 PSRAM_ASYNC=1 PSRAM_PIN_CS=18 PSRAM_PIN_SCK=19 PSRAM_PIN_MOSI=20 PSRAM_PIN_MISO=21
-                USE_NESPAD NES_GPIO_CLK=14 NES_GPIO_DATA=16 NES_GPIO_LAT=15
-                CLOCK_PIN=17 PCM_PIN=22
-                PWM_BEEPER=28 PWM_LEFT_CHANNEL=26 PWM_RIGHT_CHANNEL=27
-        )
-    endif ()
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+            MURM2=1
+            # Pin configurations
+            MOUSE_CLOCK_PIN=40 MOUSE_DATA_PIN=41   # A0/A1
+            KBD_CLOCK_PIN=42 KBD_DATA_PIN=43       # A2/A3
+            VGA_BASE_PIN=12 HDMI_BASE_PIN=12       # nonsense / fruitjam
+            TFT_CS_PIN=12 TFT_RST_PIN=14 TFT_LED_PIN=15 TFT_DC_PIN=16 TFT_DATA_PIN=18 TFT_CLK_PIN=19 # nonsense
+            SDCARD_PIN_SPI0_CS=39 SDCARD_PIN_SPI0_SCK=34 SDCARD_PIN_SPI0_MOSI=35 SDCARD_PIN_SPI0_MISO=36 # fruitjam
+            PSRAM_SPINLOCK=1 PSRAM_ASYNC=1 PSRAM_PIN_CS=18 PSRAM_PIN_SCK=19 PSRAM_PIN_MOSI=20 PSRAM_PIN_MISO=21 # nonsense
+            USE_NESPAD NES_GPIO_CLK=6 NES_GPIO_DATA=7 NES_GPIO_LAT=10 # D6/D7/D10
+            CLOCK_PIN=26 PCM_PIN=24 # fruitjam
+            PWM_BEEPER=9 PWM_LEFT_CHANNEL=10 PWM_RIGHT_CHANNEL=11 # nonsense
+    )
     pico_add_extra_outputs(${PROJECT_NAME})
+    pico_enable_stdio_uart(${PROJECT_NAME} 1) 
+    pico_enable_stdio_usb(${PROJECT_NAME} 0) 
 endif ()
 
 # =========================

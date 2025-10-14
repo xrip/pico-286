@@ -475,9 +475,13 @@ int main(void) {
     set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, true);
 #endif
 
+    stdio_init_all();
+    stdio_puts("Fruit Jam 286");
+ 
     // Initialize PSRAM
 #ifdef ONBOARD_PSRAM_GPIO
     // Overclock psram
+    stdio_puts("Init psram");
     psram_init(ONBOARD_PSRAM_GPIO);
 
 #else
@@ -504,12 +508,15 @@ int main(void) {
     sleep_ms(50);
 
     // Initialize peripherals
+    stdio_puts("keyboard_init");
     keyboard_init();
+    stdio_puts("nespad_begin");
     nespad_begin(NES_GPIO_CLK, NES_GPIO_DATA, NES_GPIO_LAT);
     sleep_ms(5);
     nespad_read();
 
     // Check for mouse availability
+    stdio_puts("mouse_init");
 #ifndef MURM2
     const uint8_t mouse_available = nespad_state;
     if (mouse_available)
@@ -517,10 +524,12 @@ int main(void) {
         mouse_init();
 
     // Initialize semaphore and launch second core
+    stdio_puts("launch core 1");
     sem_init(&vga_start_semaphore, 0, 1);
     multicore_launch_core1(second_core);
     sem_release(&vga_start_semaphore);
 
+    stdio_puts("mount SD card");
     // Mount SD card filesystem
     if (FR_OK != f_mount(&fs, "0", 1)) {
         printf("SD Card not inserted or SD Card error!");
@@ -531,10 +540,13 @@ int main(void) {
     init_swap();
 #endif
 
+    stdio_puts("init audio");
     // Initialize audio and reset emulator
     sn76489_reset();
+    stdio_puts("reset86");
     reset86();
 
+    stdio_puts("init mouse");
     // Initialize mouse control variables
     nespad_read();
     float mouse_throttle = 3.0f;
@@ -543,6 +555,7 @@ int main(void) {
     bool up = nespad_state & DPAD_UP;
     bool down = nespad_state & DPAD_DOWN;
 
+    stdio_puts("main emulation loop");
     // Main emulation loop
     while (true) {
         exec86(tormoz);
