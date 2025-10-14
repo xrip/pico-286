@@ -1,0 +1,53 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - "*"
+    tags-ignore:
+      - "*"
+  pull_request:
+  release:
+    types: [created]
+  check_suite:
+    types: [rerequested]
+
+
+jobs:
+  bins:
+    runs-on: ubuntu-latest
+    steps:
+
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Install ARM GCC
+      uses: carlosperate/arm-none-eabi-gcc-action@v1
+      with:
+        release: '13.2.Rel1'
+
+    - name: build targets
+      run: |
+          ./fruitjam-build.sh
+          mkdir dist
+          cp ./bin/rp2350-arm-s/MinSizeRel/fruitjam-286*.uf2 dist/
+          cp ./bin/rp2350-arm-s/MinSizeRel/fruitjam-286*.elf dist/
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Build Artifacts
+        path: |
+          dist/*
+
+    - name: Create release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          dist/*.uf2
+        fail_on_unmatched_files: true
+        body: "Select the UF2 file from the list below."
+        append_body: true
+

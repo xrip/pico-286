@@ -4,6 +4,7 @@ TAG=fruitjam
 BUILD=build
 
 if ! [ -d lib/pico-sdk/lib/tinyusb/tools ]; then
+    git submodule update --init
     (cd lib/pico-sdk && git submodule update --init lib/tinyusb && cd lib/tinyusb && ./tools/get_deps.py rp2040)
 fi
 
