@@ -261,7 +261,7 @@ else ()
     # Partial workaround for undefined symbol __wrap_foo -- see https://github.com/raspberrypi/pico-sdk/issues/97 
     target_link_options(${PROJECT_NAME} PRIVATE 
         -Wl,--undefined=__wrap_puts
-        -Wl,--undefined=__wrap_Putchar
+        -Wl,--undefined=__wrap_putchar
         -Wl,--undefined=__wrap_getchar
         -Wl,--undefined=__wrap_vprintf
         -Wl,--undefined=__wrap_printf
