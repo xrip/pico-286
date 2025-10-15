@@ -4,6 +4,7 @@
 #if PICO_ON_DEVICE
 #include <74hc595.h>
 #include <hardware/pwm.h>
+#include "hid_app.h"
 extern int16_t keyboard_send(uint8_t data);
 #endif
 

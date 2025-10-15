@@ -506,7 +506,6 @@ int main(void) {
     gpio_put(PIN_USB_HOST_VBUS, 1);
     #endif
 
-#if 0
     tuh_configure(CFG_TUH_RPI_PIO_USB, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &pio_cfg);
     printf("Init USB...\n");
     printf("USB D+/D- on GP%d and GP%d\r\n", PIN_USB_HOST_DP, PIN_USB_HOST_DM);
@@ -514,9 +513,9 @@ int main(void) {
 
     tusb_init();
 
+#if 1
 puts("loopy\n");
     for(int i=0; i<2000; i++) {
-        printf("i=%d\n", i);
         tuh_task();
         sleep_ms(1);
     }
@@ -559,7 +558,7 @@ puts("noopy\n");
     stdio_puts("main emulation loop");
     // Main emulation loop
     while (true) {
-        // tuh_task();
+        tuh_task();
         exec86(tormoz);
 #if !PICO_RP2040
         if (delay) sleep_us(delay);

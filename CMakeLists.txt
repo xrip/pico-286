@@ -218,13 +218,11 @@ else ()
     # =========================
     # EXECUTABLE SETUP
     # =========================
-    add_link_options(-flto -fwhole-program)
+    add_link_options(-fwhole-program)
     # -frename-registers -fno-tree-vectorize
     add_compile_options(
-            -flto=auto
             -frename-registers
             -fomit-frame-pointer
-            -fwhole-program
             #        -ffreestanding // build issues with std::malloc/std::free in SDK 2.1+
             -ffast-math
             -ffunction-sections
@@ -322,6 +320,7 @@ else ()
             sdcard audio graphics psram
             pico_runtime pico_stdlib pico_multicore pico_stdio
             hardware_dma hardware_pio hardware_i2c hardware_exception
+#if 0
             hardware_interp hardware_timer hardware_clocks hardware_pwm hardware_flash
             tinyusb_host tinyusb_pico_pio_usb usbhid
             -Wl,--wrap=atexit,--wrap=abort,--gc-sections # size optimizations

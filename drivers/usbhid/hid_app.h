@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #define DPAD_LEFT   0x001000
 #define DPAD_RIGHT  0x004000
@@ -16,3 +17,4 @@ void keyboard_init(void);
 void mouse_init(void);
 static inline void nespad_read() {}
 int16_t keyboard_send(uint8_t data);
+bool handleScancode(uint32_t ps2scancode);
