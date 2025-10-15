@@ -233,8 +233,8 @@ else ()
             -O2
     )
 
-    add_executable(${PROJECT_NAME} ${SRC} src/pico-main.c src/printf/printf.c src/74hc595/74hc595.c)
-    target_include_directories(${PROJECT_NAME} PRIVATE src/74hc595 src src/emu8950 src/printf)
+    add_executable(${PROJECT_NAME} ${SRC} src/pico-main.c src/74hc595/74hc595.c)
+    target_include_directories(${PROJECT_NAME} PRIVATE src/74hc595 src src/emu8950)
     target_sources(${PROJECT_NAME} PRIVATE src/emu8950/slot_render_pico.S)
 
     # =========================
@@ -268,6 +268,7 @@ else ()
         -Wl,--undefined=__wrap_putchar
         -Wl,--undefined=__wrap_getchar
         -Wl,--undefined=__wrap_vprintf
+        -Wl,--undefined=__wrap_sprintf
         -Wl,--undefined=__wrap_printf
         -Wl,--undefined=__wrap_trunc
         -Wl,--undefined=__wrap_ceil
