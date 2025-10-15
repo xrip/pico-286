@@ -49,7 +49,7 @@ i2s_config_t i2s_get_default_config(void) {
             .channel_count = 2,
             .data_pin = PCM_PIN,
             .clock_pin_base = CLOCK_PIN,
-            .pio = pio1,
+            .pio = pio0,
             // .sm = 0, // filled by claim_unused_sm
             // .dma_channel = 0, // filled by dma_claim_unused_channel 
             // .dma_buf = NULL, // filled by malloc
@@ -72,9 +72,10 @@ void i2s_init(i2s_config_t *i2s_config) {
 #ifndef AUDIO_PWM_PIN
 
     uint8_t func = GPIO_FUNC_PIO1;    // TODO: GPIO_FUNC_PIO0 for pio0 or GPIO_FUNC_PIO1 for pio1
-    gpio_set_function(i2s_config->data_pin, func);
-    gpio_set_function(i2s_config->clock_pin_base, func);
-    gpio_set_function(i2s_config->clock_pin_base + 1, func);
+
+    pio_gpio_init(i2s_config->pio, i2s_config->data_pin);
+    pio_gpio_init(i2s_config->pio, i2s_config->clock_pin_base);
+    pio_gpio_init(i2s_config->pio, i2s_config->clock_pin_base + 1);
 
     i2s_config->sm = pio_claim_unused_sm(i2s_config->pio, true);
 
@@ -270,7 +271,8 @@ static void modifyRegister(uint8_t reg, uint8_t mask, uint8_t value) {
 }
 
 static void setPage(uint8_t page) {
-    printf("Set page %d\n", page);
+    if (DEBUG_I2C)
+        printf("Set page %d\n", page);
     writeRegister(0x00, page);
 }
 
