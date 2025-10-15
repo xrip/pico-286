@@ -1,6 +1,6 @@
 #pragma once
 #if PICO_ON_DEVICE
-#include "printf/printf.h"
+#include <stdio.h>
 #include <pico.h>
 #else
 #endif
@@ -17,7 +17,7 @@ extern "C" {
 #ifdef TOTAL_VIRTUAL_MEMORY_KBS
 #define RAM_SIZE (200 << 10)
 #else
-#define RAM_SIZE (362 << 10)
+#define RAM_SIZE (320 << 10)
 #endif
 
 #else
@@ -31,7 +31,6 @@ extern "C" {
 
 #endif
 #else
-#include "printf/printf.h"
 #define VIDEORAM_SIZE (64 << 10)
 #define RAM_SIZE (640 << 10)
 #endif

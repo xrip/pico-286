@@ -5,7 +5,6 @@
 #include <74hc595.h>
 #include <hardware/pwm.h>
 extern int16_t keyboard_send(uint8_t data);
-#include "nespad.h"
 #endif
 
 #include <emu8950.h>

@@ -288,12 +288,11 @@ else ()
     # =========================
     # SUBDIRECTORIES
     # =========================
-    add_subdirectory(drivers/ps2)
+    add_subdirectory(drivers/usbhid)
     add_subdirectory(drivers/fatfs)
     add_subdirectory(drivers/sdcard)
     add_subdirectory(drivers/audio)
     add_subdirectory(drivers/psram)
-    add_subdirectory(drivers/nespad)
 
     # Display drivers
     if (ENABLE_TFT)
@@ -320,11 +319,11 @@ else ()
     # LIBRARIES
     # =========================
     target_link_libraries(${PROJECT_NAME} PRIVATE
-            ps2 sdcard audio graphics nespad psram
+            sdcard audio graphics psram
             pico_runtime pico_stdlib pico_multicore pico_stdio
             hardware_dma hardware_pio hardware_i2c hardware_exception
             hardware_interp hardware_timer hardware_clocks hardware_pwm hardware_flash
-            tinyusb_host tinyusb_pico_pio_usb 
+            tinyusb_host tinyusb_pico_pio_usb usbhid
             -Wl,--wrap=atexit,--wrap=abort,--gc-sections # size optimizations
     )
     # pico_set_printf_implementation(${PROJECT_NAME} none)

@@ -1,8 +1,11 @@
 #include "hid_app.h"
 #include "tusb.h"
 #include "class/hid/hid.h"
+#include "pico/util/queue.h"
 
 #define GAMEPAD_MAX_DEVICES 2
+
+int nespad_state;
 
 typedef struct {
     uint16_t id;
@@ -19,7 +22,7 @@ static hid_keyboard_report_t prev_report = {0, 0, {0}};
 static gamepad_t gamepads[GAMEPAD_MAX_DEVICES];
 static int8_t gamepads_count = 0;
 
-extern void gamepad_state_update(uint8_t index, uint8_t hat_state, uint32_t button_state);
+static void gamepad_state_update(uint8_t index, uint8_t hat_state, uint32_t button_state);
 
 // The main emulator wants XT ("set 1") scancodes. Who are we to disappoint them?
 // ref1: adafrhit_hid/keycode.py
@@ -32,12 +35,27 @@ static const uint8_t usb_scancode_to_xt[] = {
 74, 78, 0, 79, 80, 81, 75, 76, 77, 71, 72, 73, 82, 83};
 static const uint8_t usb_modifier_to_xt[8] = {29, 42, 56, 0, 0, 54 };
 
-static kbd_raw_key_down(uint8_t xt_code) {    
+static queue_t kq;
+
+void keyboard_init(void) {
+    queue_init (&kq, /* element size */ 1, /* element_count */ 16);
+}
+
+void mouse_init() {
+}
+
+int16_t keyboard_send(uint8_t i) {
+    printf("keyboard_send %u unimplemented\n", i);
+    return 0;
+}
+
+static void kbd_raw_key_down(int xt_code_in) {    
+    uint8_t xt_code = xt_code_in;
     queue_try_add(&kq, &xt_code);
 }
 
-static kbd_raw_key_up(uint8_t xt_code) {    
-    xt_code |= 0x80;
+static void kbd_raw_key_up(int xt_code_in) {    
+    uint8_t xt_code = xt_code_in | 0x80;
     queue_try_add(&kq, &xt_code);
 }
 
@@ -52,7 +70,7 @@ static inline bool find_key_in_report(hid_keyboard_report_t const* report, uint8
 
 static void process_kbd_report(hid_keyboard_report_t const* r1, hid_keyboard_report_t const* r2,
                                void (*kbd_raw_key_cb)(int code)) {
-    for(int bit = 8; --bit) {
+    for(int bit = 8; --bit;) {
         int weight = 1 << bit;
         if((r1->modifier & weight) && !(r2->modifier & weight)) {
             uint8_t xt_code = usb_modifier_to_xt[bit];
@@ -758,4 +776,28 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
     (void)dev_addr;
     (void)instance;
+}
+
+int nespad_state;
+
+static const int hat_translate[] = {
+    0,
+    DPAD_UP, DPAD_UP | DPAD_RIGHT,
+    DPAD_RIGHT, DPAD_RIGHT | DPAD_DOWN,
+    DPAD_DOWN, DPAD_DOWN | DPAD_DOWN | DPAD_LEFT,
+    DPAD_LEFT, DPAD_LEFT | DPAD_UP,
+};
+
+void gamepad_state_update(uint8_t index, uint8_t hat_state, uint32_t button_state) {
+    nespad_state = 0;
+    if (hat_state < count_of(hat_translate)) {
+        nespad_state = hat_translate[hat_state];
+    }
+
+    if (button_state & 0x55) {
+        nespad_state |= DPAD_A;
+    }
+    if (button_state & 0xaa) {
+        nespad_state |= DPAD_B;
+    }
 }

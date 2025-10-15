@@ -21,14 +21,15 @@
 #include <hardware/structs/xip.h>
 #endif
 
+#include "tusb.h" 
+#include "../lib/Pico-PIO-USB/src/pio_usb_configuration.h"
+
 #include "emulator/emulator.h"
 #include "audio.h"
 #include "graphics.h"
-#include "ps2.h"
+#include "../drivers/usbhid/hid_app.h"
 #include "ff.h"
-#include "nespad.h"
 #include "emu8950.h"
-#include "ps2_mouse.h"
 
 #if HARDWARE_SOUND
 #include "74hc595/74hc595.h"
@@ -155,42 +156,6 @@ bool handleScancode(uint32_t ps2scancode) {
     return true;
 }
 
-INLINE void _putchar(char character) {
-    static uint8_t color = 0xf;
-    static int x = 0, y = 0;
-
-    // Handle screen scrolling
-    if (y == 10) {
-        y = 9;
-        memmove(DEBUG_VRAM, DEBUG_VRAM + 80, 80 * 9);
-        memset(DEBUG_VRAM + 80 * 9, 0, 80);
-    }
-
-    uint8_t *vidramptr = DEBUG_VRAM + __fast_mul(y, 80) + x;
-
-    if ((unsigned)character >= 32) {
-        // Convert to uppercase if lowercase
-        if (character >= 96) {
-            character -= 32;
-        }
-        *vidramptr = ((character - 32) & 63) | 0 << 6;
-
-        if (x == 80) {
-            x = 0;
-            y++;
-        } else {
-            x++;
-        }
-    } else if (character == '\n') {
-        x = 0;
-        y++;
-    } else if (character == '\r') {
-        x = 0;
-    } else if (character == 8 && x > 0) {
-        x--;
-        *vidramptr = 0;
-    }
-}
 /* Renderer loop on Pico's second core */
 void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem
@@ -473,6 +438,7 @@ int main(void) {
     if (!set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, 0) ) {
         set_sys_clock_hz(378 * MHZ, 1); // fallback to failsafe clocks
     }
+    sleep_ms(100);
 #else
     memcpy_wrapper_replace(NULL);
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
@@ -480,7 +446,7 @@ int main(void) {
 #endif
 
     stdio_init_all();
-    stdio_puts("Fruit Jam 286");
+    stdio_puts("\n\nFruit Jam 286");
  
     // Initialize PSRAM
 #ifdef ONBOARD_PSRAM_GPIO
@@ -514,8 +480,6 @@ int main(void) {
     // Initialize peripherals
     stdio_puts("keyboard_init");
     keyboard_init();
-    stdio_puts("nespad_begin");
-    nespad_begin(NES_GPIO_CLK, NES_GPIO_DATA, NES_GPIO_LAT);
     sleep_ms(5);
     nespad_read();
 
@@ -527,10 +491,43 @@ int main(void) {
 #endif
         mouse_init();
 
+    pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
+    _Static_assert(PIN_USB_HOST_DP + 1 == PIN_USB_HOST_DM || PIN_USB_HOST_DP - 1 == PIN_USB_HOST_DM, "Permitted USB D+/D- configuration");
+    pio_cfg.pinout = PIN_USB_HOST_DP + 1 == PIN_USB_HOST_DM ? PIO_USB_PINOUT_DPDM : PIO_USB_PINOUT_DMDP;
+    pio_cfg.pin_dp = PIN_USB_HOST_DP;
+    pio_cfg.tx_ch = 9;
+    pio_cfg.pio_tx_num = 1;
+    pio_cfg.pio_rx_num = 1;
+
+    #ifdef PIN_USB_HOST_VBUS
+    printf("Enabling USB host VBUS power on GP%d\r\n", PIN_USB_HOST_VBUS);
+    gpio_init(PIN_USB_HOST_VBUS);
+    gpio_set_dir(PIN_USB_HOST_VBUS, GPIO_OUT);
+    gpio_put(PIN_USB_HOST_VBUS, 1);
+    #endif
+
+#if 0
+    tuh_configure(CFG_TUH_RPI_PIO_USB, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &pio_cfg);
+    printf("Init USB...\n");
+    printf("USB D+/D- on GP%d and GP%d\r\n", PIN_USB_HOST_DP, PIN_USB_HOST_DM);
+    printf("TinyUSB Host HID Controller Example\r\n");
+
+    tusb_init();
+
+puts("loopy\n");
+    for(int i=0; i<2000; i++) {
+        printf("i=%d\n", i);
+        tuh_task();
+        sleep_ms(1);
+    }
+puts("noopy\n");
+#endif
+
     // Initialize semaphore and launch second core
     stdio_puts("launch core 1");
     sem_init(&vga_start_semaphore, 0, 1);
     multicore_launch_core1(second_core);
+    sleep_ms(1000);
     sem_release(&vga_start_semaphore);
 
     stdio_puts("mount SD card");
@@ -562,6 +559,7 @@ int main(void) {
     stdio_puts("main emulation loop");
     // Main emulation loop
     while (true) {
+        // tuh_task();
         exec86(tormoz);
 #if !PICO_RP2040
         if (delay) sleep_us(delay);

@@ -25,36 +25,6 @@ static int sample_index = 0;
 
 extern "C" void adlib_getsample(int16_t *sndptr, intptr_t numsamples);
 
-extern "C" void _putchar(char character) {
-    putchar(character);
-    static int x = 0, y = 0;
-
-    if (y == 10) {
-        y = 9;
-        memmove(DEBUG_VRAM, DEBUG_VRAM + 80, 80 * 9);
-        memset(DEBUG_VRAM + 80 * 9, 0, 80);
-    }
-    uint8_t *vidramptr = DEBUG_VRAM + y * 80 + x;
-
-    if ((unsigned) character >= 32) {
-        if (character >= 96) character -= 32;
-        *vidramptr = ((character - 32) & 63) | 0 << 6;
-        if (x == 80) {
-            x = 0;
-            y++;
-        } else
-            x++;
-    } else if (character == '\n') {
-        x = 0;
-        y++;
-    } else if (character == '\r') {
-        x = 0;
-    } else if (character == 8 && x > 0) {
-        x--;
-        *vidramptr = 0;
-    }
-}
-
 static inline void renderer() {
     static uint8_t v = 0;
     if (v != videomode) {
