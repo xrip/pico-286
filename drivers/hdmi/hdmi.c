@@ -538,8 +538,7 @@ static inline bool initialize_hdmi_output() {
     channel_config_set_read_increment(&dma_config, true);
     channel_config_set_write_increment(&dma_config, false);
 
-    dreq = DREQ_PIO1_TX0 + sm_video_output;
-    if (PIO_VIDEO == pio0) dreq = DREQ_PIO0_TX0 + sm_video_output;
+    dreq = PIO_DREQ_NUM(PIO_VIDEO, sm_video_output, /* is_tx */ true);
 
     channel_config_set_dreq(&dma_config, dreq);
 
@@ -561,8 +560,7 @@ static inline bool initialize_hdmi_output() {
     channel_config_set_read_increment(&dma_config, false);
     channel_config_set_write_increment(&dma_config, false);
 
-    dreq = DREQ_PIO1_RX0 + sm_address_converter;
-    if (PIO_VIDEO_ADDR == pio0) dreq = DREQ_PIO0_RX0 + sm_address_converter;
+    dreq = PIO_DREQ_NUM(PIO_VIDEO, sm_address_converter, /* is_tx */ false);
 
     channel_config_set_dreq(&dma_config, dreq);
 
