@@ -22,6 +22,10 @@ set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(PICO_SDK_PATH ${CMAKE_CURRENT_LIST_DIR}/lib/pico-sdk) 
+set(PICO_TINYUSB_PATH ${CMAKE_CURRENT_LIST_DIR}/lib/tinyusb)
+set(PICO_PIO_USB_PATH ${CMAKE_CURRENT_LIST_DIR}/lib/Pico-PIO-USB)
+
 # Pull in Raspberry Pi Pico SDK (must be before project, but after PICO_BOARD)
 include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
@@ -319,6 +323,7 @@ else ()
             pico_runtime pico_stdlib pico_multicore pico_stdio
             hardware_dma hardware_pio hardware_i2c hardware_exception
             hardware_interp hardware_timer hardware_clocks hardware_pwm hardware_flash
+            tinyusb_host tinyusb_pico_pio_usb 
             -Wl,--wrap=atexit,--wrap=abort,--gc-sections # size optimizations
     )
     # pico_set_printf_implementation(${PROJECT_NAME} none)
