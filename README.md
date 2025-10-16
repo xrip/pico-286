@@ -85,11 +85,11 @@ The `tools/mapdrive.asm` source file can be assembled into `MAPDRIVE.COM` using 
 
 To use it:
 
-1.  Assemble `mapdrive.asm` to `mapdrive.com`.
-2.  Copy `mapdrive.com` to your boot disk image (e.g., `fdd0.img` or `hdd.img`).
-3.  Run `MAPDRIVE.COM` from the DOS command line.
-4.  Add `MAPDRIVE.COM` to your `AUTOEXEC.BAT` to automatically map the drive on boot.
+1.  Copy `mapdrive.com` to your boot disk image (e.g., `fdd0.img` or `hdd.img`).
+1.  Run `MAPDRIVE.COM` from the DOS command line.
+1.  Add `MAPDRIVE.COM` to your `AUTOEXEC.BAT` to automatically map the drive on boot.
 
+Note: for unclear reasons, "DIR H:" does not work (always lists zero files). If you switch to the "H:" drive and "DIR", though, that works.
 
 ## Hardware Configuration
 
