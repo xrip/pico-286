@@ -115,7 +115,6 @@ After successful compilation, build artifacts are placed in the `bin/<platform>/
 
 ### Setting up Disk Images
 
-#### For Raspberry Pi Pico builds:
 Create the required directory structure on your SD card:
 ```
 SD Card Root/
@@ -123,7 +122,8 @@ SD Card Root/
     ├── fdd0.img    # Floppy Drive A:
     ├── fdd1.img    # Floppy Drive B: (optional)
     ├── hdd.img     # Hard Drive C:
-    └── hdd2.img    # Hard Drive D: (optional)
+    ├── hdd2.img    # Hard Drive D: (optional)
+    └── mapdrive\   # Folder of files for use with mapdrive.com
 ```
 
 **Supported disk image sizes:**
