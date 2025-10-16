@@ -35,7 +35,9 @@ static const uint8_t usb_scancode_to_xt[] = {
 74, 78, 0, 79, 80, 81, 75, 76, 77, 71, 72, 73, 82, 83};
 static const uint8_t usb_modifier_to_xt[8] = {29, 42, 56, 0, 0, 54 };
 
+static queue_t kq;
 void keyboard_init(void) {
+    queue_init(&kq, /* element_size */ sizeof(uint8_t), /* element_count */ 32);
 }
 
 void mouse_init() {
@@ -48,12 +50,12 @@ int16_t keyboard_send(uint8_t i) {
 
 static void kbd_raw_key_down(int xt_code_in) {    
     uint8_t xt_code = xt_code_in;
-    handleScancode(xt_code);
+    queue_try_add(&kq, &xt_code);
 }
 
 static void kbd_raw_key_up(int xt_code_in) {    
     uint8_t xt_code = xt_code_in | 0x80;
-handleScancode(xt_code);
+    queue_try_add(&kq, &xt_code);
 }
 
 static inline bool find_key_in_report(hid_keyboard_report_t const* report, uint8_t keycode) {
@@ -796,5 +798,14 @@ void gamepad_state_update(uint8_t index, uint8_t hat_state, uint32_t button_stat
     }
     if (button_state & 0xaa) {
         nespad_state |= DPAD_B;
+    }
+}
+
+
+void keyboard_tick(void) {
+    tuh_task();
+    uint8_t xt_code;
+    if (queue_try_remove(&kq, &xt_code)) {
+        handleScancode(xt_code);
     }
 }

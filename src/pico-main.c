@@ -513,15 +513,6 @@ int main(void) {
 
     tusb_init();
 
-#if 1
-puts("loopy\n");
-    for(int i=0; i<2000; i++) {
-        tuh_task();
-        sleep_ms(1);
-    }
-puts("noopy\n");
-#endif
-
     // Initialize semaphore and launch second core
     stdio_puts("launch core 1");
     sem_init(&vga_start_semaphore, 0, 1);
@@ -557,8 +548,15 @@ puts("noopy\n");
 
     stdio_puts("main emulation loop");
     // Main emulation loop
-    while (true) {
-        tuh_task();
+    while (true) {  
+        uint64_t tick = time_us_64();
+        {
+            static uint64_t last_tuh_task;
+            if (tick - last_tuh_task > 8000) { // 8ms
+                last_tuh_task = tick;
+                keyboard_tick();
+            }
+        }
         exec86(tormoz);
 #if !PICO_RP2040
         if (delay) sleep_us(delay);

@@ -17,4 +17,5 @@ void keyboard_init(void);
 void mouse_init(void);
 static inline void nespad_read() {}
 int16_t keyboard_send(uint8_t data);
+void keyboard_tick(void);
 bool handleScancode(uint32_t ps2scancode);
