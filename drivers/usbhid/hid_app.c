@@ -27,13 +27,115 @@ static void gamepad_state_update(uint8_t index, uint8_t hat_state, uint32_t butt
 // The main emulator wants XT ("set 1") scancodes. Who are we to disappoint them?
 // ref1: adafrhit_hid/keycode.py
 // ref2: https://www.scs.stanford.edu/10wi-cs140/pintos/specs/kbd/scancodes-9.html
-static const uint8_t usb_scancode_to_xt[] = {
-0, 0, 0, 0, 30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16,
-19, 31, 20, 22, 47, 17, 45, 21, 44, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 28, 1, 14,
-15, 57, 12, 13, 26, 27, 43, 0, 39, 40, 41, 51, 52, 53, 58, 59, 60, 61, 62, 63,
-64, 65, 66, 67, 68, 87, 88, 0, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 69, 0, 55,
-74, 78, 0, 79, 80, 81, 75, 76, 77, 71, 72, 73, 82, 83};
-static const uint8_t usb_modifier_to_xt[8] = {29, 42, 56, 0, 0, 54 };
+// ref3: https://kbdlayout.info/kbdusx/scancodes?arrangement=ANSI104
+typedef struct { const char *d[2]; } usb_to_xt;
+static const usb_to_xt conversion[] = {
+    [ 53] = { "\x29"          , "\xa9"           }, // ` ~
+    [ 30] = { "\x02"          , "\x82"           }, // 1 !
+    [ 31] = { "\x03"          , "\x83"           }, // 2 @
+    [ 32] = { "\x04"          , "\x84"           }, // 3 #
+    [ 33] = { "\x05"          , "\x85"           }, // 4 $
+    [ 34] = { "\x06"          , "\x86"           }, // 5 % E
+    [ 35] = { "\x07"          , "\x87"           }, // 6 ^
+    [ 36] = { "\x08"          , "\x88"           }, // 7 &
+    [ 37] = { "\x09"          , "\x89"           }, // 8 *
+    [ 38] = { "\x0a"          , "\x8a"           }, // 9 (
+    [ 39] = { "\x0b"          , "\x8b"           }, // 0 )
+    [ 45] = { "\x0c"          , "\x8c"           }, // - _
+    [ 46] = { "\x0d"          , "\x8d"           }, // = +
+    [ 42] = { "\x0e"          , "\x8e"           }, // Backspace
+    [ 43] = { "\x0f"          , "\x8f"           }, // Tab
+    [ 20] = { "\x10"          , "\x90"           }, // Q
+    [ 26] = { "\x11"          , "\x91"           }, // W
+    [  8] = { "\x12"          , "\x92"           }, // E
+    [ 21] = { "\x13"          , "\x93"           }, // R
+    [ 23] = { "\x14"          , "\x94"           }, // T
+    [ 28] = { "\x15"          , "\x95"           }, // Y
+    [ 24] = { "\x16"          , "\x96"           }, // U
+    [ 12] = { "\x17"          , "\x97"           }, // I
+    [ 18] = { "\x18"          , "\x98"           }, // O
+    [ 19] = { "\x19"          , "\x99"           }, // P
+    [ 47] = { "\x1a"          , "\x9a"           }, // [ {
+    [ 48] = { "\x1b"          , "\x9b"           }, // ] }
+    [ 49] = { "\x2b"          , "\xab"           }, // \ |
+    [ 57] = { "\x3a"          , "\xba"           }, // CapsLock
+    [  4] = { "\x1e"          , "\x9e"           }, // A
+    [ 22] = { "\x1f"          , "\x9f"           }, // S
+    [  7] = { "\x20"          , "\xa0"           }, // D
+    [  9] = { "\x21"          , "\xa1"           }, // F
+    [ 10] = { "\x22"          , "\xa2"           }, // G
+    [ 11] = { "\x23"          , "\xa3"           }, // H
+    [ 13] = { "\x24"          , "\xa4"           }, // J
+    [ 14] = { "\x25"          , "\xa5"           }, // K
+    [ 15] = { "\x26"          , "\xa6"           }, // L
+    [ 51] = { "\x27"          , "\xa7"           }, // ; :
+    [ 52] = { "\x28"          , "\xa8"           }, // ' "
+    [ 50] = { "\x00"          , "\x80"           }, // non-US-1
+    [ 40] = { "\x1c"          , "\x9c"           }, // Enter
+    [225] = { "\x2a"          , "\xaa"           }, // LShift
+    [ 29] = { "\x2c"          , "\xac"           }, // Z
+    [ 27] = { "\x2d"          , "\xad"           }, // X
+    [  6] = { "\x2e"          , "\xae"           }, // C
+    [ 25] = { "\x2f"          , "\xaf"           }, // V
+    [  5] = { "\x30"          , "\xb0"           }, // B
+    [ 17] = { "\x31"          , "\xb1"           }, // N
+    [ 16] = { "\x32"          , "\xb2"           }, // M
+    [ 54] = { "\x33"          , "\xb3"           }, // , <
+    [ 55] = { "\x34"          , "\xb4"           }, // . >
+    [ 56] = { "\x35"          , "\xb5"           }, // / ?
+    [229] = { "\x36"          , "\xb6"           }, // RShift
+    [224] = { "\x1d"          , "\x9d"           }, // LCtrl
+    [226] = { "\x38"          , "\xb8"           }, // LAlt
+    [ 44] = { "\x39"          , "\xb9"           }, // space
+    [230] = { "\xe0\x38"      , "\xe0\xb8"       }, // RAlt
+    [228] = { "\xe0\x1d"      , "\xe0\x9d"       }, // RCtrl
+    [ 73] = { "\xe0\x52"      , "\xe0\xd2"       }, // Insert
+    [ 76] = { "\xe0\x53"      , "\xe0\xd3"       }, // Delete
+    [ 74] = { "\xe0\x47"      , "\xe0\xc7"       }, // Home
+    [ 77] = { "\xe0\x4f"      , "\xe0\xcf"       }, // End
+    [ 75] = { "\xe0\x49"      , "\xe0\xc9"       }, // PgUp
+    [ 78] = { "\xe0\x51"      , "\xe0\xd1"       }, // PgDn
+    [ 80] = { "\xe0\x4b"      , "\xe0\xcb"       }, // Left
+    [ 82] = { "\xe0\x48"      , "\xe0\xc8"       }, // Up
+    [ 81] = { "\xe0\x50"      , "\xe0\xd0"       }, // Down
+    [ 79] = { "\xe0\x4d"      , "\xe0\xcd"       }, // Right
+    [ 83] = { "\x45"          , "\xc5"           }, // NumLock
+    [ 95] = { "\x47"          , "\xc7"           }, // KP-7 / Home
+    [ 92] = { "\x4b"          , "\xcb"           }, // KP-4 / Left
+    [ 89] = { "\x4f"          , "\xcf"           }, // KP-1 / End
+    [ 84] = { "\xe0\x35"      , "\xe0\xb5"       }, // KP-/
+    [ 96] = { "\x48"          , "\xc8"           }, // KP-8 / Up
+    [ 93] = { "\x4c"          , "\xcc"           }, // KP-5
+    [ 90] = { "\x50"          , "\xd0"           }, // KP-2 / Down
+    [ 98] = { "\x52"          , "\xd2"           }, // KP-0 / Ins
+    [ 85] = { "\x37"          , "\xb7"           }, // KP-*
+    [ 97] = { "\x49"          , "\xc9"           }, // KP-9 / PgUp
+    [ 94] = { "\x4d"          , "\xcd"           }, // KP-6 / Right
+    [ 91] = { "\x51"          , "\xd1"           }, // KP-3 / PgDn
+    [ 99] = { "\x53"          , "\xd3"           }, // KP-. / Del
+    [ 86] = { "\x4a"          , "\xca"           }, // KP--
+    [ 87] = { "\x4e"          , "\xce"           }, // KP-+
+    [ 88] = { "\xe0\x1c"      , "\xe0\x9c"       }, // KP-Enter
+    [ 41] = { "\x01"          , "\x81"           }, // Esc
+    [ 58] = { "\x3b"          , "\xbb"           }, // F1
+    [ 59] = { "\x3c"          , "\xbc"           }, // F2
+    [ 60] = { "\x3d"          , "\xbd"           }, // F3
+    [ 61] = { "\x3e"          , "\xbe"           }, // F4
+    [ 62] = { "\x3f"          , "\xbf"           }, // F5
+    [ 63] = { "\x40"          , "\xc0"           }, // F6
+    [ 64] = { "\x41"          , "\xc1"           }, // F7
+    [ 65] = { "\x42"          , "\xc2"           }, // F8
+    [ 66] = { "\x43"          , "\xc3"           }, // F9
+    [ 67] = { "\x44"          , "\xc4"           }, // F10
+    [ 68] = { "\x57"          , "\xd7"           }, // F11
+    [ 69] = { "\x58"          , "\xd8"           }, // F12
+    [ 70] = { "\xe0\x37"      , "\xe0\xb7"       }, // PrtScr
+    [154] = { "\x54"          , "\xd4"           }, // Alt+SysRq
+    [ 71] = { "\x46"          , "\xc6"           }, // ScrollLock
+    [ 72] = { "\xe1\x1d\x45\xe1\x9d\xc5", ""     }, // Pause
+    [227] = { "\xe0\x5b"      , "\xe0\xdb"       }, // LWin (USB: LGUI)
+    [231] = { "\xe0\x5c"      , "\xe0\xdc"       }, // RWin (USB: RGUI)
+};
 
 static queue_t kq;
 void keyboard_init(void) {
@@ -48,14 +150,35 @@ int16_t keyboard_send(uint8_t i) {
     return 0;
 }
 
-static void kbd_raw_key_down(int xt_code_in) {    
-    uint8_t xt_code = xt_code_in;
-    queue_try_add(&kq, &xt_code);
+static bool ctrl_pressed;
+
+static void kbd_add_sequence(const uint8_t *sequence) {
+    if (!sequence)
+        return;
+    while(*sequence) {
+        queue_try_add(&kq, sequence++);
+    }
 }
 
-static void kbd_raw_key_up(int xt_code_in) {    
-    uint8_t xt_code = xt_code_in | 0x80;
-    queue_try_add(&kq, &xt_code);
+static void kbd_raw_key(int usb_code, int is_release) {
+    const uint8_t *sequence = (const uint8_t*)conversion[usb_code].d[is_release];
+    kbd_add_sequence(sequence);
+}
+
+static void kbd_raw_key_down(int usb_code) {    
+    if (usb_code == 126 && ctrl_pressed) {
+        kbd_add_sequence("\xe0\x46");
+    } else {
+        kbd_raw_key(usb_code, 0);
+    }
+}
+
+static void kbd_raw_key_up(int usb_code) {    
+    if (usb_code == 126 && ctrl_pressed) {
+        kbd_add_sequence("\xe0\xc6"); // This is a guess
+    } else {
+        kbd_raw_key(usb_code, 1);
+    }
 }
 
 static inline bool find_key_in_report(hid_keyboard_report_t const* report, uint8_t keycode) {
@@ -69,22 +192,20 @@ static inline bool find_key_in_report(hid_keyboard_report_t const* report, uint8
 
 static void process_kbd_report(hid_keyboard_report_t const* r1, hid_keyboard_report_t const* r2,
                                void (*kbd_raw_key_cb)(int code)) {
-    for(int bit = 8; --bit;) {
+
+    for(int bit = 8; bit--;) {
         int weight = 1 << bit;
         if((r1->modifier & weight) && !(r2->modifier & weight)) {
-            uint8_t xt_code = usb_modifier_to_xt[bit];
-            kbd_raw_key_cb(xt_code);
+            kbd_raw_key_cb(bit + 0xe0);
         }
     }
 
     // Process keycodes
     for (int i = 0; i < 6; i++) {
         if (r1->keycode[i]) {
-            uint8_t keycode = r1->keycode[i];
-            if (keycode > sizeof(usb_scancode_to_xt)) continue;
-            if (!find_key_in_report(r2, r1->keycode[i])) {
-                uint8_t xt_code = usb_scancode_to_xt[keycode];
-                kbd_raw_key_cb(xt_code);
+            int keycode = r1->keycode[i];
+            if (!find_key_in_report(r2, keycode)) {
+                kbd_raw_key_cb(keycode);
             }
         }
     }
@@ -756,8 +877,13 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
 
     switch (itf_protocol) {
         case HID_ITF_PROTOCOL_KEYBOARD:
-            find_pressed_keys((const hid_keyboard_report_t*)report);
-            find_released_keys((const hid_keyboard_report_t*)report);
+            const hid_keyboard_report_t *kbd_report = (const hid_keyboard_report_t*)report;
+            printf("keyboard report: modifier=%02x keycode=[%3d %3d %3d %3d %3d %3d]\n",
+                kbd_report->modifier, kbd_report->keycode[0],
+                kbd_report->keycode[1], kbd_report->keycode[2], kbd_report->keycode[3], kbd_report->keycode[4], kbd_report->keycode[5]);
+            ctrl_pressed = kbd_report->modifier & 0x11;
+            find_pressed_keys(kbd_report);
+            find_released_keys(kbd_report);
             memcpy(&prev_report, report, sizeof(hid_keyboard_report_t));
             break;
 
