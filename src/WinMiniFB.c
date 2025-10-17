@@ -37,11 +37,11 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
         case WM_COMMAND: {
             int menu_id = LOWORD(wParam);
             unsigned int checked = GetMenuState(hOptionsMenu, menu_id, MF_BYCOMMAND) & MF_CHECKED;
-            if (HanldeMenu(menu_id, checked)) {
-                CheckMenuItem(hOptionsMenu, menu_id, MF_BYCOMMAND | MF_CHECKED);
-            } else {
-                CheckMenuItem(hOptionsMenu, menu_id, MF_BYCOMMAND | MF_UNCHECKED);
-            }
+            // if (HanldeMenu(menu_id, checked)) {
+                // CheckMenuItem(hOptionsMenu, menu_id, MF_BYCOMMAND | MF_CHECKED);
+            // } else {
+                // CheckMenuItem(hOptionsMenu, menu_id, MF_BYCOMMAND | MF_UNCHECKED);
+            // }
             break;
         }
         case WM_PAINT: {
