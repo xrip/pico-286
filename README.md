@@ -63,6 +63,14 @@ The Hercules Graphics Card emulation recreates the popular monochrome high-resol
 **🖥️ Graphics Mode:**
 *   **⚫⚪ 720×348×2 Colors:** High-resolution monochrome graphics mode
     
+#### 🖥️ EGA (Enhanced Graphics Adapter)
+The Enhanced Graphics Adapter emulation provides IBM EGA compatibility with full 16-color support:
+
+**🚀 Enhanced Graphics Modes:**
+*   **🎨 320×200×16 Colors:** EGA mode 0x0D with planar memory access
+*   **🌈 640×200×16 Colors:** EGA mode 0x0E high-resolution 16-color mode
+*   **✨ 640×350×16 Colors:** EGA mode 0x10 professional graphics mode
+
 #### 🖥️ TGA (Tandy Graphics Adapter)
 The Tandy Graphics Adapter emulation recreates the enhanced graphics capabilities of Tandy 1000 series computers:
 
@@ -72,13 +80,19 @@ The Tandy Graphics Adapter emulation recreates the enhanced graphics capabilitie
 *   **✨ 640×200×16 Colors:** High-resolution mode with 16-color support
 
 #### 🖼️ VGA (Video Graphics Array)
-The VGA emulation provides comprehensive Video Graphics Array support with multiple advanced modes:
+The VGA emulation provides comprehensive Video Graphics Array support with planar memory architecture and multiple advanced modes:
 
 **📊 Standard VGA Modes:**
-*   **🎮 320×200×256 Colors:** Mode 13h
-*   **🖥️ 640×480×16 Colors:** Standard VGA high-resolution mode
-*   **📺 720×480×16 Colors:** Extended VGA mode
+*   **🎮 320×200×256 Colors:** Mode 13h with chain4 memory access
+*   **🖥️ 640×480×16 Colors:** Standard VGA high-resolution mode (Mode 12h)
+*   **🖥️ 640×480×2 Colors:** Monochrome VGA mode (Mode 11h)
 *   **📝 Text modes:** 80×25 and 80×50 with enhanced character sets
+
+**🔧 VGA Technical Features:**
+*   **Planar Memory Layout:** 256KB video memory organized as 4 color planes (0xP3P2P1P0 format)
+*   **32-bit Latch System:** Hardware-accurate latch emulation for planar operations
+*   **Chain4 Mode Support:** Proper VGA chain4 mode handling for 256-color modes
+*   **Hardware Registers:** Full VGA register compatibility including sequencer and graphics controllers
 
 ## 💾 Storage: Disk Images and Host Access
 
@@ -143,14 +157,27 @@ The Pico-286 emulator is designed to run on Raspberry Pi Pico (RP2040) based har
 
 ### 🏗️ Minimal Configuration
 *   🍓 Raspberry Pi Pico (RP2040)
-*   🧠 External PSRAM chip (minimum 8MB recommended for broader compatibility) connected via SPI.
+*   🧠 External PSRAM chip (minimum 8MB recommended) connected via SPI.
 
 ### 🚀 Recommended Configuration for Maximum Performance
 *   🍓 Raspberry Pi Pico 2 (RP2350)
-*   ⚡ QSPI PSRAM for faster memory access.
+*   ⚡ Butter-PSRAM or onboard PSRAM for faster memory access
+*   🖥️ HDMI or VGA output for best graphics performance
 
 ### 🛠️ Development Platform
-*   This project primarily uses the [MURMULATOR dev board](https://murmulator.ru) as its hardware base. This board provides an RP2040, PSRAM, and various peripherals suitable for the emulator's development and testing. 🎯
+*   This project primarily uses the [MURMULATOR dev board](https://murmulator.ru) as its hardware base. This board provides an RP2040/RP2350, PSRAM, and various peripherals suitable for the emulator's development and testing. 🎯
+
+### 🔧 Supported PSRAM Configurations
+The emulator automatically detects and configures various PSRAM hardware:
+
+*   **🧈 Butter-PSRAM:** Auto-detection with dynamic GPIO pin assignment
+    - GPIO 8: MURM20 board configuration
+    - GPIO 47: PIMO board configuration
+    - GPIO 19: Default configuration
+*   **📦 Onboard PSRAM:** RP2350 built-in PSRAM support
+*   **💾 Generic PSRAM:** Standard external PSRAM chips via SPI
+
+**Memory Detection:** Runtime PSRAM size detection (16MB, 8MB, 4MB, 1MB) with validation through test patterns
 
 ### 🔌 Default Pinout
 The emulator has a default GPIO pin configuration for its peripherals on the Raspberry Pi Pico. These are defined in `CMakeLists.txt` and can be modified there if needed.
@@ -257,8 +284,8 @@ The project uses CMake with platform-specific configurations. All builds require
 #### 🖥️ Display Options (Choose exactly one):
 *   `ENABLE_NTSC-TV=ON` - NTSC TV output (locks CPU frequency to 315MHz)
 *   `ENABLE_TFT=ON` - TFT display output via ST7789
-*   `ENABLE_VGA=ON` - VGA output  
-*   `ENABLE_HDMI=ON` - HDMI output (locks CPU frequency to 378MHz)
+*   `ENABLE_VGA=ON` - VGA output
+*   `ENABLE_HDMI=ON` - HDMI output (dynamic frequency: 504MHz for Pico2, 378MHz for others)
 
 #### 🔊 Audio Options (Choose exactly one):
 *   `ENABLE_I2S_SOUND=ON` - I2S digital audio output
@@ -267,12 +294,15 @@ The project uses CMake with platform-specific configurations. All builds require
 
 #### 🧠 Memory Configuration:
 *   **PSRAM (Default for RP2350):**
-    - `ONBOARD_PSRAM=ON` - Use onboard PSRAM (RP2350 only)
-    - `ONBOARD_PSRAM_GPIO=19` - GPIO pin for onboard PSRAM
-*   **Virtual Memory:** 
+    - Auto-detection enabled by default for compatible hardware
+    - Manual: `ONBOARD_PSRAM=ON` - Use onboard PSRAM (RP2350 only)
+    - Manual: `ONBOARD_PSRAM_GPIO=19` - GPIO pin for onboard PSRAM
+*   **Virtual Memory:**
     - `TOTAL_VIRTUAL_MEMORY_KBS=512` - Enable virtual memory instead of PSRAM. **Note:** Setting this to any value greater than 0 will disable PSRAM support.
-*   **CPU Frequency:**
-    - `CPU_FREQ_MHZ=378` - Set CPU frequency (default varies by platform)
+*   **Frequency Configuration:**
+    - `CPU_FREQ_MHZ=500` - Set CPU frequency (default varies by platform)
+    - `FLASH_FREQ_MHZ=100` - Flash frequency configuration
+    - `PSRAM_FREQ_MHZ=166` - PSRAM frequency timing
 
 ### 🚀 Build Commands
 
@@ -359,9 +389,29 @@ cmake -DCMAKE_BUILD_TYPE=Release \
       -DPICO_PLATFORM=rp2350 \
       -DENABLE_HDMI=ON \
       -DENABLE_I2S_SOUND=ON \
-      -DONBOARD_PSRAM=ON \
-      -DONBOARD_PSRAM_GPIO=19 \
+      -DCPU_FREQ_MHZ=504 \
+      -DFLASH_FREQ_MHZ=100 \
+      -DPSRAM_FREQ_MHZ=166 \
       ..
+```
+
+#### Butter-PSRAM Configuration (MURM20 board):
+```bash
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DPICO_PLATFORM=rp2350 \
+      -DENABLE_VGA=ON \
+      -DENABLE_PWM_SOUND=ON \
+      -DMURM20=ON \
+      ..
+```
+
+#### Batch Build All Configurations:
+```bash
+# Build all firmware variants automatically
+./build_all_firmwares.sh
+
+# Merge RP2040/RP2350 firmware pairs
+./merge_firmwares.sh
 ```
 
 ### 📦 Build Outputs
@@ -373,18 +423,19 @@ After successful compilation, build artifacts are placed in the `bin/<platform>/
 
 #### For Pico builds:
 The firmware filename is dynamically generated to reflect the build configuration, following this pattern:
-`286-<platform>-<frequency>-<display>-<audio>-<memory>.uf2`
+`286-<platform>-F<flash>-P<psram>-<cpu_freq>-<display>-<audio>.uf2`
 
 *   **`<platform>`**: `RP2040` or `RP2350`.
-*   **`<frequency>`**: The CPU frequency in MHz (e.g., `378MHz`).
-*   **`<display>`**: `TFT`, `VGA`, or `HDMI`.
+*   **`F<flash>`**: Flash frequency (e.g., `F100` for 100MHz).
+*   **`P<psram>`**: PSRAM frequency (e.g., `P166` for 166MHz).
+*   **`<cpu_freq>`**: CPU frequency in MHz (e.g., `504MHz`).
+*   **`<display>`**: `TFT`, `VGA`, `HDMI`, or `NTSC`.
 *   **`<audio>`**: `I2S`, `PWM`, or `HW` (Hardware).
-*   **`<memory>`**: Describes the extended memory configuration:
-    - `ONBOARD_PSRAM_PIN_<gpio>`: If using onboard PSRAM on RP2350.
-    - `SWAP<size>KB`: If using virtual memory (e.g., `SWAP512KB`).
-    - If using generic external PSRAM, no specific memory tag is added.
 
-**Example Filename:** `286-RP2350-378MHz-VGA-PWM-ONBOARD_PSRAM_PIN_19.uf2`
+**Example Filenames:**
+*   `286-RP2350-F100-P166-504MHz-HDMI-I2S.uf2` (Pico2 with HDMI, Butter-PSRAM)
+*   `286-RP2350-F100-P166-378MHz-VGA-PWM.uf2` (Pico2 with VGA, external PSRAM)
+*   `286-RP2040-F100-P166-366MHz-VGA-PWM.uf2` (RP2040 with VGA)
 
 The following files are generated:
 *   `.uf2`: The firmware file for flashing to the Pico.
@@ -455,14 +506,28 @@ cd build
 - Disable unused emulation features
 
 **HDMI not working:**
-- Ensure CPU frequency is set to 378MHz (automatic with `ENABLE_HDMI=ON`)
+- Ensure CPU frequency is correct (automatic with `ENABLE_HDMI=ON` - 504MHz for Pico2, 378MHz for others)
 - Check HDMI cable and display compatibility
+- Verify power supply can handle HDMI output requirements
+
+**PSRAM detection issues:**
+- Check GPIO pin configuration for your hardware (MURM20: GPIO 8, PIMO: GPIO 47, default: GPIO 19)
+- Ensure PSRAM chip is properly powered and connected
+- Try manual PSRAM configuration if auto-detection fails
+
+**Performance issues:**
+- Use PSRAM instead of virtual memory for better performance
+- Optimize build with Release configuration and proper frequency settings
+- Consider reducing disk image sizes for faster loading
 
 ### 📚 Additional Resources
 
 *   **Hardware setup:** See `boards/` directory for reference designs
 *   **Pin configurations:** Defined in `CMakeLists.txt` compile definitions
 *   **Development board:** [MURMULATOR](https://murmulator.ru) recommended for development
+*   **Video modes reference:** See `VIDEO_MODES.md` for detailed mode specifications
+*   **Build documentation:** See `BUILDING.md` for comprehensive build instructions
+*   **Release notes:** See `release.md` for latest changelog and improvements
 
 ## 🤝 Contributing
 
