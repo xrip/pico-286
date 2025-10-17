@@ -7,18 +7,17 @@
 #include <hardware/vreg.h>
 #include <hardware/pwm.h>
 #include <hardware/exception.h>
+#include <hardware/watchdog.h>
 
-#ifndef ONBOARD_PSRAM_GPIO
-#ifndef TOTAL_VIRTUAL_MEMORY_KBS
 #include "psram_spi.h"
-#endif
-#endif
+#include "emulator/swap.h"
 
 #if PICO_RP2040
 #include "../../memops_opt/memops_opt.h"
 #else
 #include <hardware/structs/qmi.h>
 #include <hardware/structs/xip.h>
+#include <hardware/regs/sysinfo.h>
 #endif
 
 #include "emulator/emulator.h"
@@ -33,6 +32,8 @@
 #if HARDWARE_SOUND
 #include "74hc595/74hc595.h"
 #endif
+
+uint8_t __attribute__((aligned (4), section(".cmos"))) cmos[4 << 10] = { 0 };
 
 // Global variables
 extern OPL *emu8950_opl;
@@ -84,6 +85,7 @@ static const uint32_t SCANCODE_ALT_RELEASE = 0xB8;
 static const uint32_t SCANCODE_KP_MULT_UP = 0xB7;
 static const uint32_t SCANCODE_KP_MINUS_UP = 0xCA;
 static const uint32_t SCANCODE_KP_PLUS_UP = 0xCE;
+static const uint32_t SCANCODE_DEL_RELEASE = 0xD3;
 
 bool handleScancode(uint32_t ps2scancode) {
     //printf("PS/2 SCANCODE: %d\n", ps2scancode);
@@ -101,9 +103,16 @@ bool handleScancode(uint32_t ps2scancode) {
         case SCANCODE_ALT_RELEASE:
             altPressed = false;
             break;
+        case SCANCODE_DEL_RELEASE:
+            if (ctrlPressed && altPressed) {
+                watchdog_enable(1, true);
+            }
+            break;
         case SCANCODE_KP_MULT_UP: // KP "*" up
-            ega_vga_enabled = !ega_vga_enabled;
-            printf("EGA/VGA: %s\n", ega_vga_enabled ? "ON" : "OFF");
+            if (ctrlPressed && altPressed) {
+                ega_vga_enabled = !ega_vga_enabled;
+                printf("EGA/VGA: %s\n", ega_vga_enabled ? "ON" : "MCGA");
+            }
             break;
         case SCANCODE_KP_MINUS_UP: // KP "-" up
             if (ctrlPressed && altPressed) {
@@ -122,6 +131,9 @@ bool handleScancode(uint32_t ps2scancode) {
                         #endif
                         printf("PC XT\n");
                         break;
+                    default:
+                        printf("\n\n\n\n\n\n\n\n\n\n");
+                        break;
                 }
             }
             break;
@@ -137,12 +149,14 @@ bool handleScancode(uint32_t ps2scancode) {
                         break;
                     case TORMOZ_TURBO_8:
                         tormoz = NO_TORMOZ;
-                        #if !PICO_RP2040
-                            delay = 0;
+                        delay = 0;
+                        if (butter_psram_size)
                             printf("Model 70\n");
-                        #else
-                            printf("Model 30\n");
-                        #endif
+                        else
+                            printf("Model 50\n");
+                        break;
+                    default:
+                        printf("\n\n\n\n\n\n\n\n\n\n");
                         break;
                 }
             }
@@ -191,12 +205,16 @@ INLINE void _putchar(char character) {
         *vidramptr = 0;
     }
 }
+
+volatile int16_t last_sb_sample = 0;
+volatile bool ask_to_blast = false;
+
 /* Renderer loop on Pico's second core */
 void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem
     graphics_init();
-    graphics_set_buffer(VIDEORAM, 320, 200);
-    graphics_set_textbuffer(VIDEORAM + 32768);
+    graphics_set_buffer((uint8_t *)VIDEORAM, 320, 200);
+    graphics_set_textbuffer((uint8_t *)VIDEORAM + 32768*4);
     graphics_set_bgcolor(0);
     graphics_set_offset(0, 0);
     graphics_set_flashmode(true, true);
@@ -254,7 +272,6 @@ void __time_critical_func() second_core(void) {
     uint64_t last_sb_tick = 0;
 
     int16_t last_dss_sample = 0;
-    int16_t last_sb_sample = 0;
 
     // Main render loop
     while (true) {
@@ -279,7 +296,10 @@ void __time_critical_func() second_core(void) {
 #if !PICO_RP2040
         // Sound Blaster sampling
         if (tick > last_sb_tick + timeconst) {
-            last_sb_sample = blaster_sample();
+            if (butter_psram_size || PSRAM_AVAILABLE)
+                last_sb_sample = blaster_sample();
+            else
+                ask_to_blast = true; // protect swap from using from seconf core
             last_sb_tick = tick;
         }
 #endif
@@ -345,7 +365,11 @@ void __time_critical_func() second_core(void) {
                         }
                         break;
 
+
                     case VGA_320x200x256:
+                        if (vga_planar_mode) {
+                            videomode = VGA_320x200x256x4;
+                        }
                     case VGA_320x200x256x4:
                     default:
                         for (uint8_t i = 0; i < 255; i++) {
@@ -370,6 +394,30 @@ void __time_critical_func() second_core(void) {
 }
 
 #if PICO_RP2350
+uint32_t butter_psram_size = 0 ;
+uint32_t BUTTER_PSRAM_GPIO = 0;
+bool rp2350a = true;
+#define MB16 (16ul << 20)
+#define MB8 (8ul << 20)
+#define MB4 (4ul << 20)
+#define MB1 (1ul << 20)
+inline static uint32_t __not_in_flash_func(_butter_psram_size)() {
+    volatile uint8_t* PSRAM_DATA = (uint8_t*)0x11000000;
+    for(register int i = MB8; i < MB16; ++i)
+        PSRAM_DATA[i] = 16;
+    for(register int i = MB4; i < MB8; ++i)
+        PSRAM_DATA[i] = 8;
+    for(register int i = MB1; i < MB4; ++i)
+        PSRAM_DATA[i] = 4;
+    for(register int i = 0; i < MB1; ++i)
+        PSRAM_DATA[i] = 1;
+    register uint32_t res = PSRAM_DATA[MB16 - 1];
+    for (register int i = MB16 - MB1; i < MB16; ++i) {
+        if (res != PSRAM_DATA[i])
+            return 0;
+    }
+    return res << 20;
+}
 void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
     gpio_set_function(cs_pin, GPIO_FUNC_XIP_CS1);
 
@@ -390,8 +438,8 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
         tight_loop_contents();
     }
 
-    // Set PSRAM timing for APS6404
-    const int max_psram_freq = 166000000;
+    // Set PSRAM timing
+    const int max_psram_freq = PSRAM_FREQ_MHZ * MHZ;
     const int clock_hz = clock_get_hz(clk_sys);
     int divisor = (clock_hz + max_psram_freq - 1) / max_psram_freq;
 
@@ -442,6 +490,8 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
 
     // Enable writes to PSRAM
     hw_set_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_WRITABLE_M1_BITS);
+    // detect a chip size
+    butter_psram_size = _butter_psram_size();
 }
 #endif
 
@@ -457,33 +507,175 @@ void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused co
     }
 }
 
+int cpu_mhz = CPU_FREQ_MHZ;
+int flash_mhz = FLASH_FREQ_MHZ;
+int psram_mhz = PSRAM_FREQ_MHZ;
+uint new_flash_timings = 0;
+uint new_psram_timings = 0;
+
+void __not_in_flash() flash_timings() {
+    if (!new_flash_timings) {
+        const int max_flash_freq = flash_mhz * MHZ;
+        const int clock_hz = cpu_mhz * MHZ;
+        int divisor = (clock_hz + max_flash_freq - 1) / max_flash_freq;
+        if (divisor == 1 && clock_hz > 100000000) {
+            divisor = 2;
+        }
+        int rxdelay = divisor;
+        if (clock_hz / divisor > 100000000) {
+            rxdelay += 1;
+        }
+        qmi_hw->m[0].timing = 0x60007000 |
+                            rxdelay << QMI_M0_TIMING_RXDELAY_LSB |
+                            divisor << QMI_M0_TIMING_CLKDIV_LSB;
+    } else {
+        qmi_hw->m[0].timing = new_flash_timings;
+    }
+}
+
+void __not_in_flash() psram_timings() {
+    if (!new_psram_timings) {
+        const int max_psram_freq = psram_mhz * MHZ;
+        const int clock_hz = cpu_mhz * MHZ;
+        int divisor = (clock_hz + max_psram_freq - 1) / max_psram_freq;
+        if (divisor == 1 && clock_hz > 100000000) {
+            divisor = 2;
+        }
+        int rxdelay = divisor;
+        if (clock_hz / divisor > 100000000) {
+            rxdelay += 1;
+        }
+        qmi_hw->m[1].timing = (qmi_hw->m[1].timing & ~0x000000FFF) |
+                            rxdelay << QMI_M0_TIMING_RXDELAY_LSB |
+                            divisor << QMI_M0_TIMING_CLKDIV_LSB;
+    } else {
+        qmi_hw->m[1].timing = new_psram_timings;
+    }
+}
+
+static char* open_config(UINT* pbr) {
+    FILINFO fileinfo;
+    size_t file_size = 0;
+    char * cfn = "/config.286";
+    if (f_stat(cfn, &fileinfo) != FR_OK || (fileinfo.fattrib & AM_DIR)) {
+        cfn = "/xt/config.286";
+        if (f_stat(cfn, &fileinfo) != FR_OK || (fileinfo.fattrib & AM_DIR)) {
+            return 0;
+        } else {
+            file_size = (size_t)fileinfo.fsize & 0xFFFFFFFF;
+        }
+    } else {
+        file_size = (size_t)fileinfo.fsize & 0xFFFFFFFF;
+    }
+
+    FIL f;
+    if(f_open(&f, cfn, FA_READ) != FR_OK) {
+        return 0;
+    }
+    char* buff = (char*)calloc(file_size + 1, 1);
+    if (f_read(&f, buff, file_size, pbr) != FR_OK) {
+        printf("Failed to read config.286\n");
+        free(buff);
+        buff = 0;
+    }
+    f_close(&f);
+    return buff;
+}
+
+inline static void tokenizeCfg(char* s, size_t sz) {
+    size_t i = 0;
+    for (; i < sz; ++i) {
+        if (s[i] == '=' || s[i] == '\n' || s[i] == '\r') {
+            s[i] = 0;
+        }
+    }
+    s[i] = 0;
+}
+
+static char* next_token(char* t) {
+    char *t1 = t + strlen(t);
+    while(!*t1++);
+    return t1 - 1;
+}
+
+static int new_cpu_mhz = CPU_FREQ_MHZ;
+static int vreg = VREG_VOLTAGE_1_60;
+static int new_vreg = VREG_VOLTAGE_1_60;
+
+static void load_config_286() {
+    UINT br;
+    char* buff = open_config(&br);
+    if (buff) {
+        tokenizeCfg(buff, br);
+        char *t = buff;
+        while (t - buff < br) {
+            if (strcmp(t, "CPU") == 0) {
+                t = next_token(t);
+                new_cpu_mhz = atoi(t);
+                if (clock_get_hz(clk_sys) != new_cpu_mhz * MHZ) {
+                    if (set_sys_clock_hz(new_cpu_mhz * MHZ, 0) ) {
+                        cpu_mhz = new_cpu_mhz;
+                    }
+                }
+            } else if (strcmp(t, "VREG") == 0) {
+                t = next_token(t);
+                new_vreg = atoi(t);
+                if (new_vreg != vreg && new_vreg >= VREG_VOLTAGE_0_55 && new_vreg <= VREG_VOLTAGE_3_30) {
+                    vreg = new_vreg;
+                    vreg_set_voltage(vreg);
+                }
+            } else if (!new_flash_timings && strcmp(t, "FLASH") == 0) {
+                t = next_token(t);
+                int new_flash_mhz = atoi(t);
+                if (flash_mhz != new_flash_mhz) {
+                    flash_mhz = new_flash_mhz;
+                    flash_timings();
+                }
+            } else if (strcmp(t, "FLASH_T") == 0) {
+                t = next_token(t);
+                char *endptr;
+                new_flash_timings = (uint)strtol(t, &endptr, 16);
+                if (*endptr == 0 && qmi_hw->m[0].timing != new_flash_timings) {
+                    flash_timings();
+                }
+            } else if (!new_psram_timings && strcmp(t, "PSRAM") == 0) {
+                t = next_token(t);
+                int new_psram_mhz = atoi(t);
+                if (psram_mhz != new_psram_mhz) {
+                    psram_mhz = new_psram_mhz;
+                    psram_timings();
+                }
+            } else if (strcmp(t, "PSRAM_T") == 0) {
+                t = next_token(t);
+                char *endptr;
+                new_psram_timings = (uint)strtol(t, &endptr, 16);
+                if (*endptr == 0 && qmi_hw->m[1].timing != new_psram_timings) {
+                    psram_timings();
+                }
+            } else { // unknown token
+                t = next_token(t);
+            }
+            t = next_token(t);
+        }
+        free(buff);
+    }
+}
+
 int main(void) {
     // Platform-specific initialization
 #if PICO_RP2350
     vreg_disable_voltage_limit();
-    vreg_set_voltage(VREG_VOLTAGE_1_60);
-
-    qmi_hw->m[0].timing = 0x60007304; // 4x FLASH divisor
-
+    vreg_set_voltage(vreg);
+    flash_timings();
     sleep_ms(100);
-    if (!set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, 0) ) {
-        set_sys_clock_hz(378 * MHZ, 1); // fallback to failsafe clocks
+    if (!set_sys_clock_hz(cpu_mhz * MHZ, 0) ) {
+        cpu_mhz = 378;
+        set_sys_clock_hz(cpu_mhz * MHZ, 1); // fallback to failsafe clocks
     }
 #else
     memcpy_wrapper_replace(NULL);
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
     set_sys_clock_hz(CPU_FREQ_MHZ * MHZ, true);
-#endif
-
-    // Initialize PSRAM
-#ifdef ONBOARD_PSRAM_GPIO
-    // Overclock psram
-    psram_init(ONBOARD_PSRAM_GPIO);
-
-#else
-    #ifndef TOTAL_VIRTUAL_MEMORY_KBS
-    init_psram();
-    #endif
 #endif
 
     // Set exception handler
@@ -503,11 +695,68 @@ int main(void) {
 
     sleep_ms(50);
 
-    // Initialize peripherals
-    keyboard_init();
+#if 0 // for future save settings in flash
+    if (cmos[0] == 0) {
+        printf("Empty CMOS\n");
+    }
+#endif
+    // Mount SD card filesystem
+    if (FR_OK != f_mount(&fs, "0", 1)) {
+        sem_init(&vga_start_semaphore, 0, 1);
+        multicore_launch_core1(second_core);
+        sem_release(&vga_start_semaphore);
+        printf("SD Card not inserted or SD Card error!");
+        keyboard_init();
+        while (1);
+    }
+
     nespad_begin(NES_GPIO_CLK, NES_GPIO_DATA, NES_GPIO_LAT);
     sleep_ms(5);
     nespad_read();
+
+    if (nespad_state & DPAD_SELECT) {
+        // skip config
+    } else {
+        load_config_286();
+    }
+
+    // Initialize PSRAM
+    rp2350a = (*((io_ro_32*)(SYSINFO_BASE + SYSINFO_PACKAGE_SEL_OFFSET)) & 1);
+    int gp;
+#ifdef MURM2
+    gp = rp2350a ?  8 : 47;
+#else
+    gp = rp2350a ? 19 : 47;
+#endif
+    psram_init(gp);
+    if (!butter_psram_size) {
+        if (init_psram() ) {
+            write86 = write86_mp;
+            writew86 = writew86_mp;
+            writedw86 = writedw86_mp;
+            read86 = read86_mp;
+            readw86 = readw86_mp;
+            readdw86 = readdw86_mp;
+        } else {
+            init_swap();
+            write86 = write86_sw;
+            writew86 = writew86_sw;
+            writedw86 = writedw86_sw;
+            read86 = read86_sw;
+            readw86 = readw86_sw;
+            readdw86 = readdw86_sw;
+        }
+    } else {
+        write86 = write86_ob;
+        writew86 = writew86_ob;
+        writedw86 = writedw86_ob;
+        read86 = read86_ob;
+        readw86 = readw86_ob;
+        readdw86 = readdw86_ob;
+    }
+
+    // Initialize peripherals
+    keyboard_init();
 
     // Check for mouse availability
 #ifndef MURM2
@@ -521,17 +770,34 @@ int main(void) {
     multicore_launch_core1(second_core);
     sem_release(&vga_start_semaphore);
 
-    // Mount SD card filesystem
-    if (FR_OK != f_mount(&fs, "0", 1)) {
-        printf("SD Card not inserted or SD Card error!");
-        while (1);
+    if (new_cpu_mhz != cpu_mhz) {
+        printf("Failed to overclock to %d MHz\n", new_cpu_mhz);
     }
-    // adlib_init(SOUND_FREQUENCY);
-#ifdef TOTAL_VIRTUAL_MEMORY_KBS
-    init_swap();
-#endif
+    printf("CPU: %d MHz\n", cpu_mhz);
+    if (new_vreg < VREG_VOLTAGE_0_55 || new_vreg > VREG_VOLTAGE_3_30) {
+        printf("Unexpected VREG value: %d\n", new_vreg);
+    }
+    printf("VREG: %d\n", vreg);
+    if (new_flash_timings == qmi_hw->m[0].timing) {
+        printf("FLASH [T%p]\n", new_flash_timings);
+    } else {
+        printf("FLASH max %d MHz [T%p]\n", flash_mhz, qmi_hw->m[0].timing);
+    }
+    if (butter_psram_size) {
+        if (new_psram_timings == qmi_hw->m[1].timing) {
+            printf("PSRAM [T%p]\n", new_psram_timings);
+        } else {
+            printf("PSRAM max %d MHz [T%p]\n", psram_mhz, qmi_hw->m[1].timing);
+        }
+        printf("On-Board-PSRAM mode (GP%d)\n", gp);
+    } else if (write86 == write86_mp) {
+        printf("Murmulator-Board-PSRAM mode\n");
+    } else {
+        printf("Swap-RAM mode (8 MB)\n");
+    }
 
     // Initialize audio and reset emulator
+    // adlib_init(SOUND_FREQUENCY);
     sn76489_reset();
     reset86();
 

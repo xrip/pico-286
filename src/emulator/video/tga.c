@@ -157,7 +157,7 @@ void tga_draw_char(uint8_t ch, int x, int y, uint8_t color) {
 }
 
 void tga_draw_pixel(int x, int y, uint8_t color) {
-    uint8_t * pixel = &VIDEORAM[tga_offset + (x >> 1) + ((y >> 2) << 13)];
+    uint32_t * pixel = &VIDEORAM[tga_offset + (x >> 1) + ((y >> 2) << 13)];
     if (x & 1) {
         *pixel = (*pixel & 0xF0) | (color & 0x0F);
     } else {

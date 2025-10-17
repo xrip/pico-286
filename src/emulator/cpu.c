@@ -12,7 +12,8 @@
 #include "disks-rp2350.c.inl"
 #include "network-redirector-rp2350.c.inl"
 #include "graphics.h"
-
+#include "psram_spi.h"
+#include "swap.h"
 #else
 
 #include "disks-win32.c.inl"
@@ -497,13 +498,13 @@ void intcall86(uint8_t intnum) {
 
                     videomode = CPU_AL & 0x7F;
 
-                    RAM[0x449] = CPU_AL;
-                    RAM[0x44A] = videomode <= 2 || (videomode >= 0x8 && videomode <= 0xa) ? 40 : 80;
-                    RAM[0x44B] = 0;
-                    RAM[0x484] = (25 - 1);
+                    FIRST_RAM_PAGE[0x449] = CPU_AL;
+                    FIRST_RAM_PAGE[0x44A] = videomode <= 2 || (videomode >= 0x8 && videomode <= 0xa) ? 40 : 80;
+                    FIRST_RAM_PAGE[0x44B] = 0;
+                    FIRST_RAM_PAGE[0x484] = (25 - 1);
 
                     if ((CPU_AL & 0x80) == 0x00) {
-                        memset(VIDEORAM, 0x0, VIDEORAM_SIZE);
+                        memset(VIDEORAM, 0x0, sizeof(VIDEORAM));
                     }
                     vga_plane_offset = 0;
                     vga_planar_mode = 0;
@@ -511,7 +512,7 @@ void intcall86(uint8_t intnum) {
                     break;
                 case 0x05: /* Select Active Page */ {
                     if (CPU_AL >= 0x80) {
-                        uint8_t CRTCPU = RAM[BIOS_CRTCPU_PAGE];
+                        uint8_t CRTCPU = FIRST_RAM_PAGE[BIOS_CRTCPU_PAGE];
                         switch (CPU_AL) {
                             case 0x80: /* read CRT/CPU page registers */
                                 CPU_BH = CRTCPU & 7;
@@ -528,7 +529,7 @@ void intcall86(uint8_t intnum) {
                                 break;
                         }
                         tga_portout(0x3df, CRTCPU);
-                        RAM[BIOS_CRTCPU_PAGE] = CRTCPU;
+                        FIRST_RAM_PAGE[BIOS_CRTCPU_PAGE] = CRTCPU;
                         return;
                     }
 
@@ -1284,45 +1285,33 @@ static __not_in_flash() void op_grp5() {
     }
 }
 
-#if !PICO_ON_DEVICE
-extern uint8_t UMB[(UMB_END - UMB_START) + 4];
-extern uint8_t HMA[(HMA_END - HMA_START) + 4];
-#endif
-
 void reset86() {
     CPU_CS = 0xFFFF;
     CPU_SS = 0x0000;
     CPU_SP = 0x0000;
 
-    memset(RAM, 0, sizeof(RAM));
     memset(VIDEORAM, 0x00, sizeof(VIDEORAM));
-#if !PICO_ON_DEVICE
-    memset(UMB, 0, sizeof(UMB));
-    memset(HMA, 0, sizeof(HMA));
-    //memset(EMS, 0, sizeof(EMS));
-    //memset(XMS, 0, sizeof(XMS));
-#else
-#ifdef ONBOARD_PSRAM_GPIO
-#ifndef TOTAL_VIRTUAL_MEMORY_KBS
-    memset(PSRAM_DATA + UMB_START, 0, (UMB_END - UMB_START) + 4);
-    memset(PSRAM_DATA + HMA_START, 0, (HMA_END - HMA_START) + 4);
-#else
-    for (uint32_t a = UMB_START; a < ((UMB_END - UMB_START) + 4); a += 4) write32psram(a, 0);
-    for (uint32_t a = HMA_START; a < ((HMA_END - HMA_START) + 4); a += 4) write32psram(a, 0);
-#endif
-#else
-    for (uint32_t a = UMB_START; a < ((UMB_END - UMB_START) + 4); a += 4) {
-        write32psram(a, 0);
+    if (butter_psram_size) {
+        memset(RAM, 0, sizeof(RAM));
+        memset(UMB, 0, sizeof(UMB));
+        memset(HMA, 0, sizeof(HMA));
+    } else {
+        memset(SRAM, 0, sizeof(SRAM));
+        if (PSRAM_AVAILABLE) {
+            for (uint32_t a = HMA_START; a < HMA_END; a += 4) write32psram(a, 0);
+        } else {
+            for (uint32_t a = HMA_START; a < HMA_END; a += 4) swap_write32(a, 0);
+        }
     }
-    for (uint32_t a = HMA_START; a < ((HMA_END - HMA_START) + 4); a += 4) {
-        write32psram(a, 0);
-    }
-#endif
-#endif
     init_umb();
     ip = 0x0000;
     i8237_reset();
+    vga_init();
 }
+
+/// @brief  W/A for SWAP mode (avoid using core#1)
+extern volatile int16_t last_sb_sample;
+extern volatile bool ask_to_blast;
 
 void __not_in_flash() exec86(uint32_t execloops) {
     static uint16_t firstip;
@@ -1334,6 +1323,12 @@ void __not_in_flash() exec86(uint32_t execloops) {
         if (unlikely(ifl && (i8259_controller.interrupt_request_register & (~i8259_controller.interrupt_mask_register)))) {
             intcall86(nextintr()); // get next interrupt from the i8259, if any d
         }
+#if PICO_ON_DEVICE
+        if (ask_to_blast) {
+            ask_to_blast = false;
+            last_sb_sample = blaster_sample();
+        }
+#endif
         reptype = 0;
         segoverride = 0;
         useseg = CPU_DS;

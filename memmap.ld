@@ -23,12 +23,13 @@
 
 MEMORY
 {
-    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 4096k
+    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = (2 * 1024 * 1024)
+    CMOS(rx) : ORIGIN = 0x10200000, LENGTH = 4k
     RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 512k
     SCRATCH_X(rwx) : ORIGIN = 0x20080000, LENGTH = 4k
     SCRATCH_Y(rwx) : ORIGIN = 0x20081000, LENGTH = 4k
+	PSRAM(rwx) : ORIGIN = 0x11000000, LENGTH = (8 * 1024 * 1024)
 }
-
 ENTRY(_entry_point)
 
 SECTIONS
@@ -128,6 +129,11 @@ SECTIONS
         *(SORT_BY_ALIGNMENT(SORT_BY_NAME(.flashdata*)))
         . = ALIGN(4);
     } > FLASH
+
+    .cmos : {
+        *(.cmos*)
+        . = ALIGN(4);
+    } > CMOS
 
     .ARM.extab :
     {
@@ -296,6 +302,11 @@ SECTIONS
 
     ASSERT( __binary_info_header_end - __logical_binary_start <= 1024, "Binary info must be in first 1024 bytes of the binary")
     ASSERT( __embedded_block_end - __logical_binary_start <= 4096, "Embedded block must be in first 4096 bytes of the binary")
+
+    .psram (NOLOAD): {
+        . = ALIGN(4);
+        *(.psram*)
+    } > PSRAM
 
     /* todo assert on extra code */
 }

@@ -37,13 +37,20 @@ All builds require exactly one display and one audio option:
 ```bash
 # RP2350 with VGA and PWM audio
 cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2350 -DENABLE_VGA=ON -DENABLE_PWM_SOUND=ON
+make -j$(nproc)
 
-# Windows/Linux host build (Linux requires X11 development libraries)
+# Windows/Linux host build (Linux requires X11 development libraries)  
 cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=host
+make -j$(nproc)
 
 # RP2040 with TFT and I2S
 cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2040 -DENABLE_TFT=ON -DENABLE_I2S_SOUND=ON
+make -j$(nproc)
 ```
+
+### Batch build scripts:
+- `./build_all_firmwares.sh` - Automated build script for all firmware variations across platforms, display/audio combinations, and memory configurations
+- `./merge_firmwares.sh` - Merges RP2040/RP2350 firmware pairs into single .uf2 files
 
 ## Architecture
 
@@ -171,3 +178,17 @@ No automated test framework is present. Testing relies on running actual DOS sof
 - X11 development libraries: `sudo apt install libx11-dev` (Ubuntu/Debian)
 - pthread support (included with GCC)
 - CMake 3.22+ and GCC 11+ for C++20 support
+
+## AI Team Configuration
+
+This project benefits from using specialized AI agents for different development tasks:
+
+**Primary Agents:**
+- `backend-developer` - For core emulator logic, CPU emulation, memory management, and platform-specific code
+- `performance-optimizer` - Critical for this resource-constrained embedded system; use when addressing memory usage, CPU performance, or timing issues
+- `code-archaeologist` - Essential for understanding the complex emulator architecture and legacy x86 instruction handling
+
+**Secondary Agents:**
+- `documentation-specialist` - For updating README.md, hardware documentation, and API references
+- `code-reviewer` - For security and correctness review of memory management and hardware interface code
+- `project-analyst` - For analyzing new subsystems or understanding driver interactions

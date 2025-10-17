@@ -1,4 +1,5 @@
-#ifdef TOTAL_VIRTUAL_MEMORY_KBS
+#if PICO_ON_DEVICE
+
 #include "emulator.h"
 #include "swap.h"
 #include "f_util.h"
@@ -6,14 +7,23 @@
 #include <pico.h>
 #include <hardware/gpio.h>
 
+#define TOTAL_VIRTUAL_MEMORY_KBS (8 << 10)
+
+#define SWAP_PAGE_SIZE (2048)
+#define RAM_IN_PAGE_ADDR_MASK (0x000007FF)
+#define SHIFT_AS_DIV (11)
+
+#define SWAPPABLE_RAM_SIZE (SRAM_BLOCK_SIZE)
+#define SWAP_BLOCKS (SWAPPABLE_RAM_SIZE / SWAP_PAGE_SIZE)
+
 #undef printf_
 #define printf_(...)
 
 #define PAGE_CHANGE_FLAG 0x8000
 #define PAGE_ID_MASK 0x7FFF
 
-uint16_t ALIGN(4, SWAP_PAGES[SWAP_BLOCKS]) = {0};
-uint8_t ALIGN(4, SWAP_PAGES_CACHE[RAM_SIZE]) = {0};
+uint16_t __scratch_y("swap_pages") ALIGN(4, SWAP_PAGES[SWAP_BLOCKS]) = {0};
+#define SWAP_PAGES_CACHE SRAM
 
 static INLINE uint32_t get_swap_page_for(uint32_t address);
 
@@ -87,7 +97,8 @@ static uint16_t oldest_ram_page = 1, last_ram_page = 0;
 static uint32_t last_lba_page = 0;
 
 uint32_t get_swap_page_for(uint32_t address) {
-    uint32_t lba_page = address >> SHIFT_AS_DIV;
+    register uint32_t lba_page = address >> SHIFT_AS_DIV;
+    if (!lba_page) return lba_page;
     if (last_lba_page == lba_page) return last_ram_page;
 
     last_lba_page = lba_page;
@@ -101,6 +112,9 @@ uint32_t get_swap_page_for(uint32_t address) {
     uint16_t ram_page = oldest_ram_page++;
     if (oldest_ram_page >= SWAP_BLOCKS - 1) oldest_ram_page = 1;
 
+    if (get_core_num()) {
+        printf("warn: [core #1] attempt to use swap\n");
+    }
     if (!(SWAP_PAGES[ram_page] & PAGE_CHANGE_FLAG)) {
         swap_file_read_block(SWAP_PAGES_CACHE + (ram_page * SWAP_PAGE_SIZE), lba_page * SWAP_PAGE_SIZE, SWAP_PAGE_SIZE);
     } else {
@@ -117,7 +131,6 @@ static const char *path = "\\XT\\pagefile.sys";
 static FIL swap_file;
 
 bool init_swap() {
-    printf("Initializing pagefile...\n");
     f_unlink(path);
     FRESULT result = f_open(&swap_file, path, FA_READ | FA_WRITE | FA_CREATE_ALWAYS);
     if (result == FR_OK) {
@@ -128,7 +141,6 @@ bool init_swap() {
             if (result != FR_OK) return /*printf("Error initializing pagefile\n"),*/ false;
         }
     } else return /*printf("Error creating pagefile\n"),*/ false;
-    printf("Done!\n");
     f_close(&swap_file);
     return f_open(&swap_file, path, FA_READ | FA_WRITE) == FR_OK;
 }
@@ -159,4 +171,5 @@ void swap_file_flush_block(const uint8_t *src, uint32_t offset, uint32_t size) {
     }
     gpio_put(PICO_DEFAULT_LED_PIN, false);
 }
+
 #endif
