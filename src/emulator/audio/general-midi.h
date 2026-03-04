@@ -1,4 +1,93 @@
 #pragma once
+// Drum synthesis types for GM Percussion Map (notes 35-81)
+enum drum_type {
+    DRUM_T_KICK, // sine + pitch sweep + click
+    DRUM_T_SNARE, // noise + tone 200Hz
+    DRUM_T_STICK, // very short noise click
+    DRUM_T_CLAP, // noise, medium decay, no tone
+    DRUM_T_TOM, // sine (pitch from note) + fast decay
+    DRUM_T_HIHAT_C, // filtered noise, fast decay
+    DRUM_T_HIHAT_O, // filtered noise, slow decay
+    DRUM_T_CRASH, // noise + ring mod, slow decay
+    DRUM_T_RIDE, // tone + noise, medium decay
+    DRUM_T_COWBELL, // pure high tone, fast decay
+    DRUM_T_GENERIC, // noise burst (default)
+};
+
+// GM Percussion Map: note (35-81) -> synthesis type
+static const uint8_t drum_type_map[47] = {
+    // 35              36              37              38              39
+    DRUM_T_KICK, DRUM_T_KICK, DRUM_T_STICK, DRUM_T_SNARE, DRUM_T_CLAP,
+    // 40              41              42              43              44
+    DRUM_T_SNARE, DRUM_T_TOM, DRUM_T_HIHAT_C, DRUM_T_TOM, DRUM_T_HIHAT_C,
+    // 45              46              47              48              49
+    DRUM_T_TOM, DRUM_T_HIHAT_O, DRUM_T_TOM, DRUM_T_TOM, DRUM_T_CRASH,
+    // 50              51              52              53              54
+    DRUM_T_TOM, DRUM_T_RIDE, DRUM_T_CRASH, DRUM_T_RIDE, DRUM_T_GENERIC,
+    // 55              56              57              58              59
+    DRUM_T_CRASH, DRUM_T_COWBELL, DRUM_T_CRASH, DRUM_T_GENERIC, DRUM_T_RIDE,
+    // 60              61              62              63              64
+    DRUM_T_TOM, DRUM_T_TOM, DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_TOM,
+    // 65              66              67              68              69
+    DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_COWBELL, DRUM_T_COWBELL, DRUM_T_GENERIC,
+    // 70              71              72              73              74
+    DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_GENERIC,
+    // 75              76              77              78              79
+    DRUM_T_STICK, DRUM_T_STICK, DRUM_T_STICK, DRUM_T_GENERIC, DRUM_T_GENERIC,
+    // 80              81
+    DRUM_T_GENERIC, DRUM_T_GENERIC,
+};
+
+// GM instrument envelope parameters: {decay_shift, sustain_level}
+// decay_shift: higher = slower decay (velocity -= (velocity - sustain) >> shift)
+// sustain_level: target level during sustain phase (0-255)
+// Updated every 256 samples (~172 Hz at 44100)
+typedef struct {
+    uint8_t attack_shift;
+    uint8_t decay_shift;
+    uint8_t sustain_level;
+} gm_envelope_t;
+
+static const gm_envelope_t __not_in_flash("midi2") gm_envelopes[128] = {
+    // {attack_shift, decay_shift, sustain_level}
+    // attack_shift: lower = faster attack (velocity += (target - velocity) >> shift | 1)
+    // decay_shift: higher = slower decay
+    // sustain_level: target level during sustain phase (0-255)
+
+    // Piano family (0-7): instant attack, fast decay, low sustain
+    {0, 3, 20}, {0, 3, 20}, {0, 3, 25}, {0, 3, 20}, {0, 3, 15}, {0, 3, 20}, {0, 2, 10}, {0, 3, 20},
+    // Chromatic Percussion (8-15): instant attack, very fast decay
+    {0, 2, 5},  {0, 2, 5},  {0, 2, 5},  {0, 2, 5},  {0, 2, 5},  {0, 2, 5},  {0, 2, 5},  {0, 2, 5},
+    // Organ (16-23): instant attack, no decay, full sustain
+    {0, 7, 240},{0, 7, 240},{0, 7, 240},{0, 7, 240},{0, 7, 240},{0, 7, 240},{0, 7, 240},{0, 7, 240},
+    // Guitar (24-31): instant attack, medium decay
+    {0, 3, 30}, {0, 3, 30}, {0, 3, 25}, {0, 3, 25}, {0, 3, 30}, {0, 3, 20}, {0, 3, 20}, {0, 3, 20},
+    // Bass (32-39): instant attack, medium decay, medium sustain
+    {0, 4, 60}, {0, 4, 60}, {0, 4, 60}, {0, 4, 60}, {0, 3, 40}, {0, 3, 40}, {0, 4, 60}, {0, 4, 60},
+    // Strings (40-47): slow attack, slow decay, high sustain
+    {3, 5, 180},{3, 5, 180},{3, 5, 180},{3, 5, 180},{3, 5, 180},{2, 4, 120},{2, 4, 100},{0, 2, 5},
+    // Ensemble (48-55): medium attack, slow decay, high sustain
+    {2, 5, 200},{2, 5, 200},{2, 5, 180},{2, 5, 180},{2, 6, 220},{2, 5, 180},{2, 5, 200},{2, 5, 160},
+    // Brass (56-63): medium attack, medium decay, high sustain
+    {1, 5, 160},{1, 5, 160},{1, 5, 160},{1, 5, 160},{1, 5, 140},{1, 5, 140},{1, 5, 160},{1, 5, 160},
+    // Reed (64-71): fast attack, medium decay, high sustain
+    {0, 5, 180},{0, 5, 180},{0, 5, 180},{0, 5, 180},{0, 5, 160},{0, 5, 160},{0, 5, 180},{0, 5, 180},
+    // Pipe (72-79): medium attack, slow decay, high sustain
+    {1, 6, 200},{1, 6, 200},{1, 6, 200},{1, 6, 200},{1, 6, 220},{1, 6, 220},{1, 6, 200},{1, 6, 200},
+    // Synth Lead (80-87): varies
+    {0, 5, 200},{0, 5, 180},{1, 6, 220},{0, 5, 160},{0, 5, 180},{0, 5, 180},{0, 5, 200},{0, 5, 200},
+    // Synth Pad (88-95): slow attack, very slow decay, very high sustain
+    {3, 6, 220},{3, 6, 220},{3, 6, 220},{3, 6, 220},{3, 6, 220},{3, 6, 200},{3, 6, 220},{3, 6, 220},
+    // Synth Effects (96-103): varies
+    {1, 4, 100},{2, 5, 160},{0, 3, 30}, {3, 6, 220},{1, 4, 80}, {1, 4, 80}, {1, 4, 100},{1, 4, 100},
+    // Ethnic (104-111): medium
+    {0, 4, 100},{0, 3, 40}, {0, 4, 100},{0, 4, 80}, {0, 3, 30}, {0, 3, 30}, {0, 4, 80}, {0, 4, 80},
+    // Percussive (112-119): instant attack, fast decay
+    {0, 2, 10}, {0, 2, 5},  {0, 2, 10}, {0, 2, 5},  {0, 2, 10}, {0, 2, 5},  {0, 2, 10}, {0, 3, 20},
+    // Sound Effects (120-127): varies
+    {1, 4, 80}, {1, 4, 60}, {0, 3, 30}, {0, 3, 30}, {1, 4, 60}, {1, 4, 80}, {0, 3, 30}, {1, 4, 60},
+};
+
 // Pitch bend ±12 semitones: 25 multiplier points (×10000), index 0 = -12st, 24 = +12st
 static const uint16_t  __not_in_flash("midi2") pitch_bend_table[25] = {
     5000, 5297, 5612, 5946, 6300, 6674, 7071, 7492, 7937, 8409,

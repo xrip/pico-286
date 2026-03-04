@@ -13,24 +13,17 @@
 #define MAX_MIDI_VOICES 32
 #define MIDI_CHANNELS 16
 
-#ifndef MIN
-#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
-#endif
-
-#define RELEASE_DURATION (SOUND_FREQUENCY / 8) // Duration for note release
-
 typedef struct midi_voice_s {
-    uint8_t voice_slot;
-    // uint8_t playing;
     uint8_t channel;
     uint8_t note;
     uint8_t velocity;
     uint8_t velocity_base;
+    uint8_t decay_shift;
+    uint8_t sustain_level;
+    uint8_t attack_target;   // >0 = attack phase, target velocity
 
-    uint8_t *sample;
     int32_t frequency_m100;
     uint16_t sample_position;
-    uint16_t release_position;
 } midi_voice_t;
 
 typedef struct midi_channel_s {
@@ -58,45 +51,6 @@ static midi_channel_t midi_channels[MIDI_CHANNELS] = {
 static uint32_t active_voice_bitmask = 0;
 // Bitmask for sustained channels
 static uint32_t channels_sustain_bitmask = 0;
-
-// Drum synthesis types for GM Percussion Map (notes 35-81)
-enum drum_type {
-    DRUM_T_KICK, // sine + pitch sweep + click
-    DRUM_T_SNARE, // noise + tone 200Hz
-    DRUM_T_STICK, // very short noise click
-    DRUM_T_CLAP, // noise, medium decay, no tone
-    DRUM_T_TOM, // sine (pitch from note) + fast decay
-    DRUM_T_HIHAT_C, // filtered noise, fast decay
-    DRUM_T_HIHAT_O, // filtered noise, slow decay
-    DRUM_T_CRASH, // noise + ring mod, slow decay
-    DRUM_T_RIDE, // tone + noise, medium decay
-    DRUM_T_COWBELL, // pure high tone, fast decay
-    DRUM_T_GENERIC, // noise burst (default)
-};
-
-// GM Percussion Map: note (35-81) -> synthesis type
-static const uint8_t drum_type_map[47] = {
-    // 35              36              37              38              39
-    DRUM_T_KICK, DRUM_T_KICK, DRUM_T_STICK, DRUM_T_SNARE, DRUM_T_CLAP,
-    // 40              41              42              43              44
-    DRUM_T_SNARE, DRUM_T_TOM, DRUM_T_HIHAT_C, DRUM_T_TOM, DRUM_T_HIHAT_C,
-    // 45              46              47              48              49
-    DRUM_T_TOM, DRUM_T_HIHAT_O, DRUM_T_TOM, DRUM_T_TOM, DRUM_T_CRASH,
-    // 50              51              52              53              54
-    DRUM_T_TOM, DRUM_T_RIDE, DRUM_T_CRASH, DRUM_T_RIDE, DRUM_T_GENERIC,
-    // 55              56              57              58              59
-    DRUM_T_CRASH, DRUM_T_COWBELL, DRUM_T_CRASH, DRUM_T_GENERIC, DRUM_T_RIDE,
-    // 60              61              62              63              64
-    DRUM_T_TOM, DRUM_T_TOM, DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_TOM,
-    // 65              66              67              68              69
-    DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_COWBELL, DRUM_T_COWBELL, DRUM_T_GENERIC,
-    // 70              71              72              73              74
-    DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_GENERIC,
-    // 75              76              77              78              79
-    DRUM_T_STICK, DRUM_T_STICK, DRUM_T_STICK, DRUM_T_GENERIC, DRUM_T_GENERIC,
-    // 80              81
-    DRUM_T_GENERIC, DRUM_T_GENERIC,
-};
 
 // Best seeds for different percussion characteristics
 static uint32_t noise_seed = 0x7EC80000; // Best overall for drums
@@ -333,12 +287,30 @@ static INLINE int16_t midi_sample() {
         if (voice->channel == 9) {
             sample += generate_drum_sample(voice, sample_position);
         } else {
-            // Original sine-based synthesis for melodic instruments
-            if (__builtin_expect(sample_position == (SOUND_FREQUENCY >> 1), 0)) {
-                voice->velocity -= voice->velocity >> 2;
-            } else if (__builtin_expect(sample_position && sample_position == voice->release_position, 0)) {
-                active_voice_bitmask &= ~voice_bit;
-                continue;
+            // Melodic synthesis with exponential envelope
+
+            // Envelope update every 256 samples (~172 Hz update rate)
+            if (__builtin_expect((sample_position & 255) == 0 && sample_position > 0, 0)) {
+                if (voice->attack_target) {
+                    // Attack phase: rise toward target
+                    voice->velocity += ((voice->attack_target - voice->velocity) >> voice->decay_shift) | 1;
+                    if (voice->velocity >= voice->attack_target) {
+                        voice->velocity = voice->attack_target;
+                        voice->attack_target = 0;
+                        // Restore decay parameters from program table
+                        const gm_envelope_t *env = &gm_envelopes[midi_channels[voice->channel].program];
+                        voice->decay_shift = env->decay_shift;
+                    }
+                } else {
+                    const uint8_t target = voice->sustain_level;
+                    if (voice->velocity > target) {
+                        voice->velocity -= ((voice->velocity - target) >> voice->decay_shift) | 1;
+                        if (voice->velocity <= 1 && target == 0) {
+                            active_voice_bitmask &= ~voice_bit;
+                            continue;
+                        }
+                    }
+                }
             }
 
             const int32_t sine_val = sine_lookup(__fast_mul(voice->frequency_m100, sample_position));
@@ -382,10 +354,8 @@ static INLINE void parse_midi(const midi_command_t *message) {
                     if (voice_slot < MAX_MIDI_VOICES) {
                         midi_voice_t *__restrict voice = &midi_voices[voice_slot];
 
-                        // Initialize voice data in optimal order
-                        voice->voice_slot = voice_slot;
+                        // Initialize voice data
                         voice->sample_position = 0;
-                        voice->release_position = 0;
                         voice->channel = channel;
                         voice->note = message->note;
                         voice->velocity_base = message->velocity;
@@ -398,6 +368,21 @@ static INLINE void parse_midi(const midi_command_t *message) {
 
                         const uint8_t ch_volume = midi_channels[channel].volume;
                         voice->velocity = (ch_volume * message->velocity) >> 7;
+
+                        // Set envelope from GM program table
+                        const gm_envelope_t *env = &gm_envelopes[midi_channels[channel].program];
+                        voice->sustain_level = env->sustain_level;
+                        if (env->attack_shift) {
+                            // Slow attack: start from zero, rise to target
+                            voice->attack_target = voice->velocity;
+                            voice->velocity = 0;
+                            voice->decay_shift = env->attack_shift;
+                        } else {
+                            // Instant attack
+                            voice->attack_target = 0;
+                            voice->decay_shift = env->decay_shift;
+                        }
+
                         SET_ACTIVE_VOICE(voice_slot);
                         break;
                     }
@@ -414,15 +399,15 @@ static INLINE void parse_midi(const midi_command_t *message) {
                     const uint32_t voice_slot = __builtin_ctz(voices_to_check);
                     voices_to_check &= ~(1U << voice_slot);
 
-                    const midi_voice_t *__restrict voice = &midi_voices[voice_slot];
+                    midi_voice_t *__restrict voice = &midi_voices[voice_slot];
                     if (voice->channel == channel && voice->note == message->note) {
                         if (__builtin_expect(channel == 9, 0)) {
-                            // Drum channel
                             CLEAR_ACTIVE_VOICE(voice_slot);
                         } else {
-                            midi_voices[voice_slot].velocity >>= 1; // Bit shift for /2
-                            midi_voices[voice_slot].release_position =
-                                    midi_voices[voice_slot].sample_position + RELEASE_DURATION;
+                            // Switch to release: fast exponential decay to zero
+                            voice->attack_target = 0;
+                            voice->sustain_level = 0;
+                            voice->decay_shift = 2;
                         }
                         break;
                     }
@@ -438,8 +423,10 @@ static INLINE void parse_midi(const midi_command_t *message) {
                     midi_channels[channel].volume = message->velocity;
                     for (int voice_slot = 0; voice_slot < MAX_MIDI_VOICES; ++voice_slot) {
                         if (midi_voices[voice_slot].channel == channel) {
-                            midi_voices[voice_slot].velocity =
-                                    message->velocity * midi_voices[voice_slot].velocity_base >> 7;
+                            const uint8_t new_vel = message->velocity * midi_voices[voice_slot].velocity_base >> 7;
+                            midi_voices[voice_slot].velocity = new_vel;
+                            if (midi_voices[voice_slot].attack_target)
+                                midi_voices[voice_slot].attack_target = new_vel;
                         }
                     }
                     break;
@@ -458,9 +445,10 @@ static INLINE void parse_midi(const midi_command_t *message) {
                                 if (channel == 9) {
                                     CLEAR_ACTIVE_VOICE(voice_slot);
                                 } else {
-                                    midi_voices[voice_slot].velocity /= 2;
-                                    midi_voices[voice_slot].release_position =
-                                            midi_voices[voice_slot].sample_position + RELEASE_DURATION;
+                                    // Switch to release: fast decay to zero
+                                    midi_voices[voice_slot].attack_target = 0;
+                                    midi_voices[voice_slot].sustain_level = 0;
+                                    midi_voices[voice_slot].decay_shift = 2;
                                 }
                             }
                     }
