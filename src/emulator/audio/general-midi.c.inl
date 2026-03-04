@@ -47,20 +47,56 @@ typedef struct __attribute__((packed)) {
 } midi_command_t;
 
 static midi_voice_t midi_voices[MAX_MIDI_VOICES] = {0};
-static midi_channel_t midi_channels[MIDI_CHANNELS] = {0};
+static midi_channel_t midi_channels[MIDI_CHANNELS] = {
+    {0, 100, 0}, {0, 100, 0}, {0, 100, 0}, {0, 100, 0},
+    {0, 100, 0}, {0, 100, 0}, {0, 100, 0}, {0, 100, 0},
+    {0, 100, 0}, {0, 100, 0}, {0, 100, 0}, {0, 100, 0},
+    {0, 100, 0}, {0, 100, 0}, {0, 100, 0}, {0, 100, 0},
+};
 
 // Bitmask for active voices
 static uint32_t active_voice_bitmask = 0;
 // Bitmask for sustained channels
 static uint32_t channels_sustain_bitmask = 0;
 
-// Drum synthesis parameters
-#define DRUM_KICK_BASE     35  // MIDI note for kick drum
-#define DRUM_SNARE_BASE    38  // MIDI note for snare drum
-#define DRUM_HIHAT_CLOSED  42  // MIDI note for closed hi-hat
-#define DRUM_HIHAT_OPEN    46  // MIDI note for open hi-hat
-#define DRUM_CRASH         49  // MIDI note for crash cymbal
-#define DRUM_RIDE          51  // MIDI note for ride cymbal
+// Drum synthesis types for GM Percussion Map (notes 35-81)
+enum drum_type {
+    DRUM_T_KICK,      // sine + pitch sweep + click
+    DRUM_T_SNARE,     // noise + tone 200Hz
+    DRUM_T_STICK,     // very short noise click
+    DRUM_T_CLAP,      // noise, medium decay, no tone
+    DRUM_T_TOM,       // sine (pitch from note) + fast decay
+    DRUM_T_HIHAT_C,   // filtered noise, fast decay
+    DRUM_T_HIHAT_O,   // filtered noise, slow decay
+    DRUM_T_CRASH,     // noise + ring mod, slow decay
+    DRUM_T_RIDE,      // tone + noise, medium decay
+    DRUM_T_COWBELL,   // pure high tone, fast decay
+    DRUM_T_GENERIC,   // noise burst (default)
+};
+
+// GM Percussion Map: note (35-81) -> synthesis type
+static const uint8_t drum_type_map[47] = {
+    // 35              36              37              38              39
+    DRUM_T_KICK,    DRUM_T_KICK,    DRUM_T_STICK,   DRUM_T_SNARE,   DRUM_T_CLAP,
+    // 40              41              42              43              44
+    DRUM_T_SNARE,   DRUM_T_TOM,     DRUM_T_HIHAT_C, DRUM_T_TOM,     DRUM_T_HIHAT_C,
+    // 45              46              47              48              49
+    DRUM_T_TOM,     DRUM_T_HIHAT_O, DRUM_T_TOM,     DRUM_T_TOM,     DRUM_T_CRASH,
+    // 50              51              52              53              54
+    DRUM_T_TOM,     DRUM_T_RIDE,    DRUM_T_CRASH,   DRUM_T_RIDE,    DRUM_T_GENERIC,
+    // 55              56              57              58              59
+    DRUM_T_CRASH,   DRUM_T_COWBELL, DRUM_T_CRASH,   DRUM_T_GENERIC, DRUM_T_RIDE,
+    // 60              61              62              63              64
+    DRUM_T_TOM,     DRUM_T_TOM,     DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_TOM,
+    // 65              66              67              68              69
+    DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_COWBELL, DRUM_T_COWBELL, DRUM_T_GENERIC,
+    // 70              71              72              73              74
+    DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_GENERIC,
+    // 75              76              77              78              79
+    DRUM_T_STICK,   DRUM_T_STICK,   DRUM_T_STICK,   DRUM_T_GENERIC, DRUM_T_GENERIC,
+    // 80              81
+    DRUM_T_GENERIC, DRUM_T_GENERIC,
+};
 
 // Best seeds for different percussion characteristics
 static uint32_t noise_seed = 0x7EC80000;  // Best overall for drums
@@ -81,6 +117,24 @@ static uint32_t noise_seed = 0x7EC80000;  // Best overall for drums
 #define IS_CHANNEL_SUSTAIN(idx) ((channels_sustain_bitmask & (1U << (idx))) != 0)
 
 
+// Pitch bend ±12 semitones: 25 multiplier points (×10000), index 0 = -12st, 24 = +12st
+static const uint16_t pitch_bend_table[25] = {
+    5000, 5297, 5612, 5946, 6300, 6674, 7071, 7492, 7937, 8409,
+    8909, 9439, 10000, 10595, 11225, 11892, 12599, 13348, 14142, 14983,
+    15874, 16818, 17818, 18877, 20000
+};
+
+// bend: 0-16383, center 8192. Returns multiplier ×10000
+static INLINE int32_t calc_pitch_bend(const int bend) {
+    // Map bend (0..16383) to fixed-point position in table (0..24), scaled by 256 for lerp
+    // pos = 24 * 256 * (bend - 0) / 16383 = 6144 * bend / 16383
+    const int32_t pos = (int32_t)bend * 6144 / 16383;  // 0..6144
+    const int idx = pos >> 8;                            // 0..24
+    if (idx >= 24) return pitch_bend_table[24];
+    const int frac = pos & 255;                          // 0..255
+    return pitch_bend_table[idx] + (((pitch_bend_table[idx + 1] - pitch_bend_table[idx]) * frac) >> 8);
+}
+
 #define SIN_STEP (SOUND_FREQUENCY * 100 / 4096)
 static INLINE int32_t sine_lookup(const uint32_t angle) {
     const uint16_t index = (angle / SIN_STEP) & 4095; // TODO: Should it be & 4095 or % 4096???
@@ -98,123 +152,169 @@ static INLINE int16_t generate_noise() {
 // Drum-specific synthesis
 static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_position) {
     int16_t sample = 0;
-    uint8_t note = voice->note;
+    const uint8_t note = voice->note;
 
     // Envelope calculation - drums need faster decay
     int32_t envelope = voice->velocity;
 
-    if (note >= DRUM_KICK_BASE && note <= DRUM_KICK_BASE + 2) {
-        // KICK DRUM: Low frequency sine + pitch sweep + click
-        // Pitch sweep from higher to lower frequency
-        int32_t sweep_freq = voice->frequency_m100 * (100 + (200 >> (sample_position >> 7))) / 100;
+    // Lookup synthesis type: notes 35-81 use the map, rest default to generic
+    const uint8_t dtype = (note >= 35 && note <= 81)
+        ? drum_type_map[note - 35] : DRUM_T_GENERIC;
 
-        // Sine component for body
-        int32_t sine_val = sine_lookup(__fast_mul(sweep_freq, sample_position));
+    switch (dtype) {
+        case DRUM_T_KICK: {
+            // KICK DRUM: Low frequency sine + pitch sweep + click
+            int32_t sweep_freq = voice->frequency_m100 * (100 + (200 >> (sample_position >> 7))) / 100;
+            int32_t sine_val = sine_lookup(__fast_mul(sweep_freq, sample_position));
 
-        // Add click at the beginning
-        if (sample_position < 64) {
-            sample = __fast_mul(envelope * 2, generate_noise()) >> 8;
+            // Add click at the beginning
+            if (sample_position < 64) {
+                sample = __fast_mul(envelope * 2, generate_noise()) >> 8;
+            }
+
+            // Fast exponential decay
+            envelope = envelope * (65536 - (sample_position << 4)) >> 16;
+            if (envelope < 0) envelope = 0;
+
+            sample += __fast_mul(envelope, sine_val) >> 1;
+            break;
         }
 
-        // Fast exponential decay
-        envelope = envelope * (65536 - (sample_position << 4)) >> 16;
-        if (envelope < 0) envelope = 0;
+        case DRUM_T_SNARE: {
+            // SNARE DRUM: Mixed noise and tone
+            int32_t sine_val = sine_lookup(__fast_mul(20000, sample_position)); // 200Hz
 
-        sample += __fast_mul(envelope, sine_val) >> 1;
+            int16_t noise = generate_noise();
 
-    } else if (note >= DRUM_SNARE_BASE && note <= DRUM_SNARE_BASE + 2) {
-        // SNARE DRUM: Mixed noise and tone
-        // Tonal component around 200Hz
-        int32_t tone_freq = 20000; // 200Hz at 100x scale
-        int32_t sine_val = sine_lookup(__fast_mul(tone_freq, sample_position));
+            // Sharp attack, quick decay
+            if (sample_position >= 100) {
+                envelope = envelope * (65536 - ((sample_position - 100) << 7)) >> 16;
+            }
+            if (envelope < 0) envelope = 0;
 
-        // Mix noise and tone
-        int16_t noise = generate_noise();
-
-        // Sharp attack, quick decay
-        if (sample_position < 100) {
-            envelope = envelope;
-        } else {
-            envelope = envelope * (65536 - ((sample_position - 100) << 7)) >> 16;
+            // 70% noise, 30% tone for snare
+            sample = __fast_mul(envelope, (noise * 7 + sine_val * 3) / 10);
+            break;
         }
-        if (envelope < 0) envelope = 0;
 
-        // 70% noise, 30% tone for snare
-        sample = __fast_mul(envelope, (noise * 7 + sine_val * 3) / 10);
+        case DRUM_T_STICK: {
+            // SIDE STICK / SHORT CLICK: Ultra-fast noise decay
+            int16_t noise = generate_noise();
 
-    } else if (note == DRUM_HIHAT_CLOSED) {
-        // CLOSED HI-HAT: High-frequency filtered noise
-        int16_t noise = generate_noise();
+            envelope = envelope * (65536 - (sample_position << 10)) >> 16;
+            if (envelope < 0) envelope = 0;
 
-        // High-pass filter simulation (emphasize high frequencies)
-        static int16_t prev_noise = 0;
-        int16_t filtered = noise - prev_noise;
-        prev_noise = noise;
+            sample = __fast_mul(envelope, noise);
+            break;
+        }
 
-        // Very fast decay
-        envelope = envelope * (65536 - (sample_position << 9)) >> 16;
-        if (envelope < 0) envelope = 0;
+        case DRUM_T_CLAP: {
+            // HAND CLAP: Noise, medium-fast decay, no tonal component
+            int16_t noise = generate_noise();
 
-        sample = __fast_mul(envelope, filtered);
+            envelope = envelope * (65536 - (sample_position << 7)) >> 16;
+            if (envelope < 0) envelope = 0;
 
-    } else if (note == DRUM_HIHAT_OPEN) {
-        // OPEN HI-HAT: Longer decay high-frequency noise
-        int16_t noise = generate_noise();
+            sample = __fast_mul(envelope, noise);
+            break;
+        }
 
-        // High-pass filter
-        static int16_t prev_noise_open = 0;
-        int16_t filtered = noise - prev_noise_open;
-        prev_noise_open = noise;
+        case DRUM_T_TOM: {
+            // TOM: Tonal drum, pitch depends on note via voice->frequency_m100
+            int32_t sine_val = sine_lookup(__fast_mul(voice->frequency_m100, sample_position));
+            int16_t noise = generate_noise();
 
-        // Slower decay than closed hi-hat
-        envelope = envelope * (65536 - (sample_position << 6)) >> 16;
-        if (envelope < 0) envelope = 0;
+            // Fast decay
+            envelope = envelope * (65536 - (sample_position << 5)) >> 16;
+            if (envelope < 0) envelope = 0;
 
-        sample = __fast_mul(envelope, filtered);
+            // Mostly tone + a bit of noise for attack
+            sample = __fast_mul(envelope, sine_val + (noise >> 2));
+            break;
+        }
 
-    } else if (note >= DRUM_CRASH && note <= DRUM_CRASH + 2) {
-        // CRASH CYMBAL: Complex noise with slow decay
-        int16_t noise1 = generate_noise();
-        int16_t noise2 = generate_noise();
+        case DRUM_T_HIHAT_C: {
+            // CLOSED HI-HAT: High-frequency noise, fast decay
+            int16_t noise1 = generate_noise();
+            int16_t noise2 = generate_noise();
+            int16_t filtered = noise1 ^ noise2; // XOR for bright character without static state
 
-        // Mix multiple noise sources for complexity
-        int16_t mixed = (noise1 + noise2) >> 1;
+            // Very fast decay
+            envelope = envelope * (65536 - (sample_position << 9)) >> 16;
+            if (envelope < 0) envelope = 0;
 
-        // Ring modulation for metallic sound
-        int32_t mod_freq = 80000; // 800Hz modulator
-        int32_t modulator = sine_lookup(__fast_mul(mod_freq, sample_position));
-        mixed = __fast_mul(mixed, modulator) >> 7;
+            sample = __fast_mul(envelope, filtered);
+            break;
+        }
 
-        // Slow decay
-        envelope = envelope * (65536 - (sample_position << 4)) >> 16;
-        if (envelope < 0) envelope = 0;
+        case DRUM_T_HIHAT_O: {
+            // OPEN HI-HAT: Longer decay high-frequency noise
+            int16_t noise1 = generate_noise();
+            int16_t noise2 = generate_noise();
+            int16_t filtered = noise1 ^ noise2; // XOR for bright character without static state
 
-        sample = __fast_mul(envelope, mixed);
+            // Slower decay than closed hi-hat
+            envelope = envelope * (65536 - (sample_position << 6)) >> 16;
+            if (envelope < 0) envelope = 0;
 
-    } else if (note >= DRUM_RIDE && note <= DRUM_RIDE + 2) {
-        // RIDE CYMBAL: Tonal component + noise
-        int32_t tone_freq = 50000; // 500Hz bell tone
-        int32_t sine_val = sine_lookup(__fast_mul(tone_freq, sample_position));
-        int16_t noise = generate_noise();
+            sample = __fast_mul(envelope, filtered);
+            break;
+        }
 
-        // Mix tone and noise
-        int16_t mixed = (sine_val + noise) >> 1;
+        case DRUM_T_CRASH: {
+            // CRASH CYMBAL: Complex noise with slow decay
+            int16_t noise1 = generate_noise();
+            int16_t noise2 = generate_noise();
+            int16_t mixed = (noise1 + noise2) >> 1;
 
-        // Medium decay
-        envelope = envelope * (65536 - (sample_position << 5)) >> 16;
-        if (envelope < 0) envelope = 0;
+            // Ring modulation for metallic sound
+            int32_t modulator = sine_lookup(__fast_mul(80000, sample_position)); // 800Hz
+            mixed = __fast_mul(mixed, modulator) >> 7;
 
-        sample = __fast_mul(envelope, mixed);
+            // Slow decay
+            envelope = envelope * (65536 - (sample_position << 4)) >> 16;
+            if (envelope < 0) envelope = 0;
 
-    } else {
-        // DEFAULT PERCUSSION: Generic noise burst
-        int16_t noise = generate_noise();
+            sample = __fast_mul(envelope, mixed);
+            break;
+        }
 
-        // Fast decay
-        envelope = envelope * (65536 - (sample_position << 7)) >> 16;
-        if (envelope < 0) envelope = 0;
+        case DRUM_T_RIDE: {
+            // RIDE CYMBAL: Tonal component + noise
+            int32_t sine_val = sine_lookup(__fast_mul(50000, sample_position)); // 500Hz bell
+            int16_t noise = generate_noise();
+            int16_t mixed = (sine_val + noise) >> 1;
 
-        sample = __fast_mul(envelope, noise);
+            // Medium decay
+            envelope = envelope * (65536 - (sample_position << 5)) >> 16;
+            if (envelope < 0) envelope = 0;
+
+            sample = __fast_mul(envelope, mixed);
+            break;
+        }
+
+        case DRUM_T_COWBELL: {
+            // COWBELL: Pure high tone, fast decay
+            int32_t sine_val = sine_lookup(__fast_mul(80000, sample_position)); // ~800Hz
+
+            envelope = envelope * (65536 - (sample_position << 6)) >> 16;
+            if (envelope < 0) envelope = 0;
+
+            sample = __fast_mul(envelope, sine_val);
+            break;
+        }
+
+        default: {
+            // GENERIC PERCUSSION: Noise burst
+            int16_t noise = generate_noise();
+
+            // Fast decay
+            envelope = envelope * (65536 - (sample_position << 7)) >> 16;
+            if (envelope < 0) envelope = 0;
+
+            sample = __fast_mul(envelope, noise);
+            break;
+        }
     }
 
     return sample >> 2; // Scale down to prevent clipping
@@ -237,14 +337,7 @@ static INLINE int16_t midi_sample() {
 
         // Check if this is a drum channel (channel 9)
         if (voice->channel == 9) {
-            // Use drum synthesis
-            int16_t drum_sample = generate_drum_sample(voice, sample_position);
-            sample += drum_sample;
-
-            // Drums have finite duration based on their envelope
-            if (sample_position > SOUND_FREQUENCY) { // Max 1 second
-                active_voice_bitmask &= ~voice_bit;
-            }
+            sample += generate_drum_sample(voice, sample_position);
         } else {
             // Original sine-based synthesis for melodic instruments
             if (__builtin_expect(sample_position == (SOUND_FREQUENCY >> 1), 0)) {
@@ -277,6 +370,19 @@ static INLINE void parse_midi(const midi_command_t *message) {
     switch (message->command >> 4) {
         case 0x9: // Note ON
             if (__builtin_expect(message->velocity != 0, 1)) {
+                // Kill previous voice with same note+channel (MIDI spec: re-trigger)
+                {
+                    uint32_t voices_to_check = active_voice_bitmask;
+                    while (voices_to_check) {
+                        const uint32_t vs = __builtin_ctz(voices_to_check);
+                        voices_to_check &= ~(1U << vs);
+                        if (midi_voices[vs].channel == channel && midi_voices[vs].note == message->note) {
+                            CLEAR_ACTIVE_VOICE(vs);
+                            break;
+                        }
+                    }
+                }
+
                 // Find free voice slot using bit operations
                 const uint32_t free_voices = ~active_voice_bitmask;
                 if (__builtin_expect(free_voices != 0, 1)) {
@@ -303,8 +409,7 @@ static INLINE void parse_midi(const midi_command_t *message) {
                             // Boost velocity for drums to make them punchier
                             voice->velocity = MIN(127, (message->velocity * 3) >> 1);
                         } else*/ {
-                            voice->velocity = __builtin_expect(ch_volume != 0, 1) ?
-                                (ch_volume * message->velocity) >> 7 : message->velocity;
+                            voice->velocity = (ch_volume * message->velocity) >> 7;
                         }
                         SET_ACTIVE_VOICE(voice_slot);
                         break;
@@ -386,6 +491,8 @@ static INLINE void parse_midi(const midi_command_t *message) {
                     break;
                 case 0x79: // all controllers off
                     memset(midi_channels, 0, sizeof(midi_channel_t) * MIDI_CHANNELS);
+                    for (int i = 0; i < MIDI_CHANNELS; i++)
+                        midi_channels[i].volume = 100;
                     break;
                 default:
                     debug_log("[MIDI] Unknown channel %i controller %02x %02x\n", channel, message->note,
@@ -405,14 +512,14 @@ static INLINE void parse_midi(const midi_command_t *message) {
             break;
         case 0xE: {
             const int pitch_bend = (message->velocity * 128 + message->note);
-            const int cents = pitch_pows[pitch_bend];
+            const int cents = calc_pitch_bend(pitch_bend);
             midi_channels[channel].pitch = cents;
             debug_log("[MIDI] Channel %i pitch_bend %i cents %i 44000->%i\n", channel, pitch_bend - 8192, cents,
                       apply_pitch(44000, cents));
             for (int voice_slot = 0; voice_slot < MAX_MIDI_VOICES; ++voice_slot)
                 if (midi_voices[voice_slot].channel == channel) {
                     midi_voices[voice_slot].frequency_m100 = apply_pitch(
-                        midi_voices[voice_slot].frequency_m100, cents);
+                        note_frequencies_m_100[midi_voices[voice_slot].note], cents);
                 }
             break;
         }
