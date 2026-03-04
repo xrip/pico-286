@@ -61,45 +61,45 @@ static uint32_t channels_sustain_bitmask = 0;
 
 // Drum synthesis types for GM Percussion Map (notes 35-81)
 enum drum_type {
-    DRUM_T_KICK,      // sine + pitch sweep + click
-    DRUM_T_SNARE,     // noise + tone 200Hz
-    DRUM_T_STICK,     // very short noise click
-    DRUM_T_CLAP,      // noise, medium decay, no tone
-    DRUM_T_TOM,       // sine (pitch from note) + fast decay
-    DRUM_T_HIHAT_C,   // filtered noise, fast decay
-    DRUM_T_HIHAT_O,   // filtered noise, slow decay
-    DRUM_T_CRASH,     // noise + ring mod, slow decay
-    DRUM_T_RIDE,      // tone + noise, medium decay
-    DRUM_T_COWBELL,   // pure high tone, fast decay
-    DRUM_T_GENERIC,   // noise burst (default)
+    DRUM_T_KICK, // sine + pitch sweep + click
+    DRUM_T_SNARE, // noise + tone 200Hz
+    DRUM_T_STICK, // very short noise click
+    DRUM_T_CLAP, // noise, medium decay, no tone
+    DRUM_T_TOM, // sine (pitch from note) + fast decay
+    DRUM_T_HIHAT_C, // filtered noise, fast decay
+    DRUM_T_HIHAT_O, // filtered noise, slow decay
+    DRUM_T_CRASH, // noise + ring mod, slow decay
+    DRUM_T_RIDE, // tone + noise, medium decay
+    DRUM_T_COWBELL, // pure high tone, fast decay
+    DRUM_T_GENERIC, // noise burst (default)
 };
 
 // GM Percussion Map: note (35-81) -> synthesis type
 static const uint8_t drum_type_map[47] = {
     // 35              36              37              38              39
-    DRUM_T_KICK,    DRUM_T_KICK,    DRUM_T_STICK,   DRUM_T_SNARE,   DRUM_T_CLAP,
+    DRUM_T_KICK, DRUM_T_KICK, DRUM_T_STICK, DRUM_T_SNARE, DRUM_T_CLAP,
     // 40              41              42              43              44
-    DRUM_T_SNARE,   DRUM_T_TOM,     DRUM_T_HIHAT_C, DRUM_T_TOM,     DRUM_T_HIHAT_C,
+    DRUM_T_SNARE, DRUM_T_TOM, DRUM_T_HIHAT_C, DRUM_T_TOM, DRUM_T_HIHAT_C,
     // 45              46              47              48              49
-    DRUM_T_TOM,     DRUM_T_HIHAT_O, DRUM_T_TOM,     DRUM_T_TOM,     DRUM_T_CRASH,
+    DRUM_T_TOM, DRUM_T_HIHAT_O, DRUM_T_TOM, DRUM_T_TOM, DRUM_T_CRASH,
     // 50              51              52              53              54
-    DRUM_T_TOM,     DRUM_T_RIDE,    DRUM_T_CRASH,   DRUM_T_RIDE,    DRUM_T_GENERIC,
+    DRUM_T_TOM, DRUM_T_RIDE, DRUM_T_CRASH, DRUM_T_RIDE, DRUM_T_GENERIC,
     // 55              56              57              58              59
-    DRUM_T_CRASH,   DRUM_T_COWBELL, DRUM_T_CRASH,   DRUM_T_GENERIC, DRUM_T_RIDE,
+    DRUM_T_CRASH, DRUM_T_COWBELL, DRUM_T_CRASH, DRUM_T_GENERIC, DRUM_T_RIDE,
     // 60              61              62              63              64
-    DRUM_T_TOM,     DRUM_T_TOM,     DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_TOM,
+    DRUM_T_TOM, DRUM_T_TOM, DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_TOM,
     // 65              66              67              68              69
     DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_COWBELL, DRUM_T_COWBELL, DRUM_T_GENERIC,
     // 70              71              72              73              74
     DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_GENERIC, DRUM_T_GENERIC,
     // 75              76              77              78              79
-    DRUM_T_STICK,   DRUM_T_STICK,   DRUM_T_STICK,   DRUM_T_GENERIC, DRUM_T_GENERIC,
+    DRUM_T_STICK, DRUM_T_STICK, DRUM_T_STICK, DRUM_T_GENERIC, DRUM_T_GENERIC,
     // 80              81
     DRUM_T_GENERIC, DRUM_T_GENERIC,
 };
 
 // Best seeds for different percussion characteristics
-static uint32_t noise_seed = 0x7EC80000;  // Best overall for drums
+static uint32_t noise_seed = 0x7EC80000; // Best overall for drums
 
 // Alternative excellent seeds:
 // 0x7EC80000 - Optimal: Maximum length sequence, good spectral distribution
@@ -116,26 +116,19 @@ static uint32_t noise_seed = 0x7EC80000;  // Best overall for drums
 #define CLEAR_CHANNEL_SUSTAIN(idx) (channels_sustain_bitmask &= ~(1U << (idx)))
 #define IS_CHANNEL_SUSTAIN(idx) ((channels_sustain_bitmask & (1U << (idx))) != 0)
 
-
-// Pitch bend ±12 semitones: 25 multiplier points (×10000), index 0 = -12st, 24 = +12st
-static const uint16_t pitch_bend_table[25] = {
-    5000, 5297, 5612, 5946, 6300, 6674, 7071, 7492, 7937, 8409,
-    8909, 9439, 10000, 10595, 11225, 11892, 12599, 13348, 14142, 14983,
-    15874, 16818, 17818, 18877, 20000
-};
-
 // bend: 0-16383, center 8192. Returns multiplier ×10000
 static INLINE int32_t calc_pitch_bend(const int bend) {
     // Map bend (0..16383) to fixed-point position in table (0..24), scaled by 256 for lerp
     // pos = 24 * 256 * (bend - 0) / 16383 = 6144 * bend / 16383
-    const int32_t pos = (int32_t)bend * 6144 / 16383;  // 0..6144
-    const int idx = pos >> 8;                            // 0..24
+    const int32_t pos = (int32_t) bend * 6144 / 16383; // 0..6144
+    const int idx = pos >> 8; // 0..24
     if (idx >= 24) return pitch_bend_table[24];
-    const int frac = pos & 255;                          // 0..255
+    const int frac = pos & 255; // 0..255
     return pitch_bend_table[idx] + (((pitch_bend_table[idx + 1] - pitch_bend_table[idx]) * frac) >> 8);
 }
 
 #define SIN_STEP (SOUND_FREQUENCY * 100 / 4096)
+
 static INLINE int32_t sine_lookup(const uint32_t angle) {
     const uint16_t index = (angle / SIN_STEP) & 4095; // TODO: Should it be & 4095 or % 4096???
     return index < 2048
@@ -146,11 +139,11 @@ static INLINE int32_t sine_lookup(const uint32_t angle) {
 static INLINE int16_t generate_noise() {
     // Linear feedback shift register for white noise
     noise_seed = (noise_seed >> 1) ^ (-(noise_seed & 1) & 0xD0000001);
-    return (int16_t)((noise_seed & 0xFFFF) - 0x8000) >> 8;
+    return (int16_t) ((noise_seed & 0xFFFF) - 0x8000) >> 8;
 }
 
 // Drum-specific synthesis
-static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_position) {
+static INLINE int16_t generate_drum_sample(const midi_voice_t *voice, const uint16_t sample_position) {
     int16_t sample = 0;
     const uint8_t note = voice->note;
 
@@ -159,13 +152,14 @@ static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_
 
     // Lookup synthesis type: notes 35-81 use the map, rest default to generic
     const uint8_t dtype = (note >= 35 && note <= 81)
-        ? drum_type_map[note - 35] : DRUM_T_GENERIC;
+                              ? drum_type_map[note - 35]
+                              : DRUM_T_GENERIC;
 
     switch (dtype) {
         case DRUM_T_KICK: {
             // KICK DRUM: Low frequency sine + pitch sweep + click
-            int32_t sweep_freq = voice->frequency_m100 * (100 + (200 >> (sample_position >> 7))) / 100;
-            int32_t sine_val = sine_lookup(__fast_mul(sweep_freq, sample_position));
+            const int32_t sweep_freq = voice->frequency_m100 * (100 + (200 >> (sample_position >> 7))) / 100;
+            const int32_t sine_val = sine_lookup(__fast_mul(sweep_freq, sample_position));
 
             // Add click at the beginning
             if (sample_position < 64) {
@@ -182,9 +176,9 @@ static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_
 
         case DRUM_T_SNARE: {
             // SNARE DRUM: Mixed noise and tone
-            int32_t sine_val = sine_lookup(__fast_mul(20000, sample_position)); // 200Hz
+            const int32_t sine_val = sine_lookup(__fast_mul(20000, sample_position)); // 200Hz
 
-            int16_t noise = generate_noise();
+            const int16_t noise = generate_noise();
 
             // Sharp attack, quick decay
             if (sample_position >= 100) {
@@ -199,7 +193,7 @@ static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_
 
         case DRUM_T_STICK: {
             // SIDE STICK / SHORT CLICK: Ultra-fast noise decay
-            int16_t noise = generate_noise();
+            const int16_t noise = generate_noise();
 
             envelope = envelope * (65536 - (sample_position << 10)) >> 16;
             if (envelope < 0) envelope = 0;
@@ -210,7 +204,7 @@ static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_
 
         case DRUM_T_CLAP: {
             // HAND CLAP: Noise, medium-fast decay, no tonal component
-            int16_t noise = generate_noise();
+            const int16_t noise = generate_noise();
 
             envelope = envelope * (65536 - (sample_position << 7)) >> 16;
             if (envelope < 0) envelope = 0;
@@ -221,8 +215,8 @@ static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_
 
         case DRUM_T_TOM: {
             // TOM: Tonal drum, pitch depends on note via voice->frequency_m100
-            int32_t sine_val = sine_lookup(__fast_mul(voice->frequency_m100, sample_position));
-            int16_t noise = generate_noise();
+            const int32_t sine_val = sine_lookup(__fast_mul(voice->frequency_m100, sample_position));
+            const int16_t noise = generate_noise();
 
             // Fast decay
             envelope = envelope * (65536 - (sample_position << 5)) >> 16;
@@ -235,9 +229,9 @@ static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_
 
         case DRUM_T_HIHAT_C: {
             // CLOSED HI-HAT: High-frequency noise, fast decay
-            int16_t noise1 = generate_noise();
-            int16_t noise2 = generate_noise();
-            int16_t filtered = noise1 ^ noise2; // XOR for bright character without static state
+            const int16_t noise1 = generate_noise();
+            const int16_t noise2 = generate_noise();
+            const int16_t filtered = noise1 ^ noise2; // XOR for bright character without static state
 
             // Very fast decay
             envelope = envelope * (65536 - (sample_position << 9)) >> 16;
@@ -249,9 +243,9 @@ static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_
 
         case DRUM_T_HIHAT_O: {
             // OPEN HI-HAT: Longer decay high-frequency noise
-            int16_t noise1 = generate_noise();
-            int16_t noise2 = generate_noise();
-            int16_t filtered = noise1 ^ noise2; // XOR for bright character without static state
+            const int16_t noise1 = generate_noise();
+            const int16_t noise2 = generate_noise();
+            const int16_t filtered = noise1 ^ noise2; // XOR for bright character without static state
 
             // Slower decay than closed hi-hat
             envelope = envelope * (65536 - (sample_position << 6)) >> 16;
@@ -263,12 +257,12 @@ static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_
 
         case DRUM_T_CRASH: {
             // CRASH CYMBAL: Complex noise with slow decay
-            int16_t noise1 = generate_noise();
-            int16_t noise2 = generate_noise();
+            const int16_t noise1 = generate_noise();
+            const int16_t noise2 = generate_noise();
             int16_t mixed = (noise1 + noise2) >> 1;
 
             // Ring modulation for metallic sound
-            int32_t modulator = sine_lookup(__fast_mul(80000, sample_position)); // 800Hz
+            const int32_t modulator = sine_lookup(__fast_mul(80000, sample_position)); // 800Hz
             mixed = __fast_mul(mixed, modulator) >> 7;
 
             // Slow decay
@@ -281,9 +275,9 @@ static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_
 
         case DRUM_T_RIDE: {
             // RIDE CYMBAL: Tonal component + noise
-            int32_t sine_val = sine_lookup(__fast_mul(50000, sample_position)); // 500Hz bell
-            int16_t noise = generate_noise();
-            int16_t mixed = (sine_val + noise) >> 1;
+            const int32_t sine_val = sine_lookup(__fast_mul(50000, sample_position)); // 500Hz bell
+            const int16_t noise = generate_noise();
+            const int16_t mixed = (sine_val + noise) >> 1;
 
             // Medium decay
             envelope = envelope * (65536 - (sample_position << 5)) >> 16;
@@ -295,7 +289,7 @@ static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_
 
         case DRUM_T_COWBELL: {
             // COWBELL: Pure high tone, fast decay
-            int32_t sine_val = sine_lookup(__fast_mul(80000, sample_position)); // ~800Hz
+            const int32_t sine_val = sine_lookup(__fast_mul(80000, sample_position)); // ~800Hz
 
             envelope = envelope * (65536 - (sample_position << 6)) >> 16;
             if (envelope < 0) envelope = 0;
@@ -306,7 +300,7 @@ static INLINE int16_t generate_drum_sample(midi_voice_t* voice, uint16_t sample_
 
         default: {
             // GENERIC PERCUSSION: Noise burst
-            int16_t noise = generate_noise();
+            const int16_t noise = generate_noise();
 
             // Fast decay
             envelope = envelope * (65536 - (sample_position << 7)) >> 16;
@@ -332,7 +326,7 @@ static INLINE int16_t midi_sample() {
         const uint32_t voice_bit = 1U << voice_index;
         active_voices ^= voice_bit;
 
-        midi_voice_t * __restrict voice = &midi_voices[voice_index];
+        midi_voice_t *__restrict voice = &midi_voices[voice_index];
         const uint16_t sample_position = voice->sample_position++;
 
         // Check if this is a drum channel (channel 9)
@@ -350,7 +344,6 @@ static INLINE int16_t midi_sample() {
             const int32_t sine_val = sine_lookup(__fast_mul(voice->frequency_m100, sample_position));
             sample += __fast_mul(voice->velocity, sine_val);
         }
-
     } while (active_voices);
 
     return sample >> 2;
@@ -359,8 +352,7 @@ static INLINE int16_t midi_sample() {
 // Optimized pitch bend calculation with lookup table or approximation
 static INLINE int32_t apply_pitch(const int32_t base_frequency, const int32_t cents) {
     // Optimized: avoid division if cents is zero
-    return __builtin_expect(cents == 0, 1) ? base_frequency :
-           (base_frequency * cents + 5000) / 10000;
+    return __builtin_expect(cents == 0, 1) ? base_frequency : (base_frequency * cents + 5000) / 10000;
 }
 
 
@@ -388,7 +380,7 @@ static INLINE void parse_midi(const midi_command_t *message) {
                 if (__builtin_expect(free_voices != 0, 1)) {
                     const uint32_t voice_slot = __builtin_ctz(free_voices);
                     if (voice_slot < MAX_MIDI_VOICES) {
-                        midi_voice_t * __restrict voice = &midi_voices[voice_slot];
+                        midi_voice_t *__restrict voice = &midi_voices[voice_slot];
 
                         // Initialize voice data in optimal order
                         voice->voice_slot = voice_slot;
@@ -405,12 +397,7 @@ static INLINE void parse_midi(const midi_command_t *message) {
                         );
 
                         const uint8_t ch_volume = midi_channels[channel].volume;
-                        /*if (channel == 9) {
-                            // Boost velocity for drums to make them punchier
-                            voice->velocity = MIN(127, (message->velocity * 3) >> 1);
-                        } else*/ {
-                            voice->velocity = (ch_volume * message->velocity) >> 7;
-                        }
+                        voice->velocity = (ch_volume * message->velocity) >> 7;
                         SET_ACTIVE_VOICE(voice_slot);
                         break;
                     }
@@ -427,14 +414,15 @@ static INLINE void parse_midi(const midi_command_t *message) {
                     const uint32_t voice_slot = __builtin_ctz(voices_to_check);
                     voices_to_check &= ~(1U << voice_slot);
 
-                    const midi_voice_t * __restrict voice = &midi_voices[voice_slot];
+                    const midi_voice_t *__restrict voice = &midi_voices[voice_slot];
                     if (voice->channel == channel && voice->note == message->note) {
-                        if (__builtin_expect(channel == 9, 0)) { // Drum channel
+                        if (__builtin_expect(channel == 9, 0)) {
+                            // Drum channel
                             CLEAR_ACTIVE_VOICE(voice_slot);
                         } else {
                             midi_voices[voice_slot].velocity >>= 1; // Bit shift for /2
                             midi_voices[voice_slot].release_position =
-                                midi_voices[voice_slot].sample_position + RELEASE_DURATION;
+                                    midi_voices[voice_slot].sample_position + RELEASE_DURATION;
                         }
                         break;
                     }
@@ -484,10 +472,10 @@ static INLINE void parse_midi(const midi_command_t *message) {
                     active_voice_bitmask = 0;
                     channels_sustain_bitmask = 0;
                     memset(midi_voices, 0, sizeof(midi_voices));
-                /*
-                                for (int voice_number = 0; voice_number < MAX_MIDI_VOICES; ++voice_number)
-                                    midi_voices[voice_number].playing = 0;
-                */
+                    /*
+                                    for (int voice_number = 0; voice_number < MAX_MIDI_VOICES; ++voice_number)
+                                        midi_voices[voice_number].playing = 0;
+                    */
                     break;
                 case 0x79: // all controllers off
                     memset(midi_channels, 0, sizeof(midi_channel_t) * MIDI_CHANNELS);
