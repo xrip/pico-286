@@ -18,7 +18,7 @@ DWORD bytesWritten;
 DCB dcb;
 extern OPL *emu8950_opl;
 
-#define AUDIO_BUFFER_LENGTH ((SOUND_FREQUENCY / 10))
+#define AUDIO_BUFFER_LENGTH ((SOUND_FREQUENCY / 5))
 static int16_t audio_buffer[AUDIO_BUFFER_LENGTH * 2] = {};
 static int sample_index = 0;
 

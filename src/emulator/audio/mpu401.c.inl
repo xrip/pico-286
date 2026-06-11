@@ -22,7 +22,7 @@ static int midi_insysex;
 
 
 #if defined(EMULATED_MIDI)
-#include <emulator/audio/general-midi.c.inl>
+#include "general-midi.c.inl"
 #else
 
 static int midi_id = 0;

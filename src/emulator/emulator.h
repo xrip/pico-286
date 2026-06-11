@@ -43,7 +43,7 @@ extern bool PSRAM_AVAILABLE;
     #if PICO_RP2040
 #define SOUND_FREQUENCY (22050)
 #else
-#define SOUND_FREQUENCY (44100)
+#define SOUND_FREQUENCY (22050)
 #endif
 #endif
 #define rgb(r, g, b) (((r)<<16) | ((g) << 8 ) | (b) )

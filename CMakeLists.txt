@@ -76,7 +76,7 @@ else ()
     # =========================
     #set(PICO_BOARD pico2 CACHE STRING "Board type") // should be early
     pico_sdk_init()
-
+    set(PICO_FLASH_SIZE_BYTES 16777216)
     # =========================
     # BUILD OPTIONS
     # =========================
@@ -348,6 +348,8 @@ else ()
     endif ()
 endif ()
 
+#     target_sources(${PROJECT_NAME} PRIVATE src/emulator/audio/gm_bank.S)
+#     set_property(SOURCE src/emulator/audio/gm_bank.S APPEND PROPERTY COMPILE_OPTIONS "-I${CMAKE_CURRENT_SOURCE_DIR}/src/emulator/audio")
 # =========================
 # COMMON DEFINITIONS (HOST + PICO)
 # =========================
