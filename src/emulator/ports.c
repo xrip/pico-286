@@ -15,12 +15,18 @@ OPL *emu8950_opl;
 #include "audio/dss.c.inl"
 #include "audio/mpu401.c.inl"
 #include "audio/sound_blaster.c.inl"
-#include "i8237.c.inl"
-
 uint8_t crt_controller_idx, crt_controller[32];
 uint8_t port60, port61, port64;
 uint8_t cursor_start = 12, cursor_end = 13;
 uint32_t vram_offset = 0x0;
+
+dma_channel_s dma_channels[DMA_CHANNELS] = {
+    {.masked = 1},
+    {.masked = 1},
+    {.masked = 1},
+    {.masked = 1},
+};
+uint8_t i8237_byte_flipflop;
 
 int sound_chips_clock = 0;
 
@@ -119,12 +125,12 @@ void portout(uint16_t portnum, uint16_t value) {
             return i8237_writeport(portnum, value);
         case 0x20:
         case 0x21: // i8259 PIC
-            return out8259(portnum, value);
+            return i8259_write(portnum, value);
         case 0x40:
         case 0x41:
         case 0x42:
         case 0x43: // i8253 PIT
-            return out8253(portnum, value);
+            return i8253_write(portnum, value);
         case 0x61: // PC Speaker
             port61 = value;
             if ((value & 3) == 3) {
@@ -400,12 +406,11 @@ uint16_t portin(uint16_t portnum) {
             return i8237_readport(portnum);
         case 0x20:
         case 0x21: // i8259 PIC
-            return in8259(portnum);
+            return i8259_read(portnum);
         case 0x40:
         case 0x41:
         case 0x42:
-        case 0x43: // i8253 PIT
-            return in8253(portnum);
+            return i8253_read(portnum);
 
 // Keyboard
         case 0x60:

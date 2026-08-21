@@ -21,31 +21,45 @@ static INLINE uint32_t physical_address(const uint32_t address) {
 
 static INLINE uint8_t ems_read(const uint32_t address) {
     const uint32_t phys_addr = physical_address(address);
+#if PICO_ON_DEVICE
     return butter_psram_size ? EMS[phys_addr] :
      (PSRAM_AVAILABLE ? read8psram(phys_addr + EMS_PSRAM_OFFSET) : swap_read(phys_addr + EMS_PSRAM_OFFSET));
+#else
+    return EMS[phys_addr];
+#endif
 }
 
 // TODO: Overlap?
 static INLINE uint16_t ems_readw(const uint32_t address) {
     const uint32_t phys_addr = physical_address(address);
+#if PICO_ON_DEVICE
     return butter_psram_size ? (*(uint16_t *) &EMS[phys_addr]) :
      (PSRAM_AVAILABLE ? read16psram(phys_addr + EMS_PSRAM_OFFSET) : swap_read16(phys_addr + EMS_PSRAM_OFFSET));
+#else
+    return *(uint16_t *) &EMS[phys_addr];
+#endif
 }
 
 static INLINE uint32_t ems_readdw(const uint32_t address) {
     const uint32_t phys_addr = physical_address(address);
+#if PICO_ON_DEVICE
     return butter_psram_size ? (*(uint32_t *) &EMS[phys_addr]) :
      (PSRAM_AVAILABLE ? read32psram(phys_addr + EMS_PSRAM_OFFSET) : swap_read32(phys_addr + EMS_PSRAM_OFFSET));
+#else
+    return *(uint32_t *) &EMS[phys_addr];
+#endif
 }
 
 static INLINE void ems_write(const uint32_t address, const uint8_t data) {
     const uint32_t phys_addr = physical_address(address);
     if (butter_psram_size)
         EMS[phys_addr] = data;
+#if PICO_ON_DEVICE
     else if (PSRAM_AVAILABLE)
         write8psram(phys_addr + EMS_PSRAM_OFFSET, data);
     else
         swap_write(phys_addr + EMS_PSRAM_OFFSET, data);
+#endif
 }
 
 
@@ -53,18 +67,22 @@ static INLINE void ems_writew(const uint32_t address, const uint16_t data) {
     const uint32_t phys_addr = physical_address(address);
     if (butter_psram_size)
         *(uint16_t *) &EMS[phys_addr] = data;
+#if PICO_ON_DEVICE
     else if (PSRAM_AVAILABLE)
         write16psram(phys_addr + EMS_PSRAM_OFFSET, data);
     else
         swap_write16(phys_addr + EMS_PSRAM_OFFSET, data);
+#endif
 }
 
 static INLINE void ems_writedw(const uint32_t address, const uint32_t data) {
     const uint32_t phys_addr = physical_address(address);
     if (butter_psram_size)
         *(uint32_t *) &EMS[phys_addr] = data;
+#if PICO_ON_DEVICE
     else if (PSRAM_AVAILABLE)
         write32psram(phys_addr + EMS_PSRAM_OFFSET, data);
     else
         swap_write32(phys_addr + EMS_PSRAM_OFFSET, data);
+#endif
 }

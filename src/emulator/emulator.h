@@ -11,7 +11,7 @@
 extern "C" {
 #endif
 
-#ifdef PICO_ON_DEVICE
+#if PICO_ON_DEVICE
 extern uint32_t butter_psram_size;
 extern bool PSRAM_AVAILABLE;
 #include "psram_spi.h"
@@ -120,35 +120,8 @@ extern x86_flags_t x86_flags;
 extern uint32_t segregs32[6];
 
 // i8259
-extern struct i8259_s {
-    uint8_t interrupt_mask_register; //mask register
-    uint8_t interrupt_request_register; //request register
-    uint8_t in_service_register; //service register
-    uint8_t initialization_command_word_step; //used during initialization to keep track of which ICW we're at
-    uint8_t initialization_command_words[5];
-    uint8_t interrupt_vector_offset; //interrupt vector offset
-    uint8_t priority_level; //which IRQ has highest priority
-    uint8_t automatic_end_of_interrupt; //automatic EOI mode
-    uint8_t register_read_mode; //remember what to return on read register from OCW3
-    uint8_t controller_enabled;
-} i8259_controller;
-
-#define doirq(irqnum) (i8259_controller.interrupt_request_register |= (1 << (irqnum)) & (~i8259_controller.interrupt_mask_register))
-
-static inline uint8_t nextintr() {
-    uint8_t tmpirr = i8259_controller.interrupt_request_register & (~i8259_controller.interrupt_mask_register); //XOR request register with inverted mask register
-    for (uint8_t i = 0; i < 8; i++)
-        if ((tmpirr >> i) & 1) {
-            i8259_controller.interrupt_request_register &= ~(1 << i);
-            i8259_controller.in_service_register |= (1 << i);
-            return (i8259_controller.initialization_command_words[2] + i);
-        }
-    return 0;
-}
-
-void out8259(uint16_t portnum, uint8_t value);
-
-uint8_t in8259(uint16_t portnum);
+#include "i8259.h"
+#define doirq(irqnum) i8259_interrupt((uint8_t)(irqnum))
 
 // Video
 extern int videomode;
@@ -244,22 +217,7 @@ extern void exec86(uint32_t execloops);
 extern void reset86();
 
 // i8253
-    extern struct i8253_s {
-        uint16_t channel_reload_value[3];     // chandata -> channel reload values (what gets loaded into counters)
-        uint8_t channel_access_mode[3];       // accessmode -> how each channel is accessed (lobyte/hibyte/toggle)
-        uint8_t channel_byte_toggle[3];       // bytetoggle -> tracks which byte to read/write in toggle mode
-        uint32_t channel_effective_count[3];  // effectivedata -> actual count value used by channel
-        float channel_frequency[3];           // chanfreq -> calculated frequency for each channel
-        uint8_t channel_active[3];            // active -> whether channel is actively counting
-        uint16_t channel_current_count[3];    // counter -> current counter value for each channel
-    } i8253_controller;
-
-void out8253(uint16_t portnum, uint8_t value);
-
-uint8_t in8253(uint16_t portnum);
-
-extern int timer_period;
-extern int speakerenabled;
+#include "i8253.h"
 
 // Mouse
 extern void sermouseevent(uint8_t buttons, int8_t xrel, int8_t yrel);
@@ -287,16 +245,7 @@ extern void sn76489_reset();
 
 extern uint8_t xms_handler();
 
-//void i8237_writeport(uint16_t portnum, uint8_t value);
-//void i8237_writepage(uint16_t portnum, uint8_t value);
-
-//uint8_t i8237_readport( uint16_t portnum);
-//uint8_t i8237_readpage( uint16_t portnum);
-uint8_t i8237_read(uint8_t channel);
-
-void i8237_write(uint8_t channel, uint8_t value);
-
-void i8237_reset();
+#include "i8237.h"
 
 void blaster_reset();
 
@@ -346,7 +295,7 @@ static INLINE int16_t speaker_sample() {
     if (!speakerenabled) return 0;
     static uint32_t speakerfullstep, speakerhalfstep, speakercurstep = 0;
     int16_t speakervalue;
-    speakerfullstep = SOUND_FREQUENCY / i8253_controller.channel_frequency[2];
+    speakerfullstep = SOUND_FREQUENCY / i8253_frequency(2);
     if (speakerfullstep < 2)
         speakerfullstep = 2;
     speakerhalfstep = speakerfullstep >> 1;

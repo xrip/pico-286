@@ -1295,7 +1295,9 @@ void reset86() {
         memset(RAM, 0, sizeof(RAM));
         memset(UMB, 0, sizeof(UMB));
         memset(HMA, 0, sizeof(HMA));
-    } else {
+    }
+#if PICO_ON_DEVICE
+    else {
         memset(SRAM, 0, sizeof(SRAM));
         if (PSRAM_AVAILABLE) {
             for (uint32_t a = HMA_START; a < HMA_END; a += 4) write32psram(a, 0);
@@ -1303,6 +1305,7 @@ void reset86() {
             for (uint32_t a = HMA_START; a < HMA_END; a += 4) swap_write32(a, 0);
         }
     }
+#endif
     init_umb();
     ip = 0x0000;
     i8237_reset();
@@ -1320,8 +1323,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
     //counterticks = (uint64_t) ( (double) timerfreq / (double) 65536.0);
     //tickssource();
     for (uint32_t loopcount = 0; loopcount < execloops; loopcount++) {
-        if (unlikely(ifl && (i8259_controller.interrupt_request_register & (~i8259_controller.interrupt_mask_register)))) {
-            intcall86(nextintr()); // get next interrupt from the i8259, if any d
+        if (unlikely(ifl && i8259_get_pending_irqs())) {
+            intcall86(i8259_nextirq()); // get next interrupt from the i8259, if any d
         }
 #if PICO_ON_DEVICE
         if (ask_to_blast) {

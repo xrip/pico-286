@@ -177,7 +177,9 @@ static INLINE void xms_move_to(const register uint32_t destination, register uin
             *dest_ptr++ = readw86(source);
             source += 2;
         }
-    } else {
+    }
+#if PICO_ON_DEVICE
+    else {
         uint32_t dest = XMS_PSRAM_OFFSET + destination;
         length /= 2;
         if (PSRAM_AVAILABLE) {
@@ -194,6 +196,7 @@ static INLINE void xms_move_to(const register uint32_t destination, register uin
             }
         }
     }
+#endif
 }
 
 static INLINE void xms_move_from(const uint32_t source, register uint32_t destination, register uint32_t length) {
@@ -204,7 +207,9 @@ static INLINE void xms_move_from(const uint32_t source, register uint32_t destin
             writew86(destination, *source_ptr++);
             destination += 2;
         }
-    } else {
+    }
+#if PICO_ON_DEVICE
+    else {
         uint32_t s = source + XMS_PSRAM_OFFSET;
         length /= 2;
         if (PSRAM_AVAILABLE) {
@@ -221,6 +226,7 @@ static INLINE void xms_move_from(const uint32_t source, register uint32_t destin
             }
         }
     }
+#endif
 }
 
 #define to_physical_offset(offset) (((uint16_t)(((offset) >> 16) & 0xFFFF) << 4) + (uint16_t)((offset) & 0xFFFF))
