@@ -740,8 +740,8 @@ int main(void) {
         load_config_286();
     }
 
-#if !PICO_RP2040
-    // Initialize PSRAM
+#if PICO_RP2350
+    // Initialize memory-mapped QSPI PSRAM (RP2350 only)
     rp2350a = (*((io_ro_32*)(SYSINFO_BASE + SYSINFO_PACKAGE_SEL_OFFSET)) & 1);
     int gp;
 #ifdef MURM2
@@ -751,7 +751,9 @@ int main(void) {
 #endif
     psram_init(gp);
 #endif
+#if PICO_RP2350
     if (!butter_psram_size) {
+#endif
         if (init_psram() ) {
             write86 = write86_mp;
             writew86 = writew86_mp;
@@ -768,6 +770,7 @@ int main(void) {
             readw86 = readw86_sw;
             readdw86 = readdw86_sw;
         }
+#if PICO_RP2350
     } else {
         write86 = write86_ob;
         writew86 = writew86_ob;
@@ -776,6 +779,7 @@ int main(void) {
         readw86 = readw86_ob;
         readdw86 = readdw86_ob;
     }
+#endif
 
     // Initialize peripherals
     keyboard_init();

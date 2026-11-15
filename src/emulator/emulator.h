@@ -12,8 +12,9 @@ extern "C" {
 #endif
 
 #if PICO_ON_DEVICE
+#if PICO_RP2350
 extern uint32_t butter_psram_size;
-#if PICO_RP2040
+#else
 #define butter_psram_size 0u
 #endif
 extern bool PSRAM_AVAILABLE;
@@ -82,10 +83,12 @@ extern bool PSRAM_AVAILABLE;
 extern uint8_t log_debug;
 
 
-extern uint8_t RAM[RAM_SIZE];
 extern uint32_t VIDEORAM[VIDEORAM_SIZE];
+#if !PICO_ON_DEVICE || PICO_RP2350
+extern uint8_t RAM[RAM_SIZE];
 extern uint8_t UMB[UMB_END - UMB_START];
 extern uint8_t HMA[HMA_END - HMA_START];
+#endif
 // for non-butter-psram modes
 #if PICO_RP2040
 #define SRAM_BLOCK_SIZE (48 << 10)

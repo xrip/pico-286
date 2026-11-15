@@ -1291,13 +1291,18 @@ void reset86() {
     CPU_SP = 0x0000;
 
     memset(VIDEORAM, 0x00, sizeof(VIDEORAM));
+#if !PICO_ON_DEVICE || PICO_RP2350
     if (butter_psram_size) {
         memset(RAM, 0, sizeof(RAM));
         memset(UMB, 0, sizeof(UMB));
         memset(HMA, 0, sizeof(HMA));
     }
+#endif
 #if PICO_ON_DEVICE
-    else {
+#if PICO_RP2350
+    else
+#endif
+    {
         memset(SRAM, 0, sizeof(SRAM));
         if (PSRAM_AVAILABLE) {
             for (uint32_t a = HMA_START; a < HMA_END; a += 4) write32psram(a, 0);

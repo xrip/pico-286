@@ -96,7 +96,9 @@ uint8_t xms_handles = 0;
 
 int a20_enabled = 0;
 
+#if !PICO_ON_DEVICE || PICO_RP2350
 uint8_t __attribute__((aligned (4), section(".psram"))) XMS[XMS_MEMORY_SIZE] = {0};
+#endif
 
 void init_umb() {
     for (int i = 0; i < UMB_BLOCKS_COUNT; ++i) {
@@ -169,6 +171,7 @@ umb_t *get_free_umb_block(const uint16_t size) {
 #include "psram_spi.h"
 #endif
 static INLINE void xms_move_to(const register uint32_t destination, register uint32_t source, register uint32_t length) {
+#if !PICO_ON_DEVICE || PICO_RP2350
     if (butter_psram_size) {
         register uint16_t *dest_ptr = (uint16_t *) &XMS[destination];
         length /= 2;
@@ -176,9 +179,11 @@ static INLINE void xms_move_to(const register uint32_t destination, register uin
             *dest_ptr++ = readw86(source);
             source += 2;
         }
+        return;
     }
+#endif
 #if PICO_ON_DEVICE
-    else {
+    {
         uint32_t dest = XMS_PSRAM_OFFSET + destination;
         length /= 2;
         if (PSRAM_AVAILABLE) {
@@ -199,6 +204,7 @@ static INLINE void xms_move_to(const register uint32_t destination, register uin
 }
 
 static INLINE void xms_move_from(const uint32_t source, register uint32_t destination, register uint32_t length) {
+#if !PICO_ON_DEVICE || PICO_RP2350
     if (butter_psram_size) {
         const register uint16_t *source_ptr = (uint16_t *) &XMS[source];
         length /= 2;
@@ -206,9 +212,11 @@ static INLINE void xms_move_from(const uint32_t source, register uint32_t destin
             writew86(destination, *source_ptr++);
             destination += 2;
         }
+        return;
     }
+#endif
 #if PICO_ON_DEVICE
-    else {
+    {
         uint32_t s = source + XMS_PSRAM_OFFSET;
         length /= 2;
         if (PSRAM_AVAILABLE) {

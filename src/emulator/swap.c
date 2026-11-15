@@ -42,12 +42,21 @@ static INLINE uint32_t read32arr(const uint8_t *arr, uint32_t addr32) {
 }
 
 uint16_t swap_read16(uint32_t addr32) {
+    if ((addr32 & RAM_IN_PAGE_ADDR_MASK) == RAM_IN_PAGE_ADDR_MASK) {
+        return (uint16_t)swap_read(addr32) | ((uint16_t)swap_read(addr32 + 1) << 8);
+    }
     const register uint32_t ram_page = get_swap_page_for(addr32);
     const register uint32_t addr_in_page = addr32 & RAM_IN_PAGE_ADDR_MASK;
     return read16arr(SWAP_PAGES_CACHE, ram_page * SWAP_PAGE_SIZE + addr_in_page);
 }
 
 uint32_t swap_read32(uint32_t addr32) {
+    if ((addr32 & RAM_IN_PAGE_ADDR_MASK) > RAM_IN_PAGE_ADDR_MASK - 3) {
+        return (uint32_t)swap_read(addr32) |
+               ((uint32_t)swap_read(addr32 + 1) << 8) |
+               ((uint32_t)swap_read(addr32 + 2) << 16) |
+               ((uint32_t)swap_read(addr32 + 3) << 24);
+    }
     const register uint32_t ram_page = get_swap_page_for(addr32);
     const register uint32_t addr_in_page = addr32 & RAM_IN_PAGE_ADDR_MASK;
     return read32arr(SWAP_PAGES_CACHE, ram_page * SWAP_PAGE_SIZE + addr_in_page);
@@ -65,6 +74,11 @@ void swap_write(uint32_t addr32, uint8_t value) {
 }
 
 void swap_write16(uint32_t addr32, uint16_t value) {
+    if ((addr32 & RAM_IN_PAGE_ADDR_MASK) == RAM_IN_PAGE_ADDR_MASK) {
+        swap_write(addr32, (uint8_t)value);
+        swap_write(addr32 + 1, (uint8_t)(value >> 8));
+        return;
+    }
     register uint32_t ram_page = get_swap_page_for(addr32);
     register uint32_t addr_in_page = addr32 & RAM_IN_PAGE_ADDR_MASK;
     register uint8_t *addr_in_ram = SWAP_PAGES_CACHE + ram_page * SWAP_PAGE_SIZE + addr_in_page;
@@ -78,6 +92,13 @@ void swap_write16(uint32_t addr32, uint16_t value) {
 }
 
 void swap_write32(uint32_t addr32, uint32_t value) {
+    if ((addr32 & RAM_IN_PAGE_ADDR_MASK) > RAM_IN_PAGE_ADDR_MASK - 3) {
+        swap_write(addr32, (uint8_t)value);
+        swap_write(addr32 + 1, (uint8_t)(value >> 8));
+        swap_write(addr32 + 2, (uint8_t)(value >> 16));
+        swap_write(addr32 + 3, (uint8_t)(value >> 24));
+        return;
+    }
     register uint32_t ram_page = get_swap_page_for(addr32);
     register uint32_t addr_in_page = addr32 & RAM_IN_PAGE_ADDR_MASK;
     register uint8_t *addr_in_ram = SWAP_PAGES_CACHE + ram_page * SWAP_PAGE_SIZE + addr_in_page;

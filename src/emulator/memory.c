@@ -211,7 +211,8 @@ uint32_t readdw86_ob(const uint32_t address) {
 #endif
 
 #if PICO_ON_DEVICE
-// using UMB as low-RAM, and psram start space as UMB instead
+// SRAM holds the first conventional-memory window. SPI PSRAM backs higher
+// conventional RAM, UMB and HMA at their distinct guest-physical addresses.
 #define LO_MEM (SRAM_BLOCK_SIZE)
 #define RAM (DO_NOT_USE_IN_THIS_BLOCK)
 #define HMA (DO_NOT_USE_IN_THIS_BLOCK)
@@ -230,12 +231,12 @@ void write86_mp(const uint32_t address, const uint8_t value) {
     } else if (address >= EMS_START && address < EMS_END) {
         ems_write(address - EMS_START, value);
     } else if (address >= UMB_START && address < UMB_END) {
-        write8psram(address - UMB_START, value);
+        write8psram(address, value);
     } else if (address >= HMA_START && address < HMA_END) {
         if (a20_enabled) {
             write8psram(address, value);
         } else {
-            SRAM[address - HMA_START] = value;
+            write86_mp(address - HMA_START, value);
         }
     } else if (!a20_enabled && address >= HMA_END) {
         write86(address - HMA_START, value);
@@ -258,12 +259,12 @@ void writew86_mp(const uint32_t address, const uint16_t value) {
         } else if (address >= EMS_START && address < EMS_END) {
             ems_writew(address - EMS_START, value);
         } else if (address >= UMB_START && address < UMB_END) {
-            write16psram(address - UMB_START, value);
+            write16psram(address, value);
         } else if (address >= HMA_START && address < HMA_END) {
             if (a20_enabled) {
                 write16psram(address, value);
             } else {
-                *(uint16_t *) &SRAM[address - HMA_START] = value;
+                writew86_mp(address - HMA_START, value);
             }
         } else if (!a20_enabled && address >= HMA_END) {
             writew86(address - HMA_START, value);
@@ -294,12 +295,12 @@ void writedw86_mp(const uint32_t address, const uint32_t value) {
         } else if (address >= EMS_START && address < EMS_END) {
             ems_writedw(address - EMS_START, value);
         } else if (address >= UMB_START && address < UMB_END) {
-            write32psram(address - UMB_START, value);
+            write32psram(address, value);
         } else if (address >= HMA_START && address < HMA_END) {
             if (a20_enabled) {
                 write32psram(address, value);
             } else {
-                *(uint32_t *) &SRAM[address - HMA_START] = value;
+                writedw86_mp(address - HMA_START, value);
             }
         } else if (!a20_enabled && address >= HMA_END) {
             writedw86(address - HMA_START, value);
@@ -325,7 +326,7 @@ uint8_t read86_mp(const uint32_t address) {
         return ems_read(address - EMS_START);
     }
     if (address >= UMB_START && address < UMB_END) {
-        return read8psram(address - UMB_START);
+        return read8psram(address);
     }
     if (address == 0xFC000) {
         return 0x21;
@@ -337,7 +338,7 @@ uint8_t read86_mp(const uint32_t address) {
         if (a20_enabled) {
             return read8psram(address);
         }
-        return SRAM[address - HMA_START];
+        return read86_mp(address - HMA_START);
     }
     if (!a20_enabled && address >= HMA_END) {
         return read86_mp(address - HMA_START);
@@ -366,7 +367,7 @@ uint16_t readw86_mp(const uint32_t address) {
         return ems_readw(address - EMS_START);
     }
     if (address >= UMB_START && address < UMB_END) {
-        return read16psram(address - UMB_START);
+        return read16psram(address);
     }
     if (address >= BIOS_START && address < HMA_START) {
         return *(uint16_t *) &BIOS[address - BIOS_START];
@@ -375,7 +376,7 @@ uint16_t readw86_mp(const uint32_t address) {
         if (a20_enabled) {
             return read16psram(address);
         }
-        return *(uint16_t *) &SRAM[address - HMA_START];
+        return readw86_mp(address - HMA_START);
     }
     if (!a20_enabled && address >= HMA_END) {
         return readw86_mp(address - HMA_START);
@@ -406,7 +407,7 @@ uint32_t readdw86_mp(const uint32_t address) {
         return ems_readdw(address - EMS_START);
     }
     if (address >= UMB_START && address < UMB_END) {
-        return read32psram(address - UMB_START);
+        return read32psram(address);
     }
     if (address >= BIOS_START && address < HMA_START) {
         return *(uint32_t *) &BIOS[address - BIOS_START];
@@ -415,7 +416,7 @@ uint32_t readdw86_mp(const uint32_t address) {
         if (a20_enabled) {
             return read32psram(address);
         }
-        return *(uint32_t *) &SRAM[address - HMA_START];
+        return readdw86_mp(address - HMA_START);
     }
     if (!a20_enabled && address >= HMA_END) {
         return readdw86_mp(address - HMA_START);
@@ -476,7 +477,7 @@ void writew86_sw(const uint32_t address, const uint16_t value) {
 }
 
 void writedw86_sw(const uint32_t address, const uint32_t value) {
-    if (address & 1) {
+    if (address & 3) {
         write86(address, (uint8_t) (value & 0xFF));
         write86(address + 1, (uint8_t) ((value >> 8) & 0xFF));
         write86(address + 2, (uint8_t) ((value >> 16) & 0xFF));
