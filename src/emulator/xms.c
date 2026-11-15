@@ -167,7 +167,6 @@ umb_t *get_free_umb_block(const uint16_t size) {
 #if PICO_ON_DEVICE
 #include "swap.h"
 #include "psram_spi.h"
-extern uint32_t butter_psram_size;
 #endif
 static INLINE void xms_move_to(const register uint32_t destination, register uint32_t source, register uint32_t length) {
     if (butter_psram_size) {

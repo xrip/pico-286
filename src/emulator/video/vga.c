@@ -67,22 +67,13 @@ bool ega_vga_enabled = true;
 
 // Utility: replicate an 8-bit value into all four bytes of a 32-bit word
 inline static uint32_t expand_to_u32(const uint8_t value) {
-#if PICO_ON_DEVICE && !PICO_RP2350
-    // ✅ RP2040 (Cortex-M0+) optimal: 3 instructions (no MUL, no constants)
-    uint32_t result;
-    __asm __volatile(
-        "uxtb   %[res], %[val]\n" // zero-extend v
-        "orr    %[res], %[res], %[res], lsl #8\n" // duplicate into 16 bits
-        "orr    %[res], %[res], %[res], lsl #16\n" // duplicate into 32 bits
-        : [res] "=&r"(result)
-        : [val] "r"(value));
-    return result;
+#if PICO_RP2040
+    // Cortex-M0+ cannot encode shifted-operand ORR in Thumb-1.
+    return (uint32_t)value * 0x01010101u;
 #else
-    // ✅ RP2350 (Cortex-M33) optimal: single MUL
-    return (uint32_t) __fast_mul(value, 0x01010101u);
+    return (uint32_t)__fast_mul(value, 0x01010101u);
 #endif
 }
-
 // Rotate right 8-bit
 inline static uint8_t ror8(const uint8_t value, unsigned count) {
 #if PICO_ON_DEVICE && PICO_RP2350
@@ -166,7 +157,7 @@ static inline void vga_update_gc_cache(void) {
 // Read a byte from VGA memory (emulates CPU byte read from VGA window).
 // Performs latch update on read.
 uint8_t __not_in_flash() vga_mem_read(const uint32_t address) {
-    vga_latch32 = VIDEORAM[address & 0xFFFF];
+    vga_latch32 = VRAM_AT(address & 0xFFFF);
 
     if (vga.read_mode == 0) {
         // return the selected byte from latch
@@ -187,8 +178,8 @@ uint16_t __not_in_flash() vga_mem_read16(uint32_t address) {
     address &= 0xFFFF;
 
     // Load two DWORDs from VRAM
-    const uint32_t plane_lo = VIDEORAM[address];
-    const uint32_t plane_hi = VIDEORAM[address + 1];
+    const uint32_t plane_lo = VRAM_AT(address);
+    const uint32_t plane_hi = VRAM_AT(address + 1);
 
     // VGA latches the last value read
     vga_latch32 = plane_hi;
@@ -226,11 +217,11 @@ void vga_mem_write_loop(uint32_t address, const uint8_t cpu_data) {
     address &= 0xFFFF;
 
     uint32_t new_data;
-    const uint32_t previous_data = VIDEORAM[address]; // read current mem for blending
+    const uint32_t previous_data = VRAM_AT(address); // read current mem for blending
 
     switch (vga.write_mode) {
         case 1: // Mode 1: Write latch directly to enabled planes
-            VIDEORAM[address] = (previous_data & ~vga.map_mask32) | (vga_latch32 & vga.map_mask32);
+            VRAM_AT(address) = (previous_data & ~vga.map_mask32) | (vga_latch32 & vga.map_mask32);
             return;
 
         case 0: {
@@ -283,7 +274,7 @@ void vga_mem_write_loop(uint32_t address, const uint8_t cpu_data) {
                     new_data |= value << (i * 8);
                 }
             }
-            VIDEORAM[address] = (vga.set_reset32 & new_data) | (~new_data & vga_latch32);
+            VRAM_AT(address) = (vga.set_reset32 & new_data) | (~new_data & vga_latch32);
             return;
             break;
         }
@@ -306,7 +297,7 @@ void vga_mem_write_loop(uint32_t address, const uint8_t cpu_data) {
     new_data = (vga.bit_mask32 & new_data) | (~vga.bit_mask32 & vga_latch32);
 
     // Смешивание всех изменившихся планов с не изменившимися
-    VIDEORAM[address] = (~vga.map_mask32 & previous_data) | (vga.map_mask32 & new_data);
+    VRAM_AT(address) = (~vga.map_mask32 & previous_data) | (vga.map_mask32 & new_data);
 }
 #endif
 // Core write implementation (CPU writes a byte to VGA memory)
@@ -316,7 +307,7 @@ void __not_in_flash() vga_mem_write(const uint32_t address, const uint8_t cpu_da
     const uint32_t map_mask32 = vga.map_mask32;
     const uint32_t enable_set_reset32 = vga.enable_set_reset32;
     const uint32_t set_reset32 = vga.set_reset32;
-    uint32_t *videoram_data = &VIDEORAM[address & 0xFFFF]; // current data pointer
+    uint32_t *videoram_data = &VRAM_AT(address & 0xFFFF); // current data pointer
 
     switch (vga.write_mode) {
         case 0: {
@@ -375,8 +366,8 @@ void __not_in_flash() vga_mem_write16(const uint32_t address, const uint16_t cpu
     const uint8_t logic = vga.logical_operation;
     const uint8_t wmode = vga.write_mode;
 
-    uint32_t *p0 = &VIDEORAM[address & 0xFFFFu];
-    uint32_t *p1 = p0 + 1;
+    uint32_t *p0 = &VRAM_AT(address & 0xFFFFu);
+    uint32_t *p1 = &VRAM_AT((address & 0xFFFFu) + 1);
 
     if (wmode == 1) {
         // Mode 1: latch -> enabled planes

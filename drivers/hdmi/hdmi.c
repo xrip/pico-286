@@ -234,11 +234,11 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
             case TEXTMODE_80x25_COLOR: {
                 const uint8_t y_div_6 = y / 6;
                 const uint8_t glyph_line = y - y_div_6 * 6; // Optimized modulo
-                const uint32_t *text_buffer_line = &VIDEORAM[0x8000 + (vram_offset << 1) + __fast_mul(y_div_6, 160)];
+                const uint32_t *text_buffer_line = &VRAM_AT(0x8000 + (vram_offset << 1) + __fast_mul(y_div_6, 160));
 
                 for (unsigned int column = 0; column < TEXTMODE_COLS; column++) {
-                    uint8_t glyph_pixels = font_4x6[__fast_mul(*text_buffer_line++ & 0xFF, 6) + glyph_line];
-                    const uint8_t color = *text_buffer_line++; // TODO: cga_blinking
+                    uint8_t glyph_pixels = font_4x6[__fast_mul(VRAM_NEXT(text_buffer_line) & 0xFF, 6) + glyph_line];
+                    const uint8_t color = VRAM_NEXT(text_buffer_line); // TODO: cga_blinking
 
                     if (color & 0x80 && cursor_blink_state) {
                         glyph_pixels = 0;
@@ -280,10 +280,10 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
             }
             case CGA_320x200x4:
             case CGA_320x200x4_BW: {
-                const register uint32_t *cga_row = &VIDEORAM[0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13)];
+                const register uint32_t *cga_row = &VRAM_AT(0x8000 + (vram_offset << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13));
                 //2bit buf
                 for (int x = 320 / 4; x--;) {
-                    const uint8_t cga_byte = *cga_row++;
+                    const uint8_t cga_byte = VRAM_NEXT(cga_row);
 
                     uint8_t color = cga_byte >> 6;
                     *output_buffer++ = color;
@@ -299,10 +299,10 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
             case COMPOSITE_160x200x16_force:
             case COMPOSITE_160x200x16:
             case TGA_160x200x16: {
-                const register uint32_t *tga_row = &VIDEORAM[tga_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)];
+                const register uint32_t *tga_row = &VRAM_AT(tga_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13));
                 uint32_t *output_buffer32 = (uint32_t *)output_buffer;
                 for (int x = 320 / 4; x--;) {
-                    uint8_t two_pixels = *tga_row++; // Fetch 2 pixels from TGA memory
+                    uint8_t two_pixels = VRAM_NEXT(tga_row); // Fetch 2 pixels from TGA memory
                     uint8_t pixel1_color = two_pixels >> 4;
                     uint8_t pixel2_color = two_pixels & 15;
                     *output_buffer32++ = pixel1_color | (pixel1_color << 8) | (pixel2_color << 16) | (pixel2_color << 24);
@@ -312,20 +312,20 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
 
             case TGA_320x200x16: {
                 //4bit buf
-                const register uint32_t *tga_row = &VIDEORAM[tga_offset + (y & 3) * 8192 + __fast_mul(y >> 2, 160)];
+                const register uint32_t *tga_row = &VRAM_AT(tga_offset + (y & 3) * 8192 + __fast_mul(y >> 2, 160));
                 for (int x = 320 / 2; x--;) {
-                    const uint8_t two_pixels = *tga_row++; // Fetch 2 pixels from TGA memory
+                    const uint8_t two_pixels = VRAM_NEXT(tga_row); // Fetch 2 pixels from TGA memory
                     *output_buffer++ = two_pixels >> 4;
                     *output_buffer++ = two_pixels & 15;
                 }
                 break;
             }
             case EGA_320x200x16x4: {
-                const register uint32_t *ega_row = &VIDEORAM[__fast_mul(y, 40)];
+                const register uint32_t *ega_row = &VRAM_AT(__fast_mul(y, 40));
 
                 // Process 40 dwords (320 pixels) in groups
                 for (int x = 0; x < 40; x++) {
-                    const uint32_t ega_planes = *ega_row++;
+                    const uint32_t ega_planes = VRAM_NEXT(ega_row);
 
                     // Build 8 color nibbles packed into a 32-bit word
                     const uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
@@ -343,18 +343,18 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
                 break;
             }
             case VGA_320x200x256x4: {
-                const register uint32_t *vga_row = &VIDEORAM[__fast_mul(y, 80)];
+                const register uint32_t *vga_row = &VRAM_AT(__fast_mul(y, 80));
                 uint32_t *output_buffer32 = (uint32_t *)output_buffer;
                 for (int x = 0; x < 80; x++) {
-                    *output_buffer32++ = *vga_row++;
+                    *output_buffer32++ = VRAM_NEXT(vga_row);
                 }
                 break;
             }
             case VGA_320x200x256:
             default: {
-                const uint32_t *vga_row = &VIDEORAM[__fast_mul(y, 320)];
+                const uint32_t *vga_row = &VRAM_AT(__fast_mul(y, 320));
                 for (int x = 320; x--;) {
-                    const uint8_t color = *vga_row++ & 0xFF;
+                    const uint8_t color = VRAM_NEXT(vga_row) & 0xFF;
                     *output_buffer++ = color >= HDMI_CTRL_BASE_INDEX ? 0 : color;
                 }
                 break;

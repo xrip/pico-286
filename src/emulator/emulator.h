@@ -13,9 +13,16 @@ extern "C" {
 
 #if PICO_ON_DEVICE
 extern uint32_t butter_psram_size;
+#if PICO_RP2040
+#define butter_psram_size 0u
+#endif
 extern bool PSRAM_AVAILABLE;
 #include "psram_spi.h"
+#if PICO_RP2040
+#define VIDEORAM_SIZE (32 << 10)
+#else
 #define VIDEORAM_SIZE (64 << 10)
+#endif
 #if PICO_RP2350
 
 #define RAM_SIZE (640 << 10)
@@ -37,6 +44,7 @@ extern bool PSRAM_AVAILABLE;
 #define butter_psram_size 1
 #define PSRAM_AVAILABLE 1
 #endif
+#define VIDEORAM_MASK (VIDEORAM_SIZE - 1)
 #ifdef HARDWARE_SOUND
 #define SOUND_FREQUENCY (44100)
 #else
@@ -79,9 +87,28 @@ extern uint32_t VIDEORAM[VIDEORAM_SIZE];
 extern uint8_t UMB[UMB_END - UMB_START];
 extern uint8_t HMA[HMA_END - HMA_START];
 // for non-butter-psram modes
+#if PICO_RP2040
+#define SRAM_BLOCK_SIZE (64 << 10)
+#else
 #define SRAM_BLOCK_SIZE 0x2C000
+#endif
 extern uint8_t SRAM[SRAM_BLOCK_SIZE];
+#if PICO_RP2040
+#define FIRST_RAM_PAGE SRAM
+#else
 #define FIRST_RAM_PAGE (butter_psram_size ? RAM : SRAM)
+#endif
+
+#define VRAM_AT(index) (VIDEORAM[(uint32_t)(index) & VIDEORAM_MASK])
+#if PICO_RP2040
+#define VRAM_NEXT(ptr) __extension__ ({ \
+    uint32_t _vram_value = *(ptr); \
+    (ptr) = ((ptr) == &VIDEORAM[VIDEORAM_SIZE - 1]) ? VIDEORAM : (ptr) + 1; \
+    _vram_value; \
+})
+#else
+#define VRAM_NEXT(ptr) (*(ptr)++)
+#endif
 
 extern uint32_t dwordregs[8];
 #define byteregs ((uint8_t*)dwordregs)

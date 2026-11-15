@@ -216,7 +216,7 @@ void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem
     graphics_init();
     graphics_set_buffer((uint8_t *)VIDEORAM, 320, 200);
-    graphics_set_textbuffer((uint8_t *)VIDEORAM + 32768*4);
+    graphics_set_textbuffer((uint8_t *)VIDEORAM + (32768 & VIDEORAM_MASK) * 4);
     graphics_set_bgcolor(0);
     graphics_set_offset(0, 0);
     graphics_set_flashmode(true, true);

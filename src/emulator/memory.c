@@ -8,12 +8,13 @@
 #include "swap.h"
 #endif
 uint32_t __attribute__((aligned (4)))  VIDEORAM[VIDEORAM_SIZE] = {0};
+#if !PICO_RP2040
 uint8_t __attribute__((aligned (4), section(".psram"))) RAM[RAM_SIZE] = {0};
 uint8_t __attribute__((aligned (4), section(".psram"))) UMB[UMB_END - UMB_START] = {0};
 uint8_t __attribute__((aligned (4), section(".psram"))) HMA[HMA_END - HMA_START] = {0};
+#endif
 uint8_t __attribute__((aligned (4))) SRAM[SRAM_BLOCK_SIZE] = {0};
 
-#define VIDEORAM_MASK 0xFFFF
 read86_t read86;
 read86w_t readw86;
 read86dw_t readdw86;
@@ -21,6 +22,7 @@ write86_t write86;
 write86w_t writew86;
 write86dw_t writedw86;
 
+#if !PICO_RP2040
 // Writes a byte to the virtual memory
 void write86_ob(const uint32_t address, const uint8_t value) {
     if (address < RAM_SIZE) {
@@ -206,6 +208,7 @@ uint32_t readdw86_ob(const uint32_t address) {
     }
     return 0xFFFFFFFF;
 }
+#endif
 
 #if PICO_ON_DEVICE
 // using UMB as low-RAM, and psram start space as UMB instead
@@ -269,7 +272,11 @@ void writew86_mp(const uint32_t address, const uint16_t value) {
 }
 
 void writedw86_mp(const uint32_t address, const uint32_t value) {
+#if PICO_RP2040
+    if (address & 3) {
+#else
     if (address & 1) {
+#endif
         write86(address, (uint8_t) (value & 0xFF));
         write86(address + 1, (uint8_t) ((value >> 8) & 0xFF));
         write86(address + 2, (uint8_t) ((value >> 16) & 0xFF));
