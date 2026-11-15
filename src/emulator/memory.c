@@ -219,7 +219,7 @@ uint32_t readdw86_ob(const uint32_t address) {
 #define UMB (DO_NOT_USE_IN_THIS_BLOCK)
 
 // Writes a byte to the virtual memory
-void write86_mp(const uint32_t address, const uint8_t value) {
+void __time_critical_func() write86_mp(const uint32_t address, const uint8_t value) {
     if (address < LO_MEM) {
         SRAM[address] = value;
     } else if (address < VIDEORAM_START) {
@@ -244,7 +244,7 @@ void write86_mp(const uint32_t address, const uint8_t value) {
 }
 
 // Writes a word to the virtual memory
-void writew86_mp(const uint32_t address, const uint16_t value) {
+void __time_critical_func() writew86_mp(const uint32_t address, const uint16_t value) {
     if (address & 1) {
         write86(address, (uint8_t) (value & 0xFF));
         write86(address + 1, (uint8_t) ((value >> 8) & 0xFF));
@@ -272,7 +272,7 @@ void writew86_mp(const uint32_t address, const uint16_t value) {
     }
 }
 
-void writedw86_mp(const uint32_t address, const uint32_t value) {
+void __time_critical_func() writedw86_mp(const uint32_t address, const uint32_t value) {
 #if PICO_RP2040
     if (address & 3) {
 #else
@@ -309,7 +309,7 @@ void writedw86_mp(const uint32_t address, const uint32_t value) {
 }
 
 // Reads a byte from the virtual memory
-uint8_t read86_mp(const uint32_t address) {
+uint8_t __time_critical_func() read86_mp(const uint32_t address) {
     if (address < LO_MEM) {
         return SRAM[address];
     }
@@ -347,7 +347,7 @@ uint8_t read86_mp(const uint32_t address) {
 }
 
 // Reads a word from the virtual memory
-uint16_t readw86_mp(const uint32_t address) {
+uint16_t __time_critical_func() readw86_mp(const uint32_t address) {
     if (address & 1) {
         return (uint16_t) read86_mp(address) | ((uint16_t) read86_mp(address + 1) << 8);
     }
@@ -384,7 +384,7 @@ uint16_t readw86_mp(const uint32_t address) {
     return 0xFFFF;
 }
 
-uint32_t readdw86_mp(const uint32_t address) {
+uint32_t __time_critical_func() readdw86_mp(const uint32_t address) {
     if (address & 3) {
         return (uint32_t) read86_mp(address)
                | ((uint32_t) read86_mp(address + 1) << 8)

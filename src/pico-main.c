@@ -155,7 +155,11 @@ bool handleScancode(uint32_t ps2scancode) {
                         if (butter_psram_size)
                             printf("Model 70\n");
                         else
+#if !PICO_RP2040
                             printf("Model 50\n");
+#else
+                            printf("Model 30\n");
+#endif
                         break;
                     default:
                         printf("\n\n\n\n\n\n\n\n\n\n");
