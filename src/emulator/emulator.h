@@ -88,7 +88,7 @@ extern uint8_t UMB[UMB_END - UMB_START];
 extern uint8_t HMA[HMA_END - HMA_START];
 // for non-butter-psram modes
 #if PICO_RP2040
-#define SRAM_BLOCK_SIZE (64 << 10)
+#define SRAM_BLOCK_SIZE (48 << 10)
 #else
 #define SRAM_BLOCK_SIZE 0x2C000
 #endif

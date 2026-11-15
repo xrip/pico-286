@@ -114,6 +114,7 @@ else ()
     endif ()
     if (ENABLE_HDMI)
         if (PICO_PLATFORM STREQUAL "rp2040")
+            set(CPU_FREQ_MHZ "378")
             message(STATUS "HDMI enabled - RP2040 CPU frequency ${CPU_FREQ_MHZ} MHz")
         else ()
             set(CPU_FREQ_MHZ "504")
@@ -173,7 +174,11 @@ else ()
     endif ()
 
     # Add frequency
-    set(BUILD_NAME "${BUILD_NAME}-F${FLASH_FREQ_MHZ}-P${PSRAM_FREQ_MHZ}-${CPU_FREQ_MHZ}MHz")
+    if (PICO_PLATFORM STREQUAL "rp2040")
+        set(BUILD_NAME "${BUILD_NAME}-${CPU_FREQ_MHZ}MHz")
+    else ()
+        set(BUILD_NAME "${BUILD_NAME}-F${FLASH_FREQ_MHZ}-P${PSRAM_FREQ_MHZ}-${CPU_FREQ_MHZ}MHz")
+    endif ()
 
     # Add display type
     if (ENABLE_TFT)
@@ -225,7 +230,9 @@ else ()
     if (PICO_PLATFORM STREQUAL "rp2040")
         add_subdirectory(memops_opt)
         target_link_libraries(${PROJECT_NAME} PRIVATE memops_opt)
-        target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=4)
+        # RP2040 QSPI Flash is clocked from clk_sys by the boot2 divider.
+        # At 378 MHz / 6 the Flash clock is 63 MHz (rather than 94.5 MHz with /4).
+        target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=6)
     else ()
         if (m1p2launcher)
             if (MURM20)
@@ -297,8 +304,6 @@ else ()
             PICO_PANIC_FUNCTION=
             EMU8950_ASM=1
             CPU_FREQ_MHZ=${CPU_FREQ_MHZ}
-            FLASH_FREQ_MHZ=${FLASH_FREQ_MHZ}
-            PSRAM_FREQ_MHZ=${PSRAM_FREQ_MHZ}
             PICO_FLASH_SIZE_BYTES=16777216
 
             # Display type
@@ -314,6 +319,11 @@ else ()
 
             PSRAM
     )
+    if (NOT PICO_PLATFORM STREQUAL "rp2040")
+        target_compile_definitions(${PROJECT_NAME} PRIVATE
+                FLASH_FREQ_MHZ=${FLASH_FREQ_MHZ}
+                PSRAM_FREQ_MHZ=${PSRAM_FREQ_MHZ})
+    endif ()
     if (MURM20)
         target_compile_definitions(${PROJECT_NAME} PRIVATE
                 MURM2=1

@@ -510,12 +510,12 @@ void __attribute__((naked, noreturn)) __printflike(1, 0) dummy_panic(__unused co
 }
 
 int cpu_mhz = CPU_FREQ_MHZ;
+#if !PICO_RP2040
 int flash_mhz = FLASH_FREQ_MHZ;
 int psram_mhz = PSRAM_FREQ_MHZ;
 uint new_flash_timings = 0;
 uint new_psram_timings = 0;
 
-#if !PICO_RP2040
 void __not_in_flash() flash_timings() {
     if (!new_flash_timings) {
         const int max_flash_freq = flash_mhz * MHZ;
@@ -621,6 +621,11 @@ static void load_config_286() {
             if (strcmp(t, "CPU") == 0) {
                 t = next_token(t);
                 new_cpu_mhz = atoi(t);
+#if PICO_RP2040 && defined(HDMI)
+                if (new_cpu_mhz < CPU_FREQ_MHZ) {
+                    new_cpu_mhz = CPU_FREQ_MHZ;
+                }
+#endif
                 if (clock_get_hz(clk_sys) != new_cpu_mhz * MHZ) {
                     if (set_sys_clock_hz(new_cpu_mhz * MHZ, 0) ) {
                         cpu_mhz = new_cpu_mhz;
