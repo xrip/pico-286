@@ -149,7 +149,9 @@ bool handleScancode(uint32_t ps2scancode) {
                         break;
                     case TORMOZ_TURBO_8:
                         tormoz = NO_TORMOZ;
+#if !PICO_RP2040
                         delay = 0;
+#endif
                         if (butter_psram_size)
                             printf("Model 70\n");
                         else
@@ -513,6 +515,7 @@ int psram_mhz = PSRAM_FREQ_MHZ;
 uint new_flash_timings = 0;
 uint new_psram_timings = 0;
 
+#if !PICO_RP2040
 void __not_in_flash() flash_timings() {
     if (!new_flash_timings) {
         const int max_flash_freq = flash_mhz * MHZ;
@@ -552,6 +555,7 @@ void __not_in_flash() psram_timings() {
         qmi_hw->m[1].timing = new_psram_timings;
     }
 }
+#endif
 
 static char* open_config(UINT* pbr) {
     FILINFO fileinfo;
@@ -599,8 +603,13 @@ static char* next_token(char* t) {
 }
 
 static int new_cpu_mhz = CPU_FREQ_MHZ;
+#if !PICO_RP2040
 static int vreg = VREG_VOLTAGE_1_60;
 static int new_vreg = VREG_VOLTAGE_1_60;
+#else
+static int vreg = VREG_VOLTAGE_1_30;
+static int new_vreg = VREG_VOLTAGE_1_30;
+#endif
 
 static void load_config_286() {
     UINT br;
@@ -620,10 +629,15 @@ static void load_config_286() {
             } else if (strcmp(t, "VREG") == 0) {
                 t = next_token(t);
                 new_vreg = atoi(t);
+#if !PICO_RP2040
                 if (new_vreg != vreg && new_vreg >= VREG_VOLTAGE_0_55 && new_vreg <= VREG_VOLTAGE_3_30) {
+#else
+                if (new_vreg != vreg && new_vreg >= VREG_VOLTAGE_0_95 && new_vreg <= VREG_VOLTAGE_1_30) {
+#endif
                     vreg = new_vreg;
                     vreg_set_voltage(vreg);
                 }
+#if !PICO_RP2040
             } else if (!new_flash_timings && strcmp(t, "FLASH") == 0) {
                 t = next_token(t);
                 int new_flash_mhz = atoi(t);
@@ -652,6 +666,7 @@ static void load_config_286() {
                 if (*endptr == 0 && qmi_hw->m[1].timing != new_psram_timings) {
                     psram_timings();
                 }
+#endif
             } else { // unknown token
                 t = next_token(t);
             }
@@ -720,6 +735,7 @@ int main(void) {
         load_config_286();
     }
 
+#if !PICO_RP2040
     // Initialize PSRAM
     rp2350a = (*((io_ro_32*)(SYSINFO_BASE + SYSINFO_PACKAGE_SEL_OFFSET)) & 1);
     int gp;
@@ -729,6 +745,7 @@ int main(void) {
     gp = rp2350a ? 19 : 47;
 #endif
     psram_init(gp);
+#endif
     if (!butter_psram_size) {
         if (init_psram() ) {
             write86 = write86_mp;
@@ -774,6 +791,7 @@ int main(void) {
         printf("Failed to overclock to %d MHz\n", new_cpu_mhz);
     }
     printf("CPU: %d MHz\n", cpu_mhz);
+#if !PICO_RP2040
     if (new_vreg < VREG_VOLTAGE_0_55 || new_vreg > VREG_VOLTAGE_3_30) {
         printf("Unexpected VREG value: %d\n", new_vreg);
     }
@@ -790,7 +808,9 @@ int main(void) {
             printf("PSRAM max %d MHz [T%p]\n", psram_mhz, qmi_hw->m[1].timing);
         }
         printf("On-Board-PSRAM mode (GP%d)\n", gp);
-    } else if (write86 == write86_mp) {
+    } else
+#endif
+    if (write86 == write86_mp) {
         printf("Murmulator-Board-PSRAM mode\n");
     } else {
         printf("Swap-RAM mode (8 MB)\n");

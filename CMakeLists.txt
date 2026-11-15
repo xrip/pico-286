@@ -1,3 +1,4 @@
+set(PICO_BOARD pico)
 if (NOT (DEFINED PICO_PLATFORM AND PICO_PLATFORM STREQUAL "host"))
 # == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
 if(WIN32)
@@ -29,9 +30,14 @@ SET(BUILD_NAME "${PROJECT_NAME}")
 #set(MURM20 ON)
 #set(m1p2launcher ON)
 # CPU Configuration
-set(CPU_FREQ_MHZ "500")
-set(FLASH_FREQ_MHZ "100")
+set(CPU_FREQ_MHZ "366")
+set(FLASH_FREQ_MHZ "66")
 set(PSRAM_FREQ_MHZ "166")
+
+set(ENABLE_VGA OFF)
+set(ENABLE_HDMI ON)
+#set(ENABLE_I2S_SOUND ON)
+set(ENABLE_PWM_SOUND ON)
 
 # =========================
 # OUTPUT DIRECTORIES
