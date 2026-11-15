@@ -231,47 +231,39 @@ static void __time_critical_func() hdmi_scanline_interrupt_handler() {
         const uint8_t y = current_scanline / 2;
 
         switch (graphics_mode) {
+            case TEXTMODE_80x25_BW:
             case TEXTMODE_80x25_COLOR: {
-                const uint8_t y_div_6 = y / 6;
-                const uint8_t glyph_line = y - y_div_6 * 6; // Optimized modulo
-                const uint32_t *text_buffer_line = &VRAM_AT(0x8000 + (vram_offset << 1) + __fast_mul(y_div_6, 160));
+                // 200 source scanlines: 25 rows x 8 lines; expand 4x6 font vertically.
+                const uint8_t text_row = y >> 3;
+                const uint8_t glyph_line = ((y & 7u) * 6u) >> 3;
+                const uint32_t *text_buffer_line = &VRAM_AT(0x8000 + (vram_offset << 1) + __fast_mul(text_row, 160));
+                const bool blink_enabled = cga_blinking == 0x7F;
 
                 for (unsigned int column = 0; column < TEXTMODE_COLS; column++) {
                     uint8_t glyph_pixels = font_4x6[__fast_mul(VRAM_NEXT(text_buffer_line) & 0xFF, 6) + glyph_line];
-                    const uint8_t color = VRAM_NEXT(text_buffer_line); // TODO: cga_blinking
+                    const uint8_t color = VRAM_NEXT(text_buffer_line);
+                    const uint8_t background = (color >> 4) & (blink_enabled ? 0x07 : 0x0F);
 
-                    if (color & 0x80 && cursor_blink_state) {
+                    if (blink_enabled && (color & 0x80) && cursor_blink_state) {
                         glyph_pixels = 0;
                     }
 
                     // TODO: Actual cursor size
                     const uint8_t cursor_active = cursor_blink_state &&
-                                                  y_div_6 == CURSOR_Y && column == CURSOR_X &&
-                                                  glyph_line >= 4;
+                                                  text_row == CURSOR_Y && column == CURSOR_X &&
+                                                  (y & 7u) >= 6;
 
                     if (cursor_active) {
                         *output_buffer++ = textmode_palette[color & 0xf];
                         *output_buffer++ = textmode_palette[color & 0xf];
                         *output_buffer++ = textmode_palette[color & 0xf];
                         *output_buffer++ = textmode_palette[color & 0xf];
-                    } else if (cga_blinking && color >> 7 & 1) {
-#pragma GCC unroll(4)
-                        for (int bit = 4; bit--;) {
-                            *output_buffer++ = cursor_blink_state
-                                                   ? color >> 4 & 0x7
-                                                   : glyph_pixels & 1
-                                                         ? textmode_palette[color & 0xf] //цвет шрифта
-                                                         : textmode_palette[color >> 4 & 0x7]; //цвет фона
-
-                            glyph_pixels >>= 1;
-                        }
                     } else {
 #pragma GCC unroll(4)
                         for (int bit = 4; bit--;) {
                             *output_buffer++ = glyph_pixels & 1
-                                                   ? textmode_palette[color & 0xf] //цвет шрифта
-                                                   : textmode_palette[color >> 4]; //цвет фона
-
+                                                   ? textmode_palette[color & 0xf] // foreground
+                                                   : textmode_palette[background]; // background
                             glyph_pixels >>= 1;
                         }
                     }

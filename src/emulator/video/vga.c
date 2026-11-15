@@ -10,6 +10,7 @@
 
 static uint8_t sequencer_register = 0;
 static uint8_t graphics_control_register = 0;
+static uint8_t attribute_data_mode = 0; // Attribute Controller address/data flip-flop
 
 static uint8_t color_index = 0, read_color_index = 0, vga_register;
 uint32_t vga_plane_offset = 0;
@@ -457,6 +458,7 @@ void vga_init(void) {
     vga_update_gc_cache();
     vga_latch32 = 0;
     sequencer_register = graphics_control_register = 0;
+    attribute_data_mode = 0;
 }
 
 
@@ -468,9 +470,7 @@ void vga_portout(uint16_t portnum, uint16_t value) {
     switch (portnum) {
         /* Attribute Address Register */
         case 0x3C0: {
-            static uint8_t data_mode = 0; // 0 -- address, 1 -- data
-
-            if (data_mode) {
+            if (attribute_data_mode) {
                 // Palette registers
                 if (vga_register <= 0x0f) {
                     const uint8_t r = (((value >> 2) & 1) << 1) + ((value >> 5) & 1);
@@ -487,10 +487,10 @@ void vga_portout(uint16_t portnum, uint16_t value) {
                     cga_blinking = (value >> 5) & 1 ? 0x7F : 0xFF;
                 }
             } else {
-                vga_register = value & 0b1111;
+                vga_register = value & 0x1F; // bits 0-4 select AC register (0x00..0x14)
             }
 
-            data_mode ^= 1;
+            attribute_data_mode ^= 1;
             break;
         }
         // http://www.osdever.net/FreeVGA/vga/seqreg.htm
@@ -548,6 +548,9 @@ uint16_t vga_portin(uint16_t portnum) {
     //printf("vga_portin %x\n", portnum);
 
     switch (portnum) {
+        case 0x3DA:
+            attribute_data_mode = 0;
+            return cga_portin(portnum);
         case 0x3C5: return vga.sequencer[sequencer_register];
         case 0x3CF: return vga.graphics_controller[graphics_control_register];
         case 0x3C8:

@@ -27,7 +27,7 @@ extern "C" {
 #define SCREEN_HEIGHT (240)
 
 #define TEXTMODE_COLS (SCREEN_WIDTH/4)
-#define TEXTMODE_ROWS (SCREEN_HEIGHT/6)
+#define TEXTMODE_ROWS (25) // 200 rendered lines / 8 scanlines per text row
 
 #define RGB888(r, g, b) ((r<<16) | (g << 8 ) | b )
 

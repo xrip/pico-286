@@ -165,8 +165,10 @@ void cga_portout(uint16_t portnum, uint16_t value) {
                 //printf("[CGA] value 0x%02x\r\n", value);
             }
 #if PICO_ON_DEVICE
-            for (uint8_t i = 0; i < 4; i++) {
-                graphics_set_palette(i, cga_palette[cga_gfxpal[cga_colorset][cga_intensity][i]]);
+            if (videomode == 4 || videomode == 5) {
+                for (uint8_t i = 0; i < 4; i++) {
+                    graphics_set_palette(i, cga_palette[cga_gfxpal[cga_colorset][cga_intensity][i]]);
+                }
             }
 #endif
             break;
@@ -177,9 +179,11 @@ void cga_portout(uint16_t portnum, uint16_t value) {
             cga_intensity = value >> 4 & 1;
 //            printf("cga_foreground_color %x cga_colorset %x cga_intensity %x\n", cga_foreground_color, cga_colorset, cga_intensity);
 #if PICO_ON_DEVICE
-            graphics_set_palette(0, cga_palette[cga_foreground_color]);
-            for (uint8_t i = 1; i < 4; i++) {
-                graphics_set_palette(i, cga_palette[cga_gfxpal[cga_colorset][cga_intensity][i]]);
+            if (videomode == 4 || videomode == 5) {
+                graphics_set_palette(0, cga_palette[cga_foreground_color]);
+                for (uint8_t i = 1; i < 4; i++) {
+                    graphics_set_palette(i, cga_palette[cga_gfxpal[cga_colorset][cga_intensity][i]]);
+                }
             }
 #endif
             break;

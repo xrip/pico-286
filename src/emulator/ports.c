@@ -518,8 +518,8 @@ uint16_t portin(uint16_t portnum) {
 // CRTC
             return crt_controller[crt_controller_idx];
         case 0x3DA:
-// CGA
-            return cga_portin(portnum);
+// VGA status read resets the Attribute Controller address/data flip-flop
+            return vga_portin(portnum);
         case 0x3F8:
         case 0x3F9:
         case 0x3FA:
