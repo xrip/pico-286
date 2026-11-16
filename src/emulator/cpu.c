@@ -1125,10 +1125,18 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
     return (uint16_t) s & 0xFFFF;
 }
 
+static uint16_t firstip; // IP of the current instruction, with its prefixes
+
+// A 286 fault returns to the instruction that caused it
+static void cpu_fault(const uint8_t vector) {
+    ip = firstip;
+    intcall86(vector);
+}
+
 static inline void op_div8(uint16_t valdiv, uint8_t divisor) {
     if (divisor == 0 || valdiv / divisor > 0xFF) {
         printf("[op_div8] %d / %d\n", valdiv, divisor);
-        intcall86(0);
+        cpu_fault(0);
         return;
     }
 
@@ -1139,7 +1147,7 @@ static inline void op_div8(uint16_t valdiv, uint8_t divisor) {
 static inline void op_idiv8(uint16_t valdiv, int8_t divisor) {
     if (divisor == 0) {
         printf("[op_idiv8] %d / 0\n", valdiv);
-        intcall86(0);
+        cpu_fault(0);
         return;
     }
     int16_t dividend = (int16_t) valdiv;
@@ -1147,7 +1155,7 @@ static inline void op_idiv8(uint16_t valdiv, int8_t divisor) {
     int16_t remainder = dividend % divisor;
     if (quotient < -128 || quotient > 127) {
         printf("[op_idiv8] %d / %d overflow\n", dividend, divisor);
-        intcall86(0);
+        cpu_fault(0);
         return;
     }
     CPU_AL = (uint8_t)quotient;
@@ -1159,7 +1167,7 @@ static inline void op_div16(uint32_t valdiv, uint16_t divisor) {
 //        CPU_DX = 0;
 //        CPU_AX = 0xFFFF;
 //        printf("[op_div16] %d / %d\n", valdiv, divisor);
-        intcall86(0);
+        cpu_fault(0);
         return;
     }
 
@@ -1172,14 +1180,14 @@ static inline void op_idiv16(uint32_t valdiv, uint16_t divisor) {
     int16_t divisor_signed = (int16_t)divisor;
     if (divisor_signed == 0) {
         printf("[op_idiv16] %d / 0\n", dividend);
-        intcall86(0);
+        cpu_fault(0);
         return;
     }
     int32_t quotient  = dividend / divisor_signed;
     int32_t remainder = dividend % divisor_signed;
     if (quotient < -32768 || quotient > 32767) {
         printf("[op_idiv16] %d / %d overflow\n", dividend, divisor_signed);
-        intcall86(0);
+        cpu_fault(0);
         return;
     }
     CPU_AX = (uint16_t)quotient;
@@ -1298,7 +1306,59 @@ static __not_in_flash() void op_grp5() {
     }
 }
 
+// Machine status word: bits 4-15 read as 1. PE (bit 0) stays 0, protected mode is not emulated
+static uint16_t msw;
+// GDTR and IDTR as SGDT/LGDT see them: 16-bit limit, 24-bit base.
+// They are only stored: real-mode interrupts always use the table at 0
+static uint8_t descriptor_table_registers[2][5];
+
+// 0F: the 286 system instructions that work in real mode; the others are invalid (#UD)
+static __not_in_flash() void op_0f() {
+    const uint8_t opcode = getmem8(CPU_CS, CPU_IP);
+    StepIP(1);
+    if (opcode == 0x06) { // CLTS
+        msw &= ~8;
+        return;
+    }
+    if (opcode != 0x01) {
+        cpu_fault(6);
+        return;
+    }
+    modregrm();
+    switch (reg) {
+        case 0: // SGDT
+        case 1: // SIDT
+        case 2: // LGDT
+        case 3: { // LIDT
+            if (mode == 3) break;
+            getea(rm);
+            uint8_t *table_register = descriptor_table_registers[reg & 1];
+            if (reg < 2) { // store
+                for (int i = 0; i < 5; i++) write86(ea + i, table_register[i]);
+                write86(ea + 5, 0xFF); // a 286 stores FFh here, a 386 stores 00h
+            } else { // load
+                for (int i = 0; i < 5; i++) table_register[i] = read86(ea + i);
+            }
+            return;
+        }
+        case 4: // SMSW
+            writerm16(rm, msw);
+            return;
+        case 6: { // LMSW
+            const uint16_t value = readrm16(rm);
+            if (value & 1) printf("[CPU] LMSW: protected mode is not emulated\r\n");
+            msw = 0xFFF0 | (value & 0x0E); // MP, EM, TS
+            return;
+        }
+    }
+    cpu_fault(6);
+}
+
 void reset86() {
+    msw = 0xFFF0;
+    memset(descriptor_table_registers, 0, sizeof(descriptor_table_registers));
+    descriptor_table_registers[1][0] = 0xFF; // IDT limit 03FFh
+    descriptor_table_registers[1][1] = 0x03;
     CPU_CS = 0xFFFF;
     CPU_SS = 0x0000;
     CPU_SP = 0x0000;
@@ -1330,7 +1390,6 @@ extern volatile int16_t last_sb_sample;
 extern volatile bool ask_to_blast;
 
 void __not_in_flash() exec86(uint32_t execloops) {
-    static uint16_t firstip;
     static bool was_TF;
 
     //counterticks = (uint64_t) ( (double) timerfreq / (double) 65536.0);
@@ -1556,10 +1615,9 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_CS = pop();
                 break;
 #else
-                /*
-                            case 0xF: // 286 protected mode
-                            break;
-                */
+            case 0x0F:
+                op_0f();
+                break;
 #endif
 
             case 0x10: /* 10 ADC Eb Gb */
@@ -3399,7 +3457,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 oper1 = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 if (!oper1) {
-                    intcall86(0);
+                    cpu_fault(0);
                     break;
                 } /* division by zero */
 
