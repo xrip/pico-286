@@ -146,6 +146,13 @@ void graphics_source_render_vga_text(unsigned row, unsigned height,
                                      uint16_t *output,
                                      const uint16_t *attribute_pairs,
                                      const uint32_t *quad_pixels);
+#if defined(GRAPHICS_PC_EMULATOR)
+#include "graphics_text.h"
+// PC text for a glyph expander (PIO HDMI): the cells of output line `row`
+// of 480. A cell is two VRAM words, eight bytes: character, then attribute.
+// Rows 400..479 below the 25 text rows are blank: returns false.
+bool graphics_source_pc_text_line(unsigned row, struct graphics_text_line *line);
+#endif
 // NTSC full palette tables have two samples per entry. The even table is
 // phases 0/1, odd is phases 2/3. The 32-bit form emits a whole sample pair.
 void graphics_source_render_ntsc16(unsigned row, unsigned width, unsigned height,

@@ -46,6 +46,8 @@ enum {
 static alignas(4096) union hdmi_workspace workspace;
 _Static_assert(sizeof(workspace) == HDMI_WORKSPACE_BYTES, "HDMI RAM budget changed");
 _Static_assert(sizeof(workspace.text) <= HDMI_WORKSPACE_BYTES, "Text exceeds existing workspace");
+_Static_assert(offsetof(union hdmi_workspace, wide.palette) == offsetof(union hdmi_workspace, text.palette),
+               "Wide and text modes share one palette layout");
 _Static_assert(offsetof(union hdmi_workspace, graphics.lines) % 4u == 0u &&
                offsetof(union hdmi_workspace, text.lines) % 4u == 0u &&
                sizeof(workspace.graphics.lines[0]) % 4u == 0u &&
@@ -197,6 +199,20 @@ static void hdmi_write_controls(void) {
     }
 }
 
+// The glyph expander draws text; an emulator build sends PC text there too.
+static bool hdmi_wants_text(void) {
+#if defined(GRAPHICS_PC_EMULATOR)
+    return graphics_source_is_text();
+#else
+    return !graphics_source_is_pc_mode() && graphics_source_is_text();
+#endif
+}
+
+static bool hdmi_wants_wide(void) {
+    return graphics_source_is_pc_mode() && !hdmi_wants_text() &&
+           graphics_source_native_width() == 640u;
+}
+
 static void hdmi_change_workspace_mode(bool want_text, bool want_wide) {
     hdmi_initialize_palette();
     const bool had_small_palette = text_mode || wide_mode;
@@ -209,7 +225,12 @@ static void hdmi_change_workspace_mode(bool want_text, bool want_wide) {
     if (want_small_palette) {
         for (unsigned color = 0; color < 16; ++color) {
             const uint8_t *cached = workspace.text.graphics_rgb[color];
-            const uint32_t rgb = want_wide ?
+#if defined(GRAPHICS_PC_EMULATOR)
+            const bool cached_color = true; // the emulator also sets the text colours
+#else
+            const bool cached_color = want_wide;
+#endif
+            const uint32_t rgb = cached_color ?
                     ((uint32_t)cached[0] << 16 | (uint32_t)cached[1] << 8 | cached[2]) :
                     GRAPHICS_CGA_RGB(color);
             for (unsigned phase = 0; phase < 2; ++phase)
@@ -286,6 +307,29 @@ void __time_critical_func(hdmi_update_text_attributes)(unsigned state) {
     workspace.text.attribute_state = state;
 }
 
+// A text cell is a character byte and an attribute byte. The PC emulator
+// keeps each VRAM byte in a 32-bit word: its cells are eight bytes, with the
+// attribute at +4. The asm strings repeat these offsets.
+#if defined(GRAPHICS_PC_EMULATOR)
+#define HDMI_CELL_BYTES 8u
+#define HDMI_ATTRIBUTE_OFFSET 4u
+#define HDMI_ASM_CELL "8"            // one cell
+#define HDMI_ASM_ATTRIBUTE "4"       // attribute of this cell
+#define HDMI_ASM_PAIR "16"           // two cells
+#define HDMI_ASM_ATTRIBUTE0 "-12"    // after a pair step: first attribute
+#define HDMI_ASM_GLYPH1 "-8"         // second character
+#define HDMI_ASM_ATTRIBUTE1 "-4"     // second attribute; also after a one-cell step
+#else
+#define HDMI_CELL_BYTES 2u
+#define HDMI_ATTRIBUTE_OFFSET 1u
+#define HDMI_ASM_CELL "2"
+#define HDMI_ASM_ATTRIBUTE "1"
+#define HDMI_ASM_PAIR "4"
+#define HDMI_ASM_ATTRIBUTE0 "-3"
+#define HDMI_ASM_GLYPH1 "-2"
+#define HDMI_ASM_ATTRIBUTE1 "-1"
+#endif
+
 // Keep a fixed ABI at the hot kernels. The M0+ blocks explicitly preserve
 // r8/r9 too: these registers belong to the interrupted application. The M33
 // blocks use allocator-owned operands, so GCC generates their saved registers.
@@ -302,7 +346,7 @@ void __time_critical_func(hdmi_text_span_80)(uint8_t *output,
     // GCC cannot spill the stride and LUT pointers on every character. This
     // Thumb-1 loop needs 21 ideal core clocks/cell, including the taken branch.
     if (count == 0) return;
-    const uint8_t *end = cells + count * 2u;
+    const uint8_t *end = cells + count * HDMI_CELL_BYTES;
     register const uint8_t *limit __asm("r12") = end;
     uint32_t glyph, attribute;
     __asm volatile (
@@ -317,12 +361,12 @@ void __time_critical_func(hdmi_text_span_80)(uint8_t *output,
         "lsls %[glyph], %[glyph], #1\n"
         "ldrh %[glyph], [%[patterns], %[glyph]]\n"
         "lsls %[glyph], %[glyph], #8\n"
-        "ldrb %[attribute], [%[cells], #1]\n"
+        "ldrb %[attribute], [%[cells], #" HDMI_ASM_ATTRIBUTE "]\n"
         "lsls %[attribute], %[attribute], #2\n"
         "ldr %[attribute], [%[colors], %[attribute]]\n"
         "orrs %[glyph], %[attribute]\n"
         "stmia %[words]!, {%[glyph]}\n"
-        "adds %[cells], %[cells], #2\n"
+        "adds %[cells], %[cells], #" HDMI_ASM_CELL "\n"
         "cmp %[cells], r8\n"
         "bne 1b\n"
         "pop {%[glyph]}\n"
@@ -339,18 +383,18 @@ void __time_critical_func(hdmi_text_span_80)(uint8_t *output,
     // Handle an odd span first; STRD needs only four-byte output alignment.
     if (count & 1u) {
         const unsigned glyph = font[(unsigned)cells[0] * stride];
-        *words++ = colors[cells[1]] | (uint32_t)patterns[glyph] << 8;
-        cells += 2;
+        *words++ = colors[cells[HDMI_ATTRIBUTE_OFFSET]] | (uint32_t)patterns[glyph] << 8;
+        cells += HDMI_CELL_BYTES;
     }
     count >>= 1u; // pairs, including a possible final pair
     if (count == 0u) return;
     uint32_t glyph0, glyph1, attribute0, attribute1;
     // Interleave two independent cells to separate dependent SRAM loads.
 #define HDMI_M33_TEXT_PAIR \
-        "ldrb %[glyph0], [%[cells]], #4\n" \
-        "ldrb %[attribute0], [%[cells], #-3]\n" \
-        "ldrb %[glyph1], [%[cells], #-2]\n" \
-        "ldrb %[attribute1], [%[cells], #-1]\n" \
+        "ldrb %[glyph0], [%[cells]], #" HDMI_ASM_PAIR "\n" \
+        "ldrb %[attribute0], [%[cells], #" HDMI_ASM_ATTRIBUTE0 "]\n" \
+        "ldrb %[glyph1], [%[cells], #" HDMI_ASM_GLYPH1 "]\n" \
+        "ldrb %[attribute1], [%[cells], #" HDMI_ASM_ATTRIBUTE1 "]\n" \
         "mul %[glyph0], %[glyph0], %[stride]\n" \
         "mul %[glyph1], %[glyph1], %[stride]\n" \
         "ldr %[attribute0], [%[colors], %[attribute0], lsl #2]\n" \
@@ -385,12 +429,12 @@ void __time_critical_func(hdmi_text_span_80)(uint8_t *output,
     );
 #undef HDMI_M33_TEXT_PAIR
 #else
-    const uint8_t *end = cells + count * 2u;
+    const uint8_t *end = cells + count * HDMI_CELL_BYTES;
 #pragma GCC unroll 1
     while (cells != end) {
         const unsigned glyph = font[(unsigned)cells[0] * stride];
-        *words++ = colors[cells[1]] | (uint32_t)patterns[glyph] << 8;
-        cells += 2;
+        *words++ = colors[cells[HDMI_ATTRIBUTE_OFFSET]] | (uint32_t)patterns[glyph] << 8;
+        cells += HDMI_CELL_BYTES;
     }
 #endif
 }
@@ -405,7 +449,7 @@ void __time_critical_func(hdmi_text_span_40)(uint8_t *output,
     volatile hdmi_line_word_t *words = (volatile hdmi_line_word_t *)output;
 #if PICO_RP2040 && defined(__arm__)
     if (count == 0) return;
-    const uint8_t *end = cells + count * 2u;
+    const uint8_t *end = cells + count * HDMI_CELL_BYTES;
     register const uint8_t *limit __asm("r12") = end;
     uint32_t glyph, attribute;
     // As in the 80-column loop, no stack loads occur inside the hot loop.
@@ -429,7 +473,7 @@ void __time_critical_func(hdmi_text_span_40)(uint8_t *output,
         "muls %[glyph], %[stride]\n" \
         "ldrb %[glyph], [%[font], %[glyph]]\n" \
         "mov r9, %[glyph]\n" \
-        "ldrb %[attribute], [%[cells], #1]\n" \
+        "ldrb %[attribute], [%[cells], #" HDMI_ASM_ATTRIBUTE "]\n" \
         "lsls %[attribute], %[attribute], #2\n" \
         "ldr %[attribute], [%[colors], %[attribute]]\n" \
         first \
@@ -444,7 +488,7 @@ void __time_critical_func(hdmi_text_span_40)(uint8_t *output,
         "orrs %[glyph], %[attribute]\n" \
         "str %[glyph], [%[words], #4]\n" \
         "adds %[words], %[words], #8\n" \
-        "adds %[cells], %[cells], #2\n" \
+        "adds %[cells], %[cells], #" HDMI_ASM_CELL "\n" \
         "cmp %[cells], r8\n" \
         "bne 1b\n" \
         "pop {%[attribute]}\n" \
@@ -475,8 +519,8 @@ void __time_critical_func(hdmi_text_span_40)(uint8_t *output,
     __asm volatile ( \
         ".syntax unified\n" \
         "1:\n" \
-        "ldrb %[glyph], [%[cells]], #2\n" \
-        "ldrb %[attribute], [%[cells], #-1]\n" \
+        "ldrb %[glyph], [%[cells]], #" HDMI_ASM_CELL "\n" \
+        "ldrb %[attribute], [%[cells], #" HDMI_ASM_ATTRIBUTE1 "]\n" \
         "mul %[glyph], %[glyph], %[stride]\n" \
         "ldr %[attribute], [%[colors], %[attribute], lsl #2]\n" \
         "ldrb %[glyph], [%[font], %[glyph]]\n" \
@@ -502,24 +546,28 @@ void __time_critical_func(hdmi_text_span_40)(uint8_t *output,
     }
 #undef HDMI_M33_WIDE_LOOP
 #else
-    const uint8_t *end = cells + count * 2u;
+    const uint8_t *end = cells + count * HDMI_CELL_BYTES;
     const unsigned first_shift = text->msb_first ? 4u : 0u;
     const unsigned second_shift = first_shift ^ 4u;
 #pragma GCC unroll 1
     while (cells != end) {
         const unsigned glyph = font[(unsigned)cells[0] * stride];
-        const uint32_t color = colors[cells[1]];
+        const uint32_t color = colors[cells[HDMI_ATTRIBUTE_OFFSET]];
         words[0] = color | (uint32_t)patterns[(glyph >> first_shift) & 15u] << 8;
         words[1] = color | (uint32_t)patterns[(glyph >> second_shift) & 15u] << 8;
         words += 2;
-        cells += 2;
+        cells += HDMI_CELL_BYTES;
     }
 #endif
 }
 
 static __force_inline void hdmi_render_text(unsigned line, uint8_t *output) {
     struct graphics_text_line text;
+#if defined(GRAPHICS_PC_EMULATOR)
+    if (!graphics_source_pc_text_line(line, &text)) {
+#else
     if (!graphics_text_line(line, HDMI_ACTIVE_SCANLINES, &text)) {
+#endif
         hdmi_fill_words(output, hdmi_text_solid_command(0), 320);
         return;
     }
@@ -527,8 +575,8 @@ static __force_inline void hdmi_render_text(unsigned line, uint8_t *output) {
     if (state != workspace.text.attribute_state) hdmi_update_text_attributes(state);
     // A wrapped VRAM row consists of at most two spans; the API validates
     // even sizes and offsets. Byte loads also support an unaligned VRAM base.
-    const unsigned first = text.wrap_at / 2u < text.columns
-            ? (unsigned)(text.wrap_at / 2u) : text.columns;
+    const unsigned first = text.wrap_at / HDMI_CELL_BYTES < text.columns
+            ? (unsigned)(text.wrap_at / HDMI_CELL_BYTES) : text.columns;
     const unsigned bytes_per_cell = text.columns == 40 ? 8u : 4u;
     if (text.columns == 40) {
         hdmi_text_span_40(output, text.cells, first, &text);
@@ -544,7 +592,9 @@ static __force_inline void hdmi_render_text(unsigned line, uint8_t *output) {
     // The cursor overrides the glyph, including a blinking glyph. Patch just
     // its one/two commands instead of testing the cursor in every cell.
     if (text.cursor_visible) {
-        const unsigned attribute = graphics_text_cell(&text, text.cursor_column) >> 8;
+        const unsigned attribute = text.cursor_column < first
+                ? text.cells[text.cursor_column * HDMI_CELL_BYTES + HDMI_ATTRIBUTE_OFFSET]
+                : text.wrap_cells[(text.cursor_column - first) * HDMI_CELL_BYTES + HDMI_ATTRIBUTE_OFFSET];
         const uint32_t command = hdmi_text_attribute_word(attribute, text.blink_enabled, false) |
                                  UINT32_C(0x00dddd00); // eight foreground pixels
         volatile hdmi_line_word_t *cursor =
@@ -817,9 +867,8 @@ void graphics_set_mode(enum graphics_mode_t mode) {
     }
     const uint32_t irq_state = hdmi_enter();
     graphics_source_set_mode(mode);
-    const bool pc = graphics_source_is_pc_mode();
-    const bool want_text = !pc && graphics_source_is_text();
-    const bool want_wide = pc && graphics_source_native_width() == 640u;
+    const bool want_text = hdmi_wants_text();
+    const bool want_wide = hdmi_wants_wide();
     if (initialized && (want_text != text_mode || want_wide != wide_mode)) {
         hdmi_stop_output();
         hdmi_change_workspace_mode(want_text, want_wide);
@@ -865,7 +914,11 @@ void graphics_set_palette(uint8_t index, uint32_t color888) {
         cached[0] = (uint8_t)(color888 >> 16);
         cached[1] = (uint8_t)(color888 >> 8);
         cached[2] = (uint8_t)color888;
+#if defined(GRAPHICS_PC_EMULATOR)
+        if (index < 16u) { // PC text follows the palette too; both layouts share it
+#else
         if (wide_mode && index < 16u) {
+#endif
             for (unsigned phase = 0; phase < 2; ++phase)
                 hdmi_store_pixel(workspace.wide.palette[index + phase * 32u],
                                   hdmi_text_pixel(color888, phase));
@@ -908,9 +961,7 @@ void hdmi_graphics_init(void) {
     if (graphics_framebuffer == NULL) graphics_framebuffer = hdmi_primary_framebuffer;
 #endif
     pending_framebuffer = NULL;
-    const bool pc = graphics_source_is_pc_mode();
-    hdmi_change_workspace_mode(!pc && graphics_source_is_text(),
-            pc && graphics_source_native_width() == 640u);
+    hdmi_change_workspace_mode(hdmi_wants_text(), hdmi_wants_wide());
     sm_video_output = pio_claim_unused_sm(PIO_VIDEO, true);
     sm_address_converter = pio_claim_unused_sm(PIO_VIDEO_ADDR, true);
     dma_channel_control = dma_claim_unused_channel(true);

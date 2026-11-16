@@ -716,6 +716,37 @@ void __time_critical_func(graphics_source_render_vga_text)(
 
 }
 
+#if defined(GRAPHICS_PC_EMULATOR)
+bool __time_critical_func(graphics_source_pc_text_line)(unsigned row,
+                                                        struct graphics_text_line *line) {
+    graphics_pc_view_t view;
+    graphics_source_pc_view(&view);
+    if (view.vram == NULL || view.mode > TEXTMODE_80x25_COLOR || row >= 400u) return false;
+    graphics_pc_state_t state;
+    graphics_pc_snapshot(&state);
+    const unsigned columns = view.mode <= TEXTMODE_40x25_COLOR ? 40u : 80u;
+    const unsigned text_row = row >> 4;
+    const unsigned glyph_line = row & 15u;
+    const unsigned start = (0x8000u + (state.vram_offset << 1) + text_row * columns * 2u) & 65535u;
+    *line = (struct graphics_text_line){
+        .cells = (const uint8_t *)(view.vram + start),
+        .font = font_8x16,
+        .wrap_cells = (const uint8_t *)view.vram,
+        .wrap_at = (65536u - start) * 4u, // bytes before VRAM wraps
+        .columns = columns,
+        .glyph_line = glyph_line,
+        .font_stride = 16,
+        .cursor_column = state.cursor_x,
+        .msb_first = false,
+        .cursor_visible = state.cursor_x < columns &&
+                          pc_cursor_on_line(&state, text_row, glyph_line, 480u),
+        .blink_hidden = state.cursor_phase,
+        .blink_enabled = state.blink_mask == 0x7fu
+    };
+    return true;
+}
+#endif
+
 #include "graphics_pc_ntsc_fast.inc"
 
 static void __attribute__((noinline)) __time_critical_func(pc_vga8_general)(

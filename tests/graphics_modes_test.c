@@ -146,6 +146,48 @@ static void test_start_address(void) {
     for (unsigned x = 0; x < 6; ++x) assert(pixels[x] == x + 1);
 }
 
+// The PIO HDMI glyph expander draws PC text from graphics_source_pc_text_line().
+// Decode its cells like the expander (attribute word, blink, cursor, 64K wrap)
+// and compare with the pixel renderer.
+static void test_pc_text_line_source(void) {
+    const enum graphics_mode_t modes[] = {TEXTMODE_40x25_COLOR, TEXTMODE_80x25_COLOR};
+    const uint32_t offsets[] = {0, 1, 0x3ff0};
+    uint8_t expected[640];
+    for (unsigned m = 0; m < 2; ++m)
+    for (unsigned o = 0; o < 3; ++o)
+    for (unsigned blink = 0; blink < 4; ++blink) {
+        reset(modes[m]);
+        uint32_t seed = o * 7u + blink + 1u;
+        for (unsigned i = 0; i < 65536; ++i) vram[i] = (seed = seed * 1664525u + 1013904223u) >> 8;
+        state.vram_offset = offsets[o];
+        state.blink_mask = blink & 1u ? 0x7fu : 0xffu;
+        state.cursor_phase = (blink & 2u) != 0;
+        state.cursor_x = 7; state.cursor_y = 3; state.cursor_start = 13; state.cursor_end = 14;
+        for (unsigned row = 0; row < 480; ++row) {
+            struct graphics_text_line text;
+            const bool drawn = graphics_source_pc_text_line(row, &text);
+            line(row, 640, 480);
+            if (!drawn) { assert(row >= 400); expect_zero(640); continue; }
+            const unsigned first = text.wrap_at / 8u < text.columns ? (unsigned)(text.wrap_at / 8u) : text.columns;
+            const unsigned width = 640u / text.columns;
+            for (unsigned c = 0; c < text.columns; ++c) {
+                const uint8_t *cell = c < first ? text.cells + c * 8u : text.wrap_cells + (c - first) * 8u;
+                const unsigned attr = cell[4];
+                unsigned glyph = text.font[cell[0] * text.font_stride + text.glyph_line];
+                const unsigned background = (attr >> 4) & (text.blink_enabled ? 7u : 15u);
+                const bool cursor = text.cursor_visible && c == text.cursor_column;
+                // The cursor shows the real foreground, also on a hidden blinking cell.
+                const unsigned foreground = !cursor && text.blink_enabled && text.blink_hidden &&
+                        (attr & 128u) ? background : attr & 15u;
+                if (cursor) glyph = 0xffu;
+                for (unsigned x = 0; x < width; ++x)
+                    expected[c * width + x] = (glyph >> (x * 8u / width)) & 1u ? foreground : background;
+            }
+            assert(memcmp(pixels, expected, 640) == 0);
+        }
+    }
+}
+
 static void test_planar_and_indexed(void) {
     const enum graphics_mode_t modes[] = {EGA_320x200x16x4, EGA_640x200x16x4,
                                          EGA_640x350x16x4, VGA_640x480x16};
@@ -419,6 +461,7 @@ int main(void) {
     test_tandy_and_composite();
     test_planar_and_indexed();
     test_start_address();
+    test_pc_text_line_source();
     test_text();
     test_rebind_offsets_and_modes();
     test_fused_mapping();
