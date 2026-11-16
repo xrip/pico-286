@@ -56,6 +56,16 @@ static inline uint16_t i8253_get_current_count(const i8253_channel_s *channel) {
         return (uint16_t)(reload - ticks);
     }
 
+    if ((channel->operating_mode & 7) == 3) {
+        // mode 3 counts down by two in each half period; an odd divisor runs
+        // the longer high half from N and the shorter low half from N-1
+        const uint32_t phase = (uint32_t)(ticks % reload);
+        const uint32_t high_ticks = (reload + 1u) / 2;
+        if (phase < high_ticks) {
+            return (uint16_t)(reload - 2 * phase);
+        }
+        return (uint16_t)(reload - (reload & 1u) - 2 * (phase - high_ticks));
+    }
     return (uint16_t)(reload - 1 - ticks % reload);
 }
 
@@ -66,16 +76,23 @@ static inline uint8_t i8253_read(const uint16_t port_number) {
     }
 
     i8253_channel_s *channel = &i8253.channels[channel_index];
-    const uint16_t value = i8253_get_current_count(channel);
+    // a latched count is kept until all of its bytes are read
+    const uint16_t value = channel->latch_mode ? channel->latched_value : i8253_get_current_count(channel);
 
     switch (channel->access_mode) {
         case PIT_MODE_LOBYTE:
+            channel->latch_mode = 0;
             return (uint8_t)value;
         case PIT_MODE_HIBYTE:
+            channel->latch_mode = 0;
             return (uint8_t)(value >> 8);
         case PIT_MODE_TOGGLE:
             channel->byte_toggle ^= 1;
-            return channel->byte_toggle ? (uint8_t)value : (uint8_t)(value >> 8);
+            if (channel->byte_toggle) {
+                return (uint8_t)value;
+            }
+            channel->latch_mode = 0;
+            return (uint8_t)(value >> 8);
         default:
             return 0xFF;
     }

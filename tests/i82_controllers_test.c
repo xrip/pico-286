@@ -22,8 +22,10 @@ uint8_t port61;
 int speakerenabled;
 int timer_period;
 
+static uint64_t now_us = 1000000;
+
 uint64_t i8253_now_us(void) {
-    return 1000000;
+    return now_us;
 }
 
 static void test_i8259(void) {
@@ -79,6 +81,33 @@ static void test_i8253(void) {
     assert(i8253.channels[0].reload_value == 0x1234);
     assert(i8253.channels[0].operating_mode == 3);
     assert(timer_period == PIT_FREQUENCY / 0x1234);
+
+    // mode 3 counts down by two in each half period
+    i8253_write(0x43, 0x36);
+    i8253_write(0x40, 0x00);
+    i8253_write(0x40, 0x10); // divisor 0x1000 starts now
+    const uint64_t start = now_us;
+    now_us = start + 100; // 119 PIT ticks: high half
+    assert(i8253_read(0x40) == (uint8_t) (0x1000 - 2 * 119));
+    assert(i8253_read(0x40) == (uint8_t) ((0x1000 - 2 * 119) >> 8));
+    now_us = start + 1725; // 2058 PIT ticks: 10 ticks into the low half
+    assert(i8253_read(0x40) == (uint8_t) (0x1000 - 2 * 10));
+    assert(i8253_read(0x40) == (uint8_t) ((0x1000 - 2 * 10) >> 8));
+
+    // a latched count is kept until both of its bytes are read
+    i8253_write(0x43, 0x34); // channel 0, lo/hi, mode 2
+    i8253_write(0x40, 0x00);
+    i8253_write(0x40, 0x10);
+    const uint64_t latch_start = now_us;
+    now_us = latch_start + 100; // 119 ticks
+    i8253_write(0x43, 0x00);    // latch channel 0
+    const uint8_t latched_low = i8253_read(0x40);
+    now_us = latch_start + 1100; // 1312 ticks: the live count has moved on
+    const uint16_t latched = latched_low | (uint16_t) (i8253_read(0x40) << 8);
+    assert(latched == 0x1000 - 1 - 119);
+    const uint8_t live_low = i8253_read(0x40);
+    const uint16_t live = live_low | (uint16_t) (i8253_read(0x40) << 8);
+    assert(live == 0x1000 - 1 - 1312);
 }
 
 static void test_i8237(void) {
