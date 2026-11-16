@@ -4,7 +4,7 @@
 
 //#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
 //#define CPU_LIMIT_SHIFT_COUNT
-#define CPU_NO_SALC
+//#define CPU_NO_SALC
 //#define CPU_SET_HIGH_FLAGS
 #define CPU_286_STYLE_PUSH_SP
 #if PICO_ON_DEVICE
@@ -913,11 +913,7 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
             }
 
             if (cnt == 1) {
-                // of = cf ^ ( (s >> 7) & 1);
-                if ((s & 0x80) && cf)
-                    of = 1;
-                else
-                    of = 0;
+                of = cf ^ ((s >> 7) & 1);
             } else
                 of = 0;
             break;
@@ -2299,10 +2295,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
                 putmem8(CPU_ES, CPU_DI, portin(CPU_DX));
                 if (df) {
-                    CPU_SI = CPU_SI - 1;
                     CPU_DI = CPU_DI - 1;
                 } else {
-                    CPU_SI = CPU_SI + 1;
                     CPU_DI = CPU_DI + 1;
                 }
 
@@ -2325,10 +2319,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
                 putmem16(CPU_ES, CPU_DI, portin16(CPU_DX));
                 if (df) {
-                    CPU_SI = CPU_SI - 2;
                     CPU_DI = CPU_DI - 2;
                 } else {
-                    CPU_SI = CPU_SI + 2;
                     CPU_DI = CPU_DI + 2;
                 }
 
@@ -2352,10 +2344,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 portout(CPU_DX, getmem8(useseg, CPU_SI));
                 if (df) {
                     CPU_SI = CPU_SI - 1;
-                    CPU_DI = CPU_DI - 1;
                 } else {
                     CPU_SI = CPU_SI + 1;
-                    CPU_DI = CPU_DI + 1;
                 }
 
                 if (reptype) {
@@ -2378,10 +2368,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 portout16(CPU_DX, getmem16(useseg, CPU_SI));
                 if (df) {
                     CPU_SI = CPU_SI - 2;
-                    CPU_DI = CPU_DI - 2;
                 } else {
                     CPU_SI = CPU_SI + 2;
-                    CPU_DI = CPU_DI + 2;
                 }
 
                 if (reptype) {
@@ -3309,7 +3297,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
             case 0xC8: /* C8 ENTER (80186+) */
                 stacksize = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
-                nestlev = getmem8(CPU_CS, CPU_IP);
+                nestlev = getmem8(CPU_CS, CPU_IP) & 0x1F;
                 StepIP(1);
                 push(CPU_BP);
                 frametemp = CPU_SP;
@@ -3319,14 +3307,14 @@ void __not_in_flash() exec86(uint32_t execloops) {
                         temp16 < nestlev;
                         ++temp16) {
                         CPU_BP = CPU_BP - 2;
-                        push(CPU_BP);
+                        push(getmem16(CPU_SS, CPU_BP)); // outer frame pointer
                     }
 
                     push(frametemp); //CPU_SP);
                 }
 
                 CPU_BP = frametemp;
-                CPU_SP = CPU_BP - stacksize;
+                CPU_SP = CPU_SP - stacksize;
 
                 break;
 
