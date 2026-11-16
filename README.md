@@ -423,19 +423,19 @@ After successful compilation, build artifacts are placed in the `bin/<platform>/
 
 #### For Pico builds:
 The firmware filename is dynamically generated to reflect the build configuration, following this pattern:
-`286-<platform>-F<flash>-P<psram>-<cpu_freq>-<display>-<audio>.uf2`
+`286-<platform>[-F<flash>]-P<psram>-C<cpu_freq>MHz-<display>-<audio>.uf2`
 
 *   **`<platform>`**: `RP2040` or `RP2350`.
-*   **`F<flash>`**: Flash frequency (e.g., `F100` for 100MHz).
+*   **`F<flash>`**: RP2040 only; the configured flash value (e.g., `F100`), not a measured flash clock. RP2350 filenames omit this field.
 *   **`P<psram>`**: PSRAM frequency (e.g., `P166` for 166MHz).
-*   **`<cpu_freq>`**: CPU frequency in MHz (e.g., `504MHz`).
+*   **`C<cpu_freq>MHz`**: CPU frequency in MHz (e.g., `C500MHz`).
 *   **`<display>`**: `TFT`, `VGA`, `HDMI`, or `NTSC`.
 *   **`<audio>`**: `I2S`, `PWM`, or `HW` (Hardware).
 
 **Example Filenames:**
-*   `286-RP2350-F100-P166-504MHz-HDMI-I2S.uf2` (Pico2 with HDMI, Butter-PSRAM)
-*   `286-RP2350-F100-P166-378MHz-VGA-PWM.uf2` (Pico2 with VGA, external PSRAM)
-*   `286-RP2040-F100-P166-366MHz-VGA-PWM.uf2` (RP2040 with VGA)
+*   `286-RP2350-P166-C504MHz-HDMI-I2S.uf2` (Pico2 with HDMI, Butter-PSRAM)
+*   `286-RP2350-P166-C378MHz-VGA-PWM.uf2` (Pico2 with VGA, external PSRAM)
+*   `286-RP2040-F100-P166-C366MHz-VGA-PWM.uf2` (RP2040 with VGA)
 
 The following files are generated:
 *   `.uf2`: The firmware file for flashing to the Pico.

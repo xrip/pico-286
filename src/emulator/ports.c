@@ -6,6 +6,9 @@
 #include <hardware/pwm.h>
 extern int16_t keyboard_send(uint8_t data);
 #include "nespad.h"
+#if defined(VGA)
+#include "vga_crtc.h"
+#endif
 #endif
 
 #include <emu8950.h>
@@ -15,12 +18,46 @@ OPL *emu8950_opl;
 #include "audio/dss.c.inl"
 #include "audio/mpu401.c.inl"
 #include "audio/sound_blaster.c.inl"
-#include "i8237.c.inl"
-
 uint8_t crt_controller_idx, crt_controller[32];
 uint8_t port60, port61, port64;
+
+// Keyboard queue: a scancode goes to port 60h only after the one before it is read.
+// One producer (the host input code) and one consumer (exec86).
+static uint8_t keyboard_queue[16];
+static uint8_t keyboard_head, keyboard_tail;
+static bool port60_read = true;
+
+void keyboard_push(const uint8_t scancode) {
+    const uint8_t head = keyboard_head;
+    const uint8_t next = (head + 1) % sizeof(keyboard_queue);
+    if (next == __atomic_load_n(&keyboard_tail, __ATOMIC_ACQUIRE)) return; // full: the key is lost
+    keyboard_queue[head] = scancode;
+    __atomic_store_n(&keyboard_head, next, __ATOMIC_RELEASE);
+}
+
+void keyboard_pump(void) {
+    if (i8259.in_service_register & 2) return;
+    if (port60_read) {
+        const uint8_t tail = keyboard_tail;
+        if (tail == __atomic_load_n(&keyboard_head, __ATOMIC_ACQUIRE)) return;
+        port60 = keyboard_queue[tail];
+        __atomic_store_n(&keyboard_tail, (uint8_t)((tail + 1) % sizeof(keyboard_queue)), __ATOMIC_RELEASE);
+        port60_read = false;
+        port64 |= 2;
+    }
+    doirq(1); // like the 8042: IRQ1 stays up until port 60h is read, even after ICW1 clears IRR
+}
+
 uint8_t cursor_start = 12, cursor_end = 13;
 uint32_t vram_offset = 0x0;
+
+dma_channel_s dma_channels[DMA_CHANNELS] = {
+    {.masked = 1},
+    {.masked = 1},
+    {.masked = 1},
+    {.masked = 1},
+};
+uint8_t i8237_byte_flipflop;
 
 int sound_chips_clock = 0;
 
@@ -119,28 +156,17 @@ void portout(uint16_t portnum, uint16_t value) {
             return i8237_writeport(portnum, value);
         case 0x20:
         case 0x21: // i8259 PIC
-            return out8259(portnum, value);
+            return i8259_write(portnum, value);
         case 0x40:
         case 0x41:
         case 0x42:
         case 0x43: // i8253 PIT
-            return out8253(portnum, value);
+            return i8253_write(portnum, value);
         case 0x61: // PC Speaker
             port61 = value;
-            if ((value & 3) == 3) {
-#if I2S_SOUND || HARDWARE_SOUND || !PICO_ON_DEVICE
-                speakerenabled = 1;
-#else
-                pwm_set_gpio_level(PWM_BEEPER, 127);
+#if SPEAKER_ON_PWM_PIN
+            speaker_update();
 #endif
-            } else {
-#if I2S_SOUND || HARDWARE_SOUND || !PICO_ON_DEVICE
-                speakerenabled = 0;
-#else
-                pwm_set_gpio_level(PWM_BEEPER, 0);
-#endif
-            }
-
             break;
         case 0x64: // Keyboard Controller
 #if PICO_ON_DEVICE
@@ -339,11 +365,11 @@ if (sound_chips_clock) {
 
 // Screen offset
                 case 0x0C: // Start address (MSB)
-                    vram_offset = (value & 0xff) << 8;
+                    vram_offset = (vram_offset & 0xffu) | ((value & 0xffu) << 8);
                     // printf("vram offset %04X\n", vram_offset);
                     break;
                 case 0x0D: // Start address (LSB)
-                    vram_offset |= (value & 0xff);
+                    vram_offset = (vram_offset & 0xff00u) | (value & 0xffu);
                     // printf("vram offset %04X\n", vram_offset);
                     break;
             }
@@ -352,6 +378,9 @@ if (sound_chips_clock) {
 //                printf("CRT %x %x\n", crt_controller_idx, value);
 
             crt_controller[crt_controller_idx] = value;
+#if PICO_ON_DEVICE && defined(VGA)
+            vga_crtc_write(crt_controller_idx, value);
+#endif
 
             break;
         case 0x3B8:
@@ -400,15 +429,15 @@ uint16_t portin(uint16_t portnum) {
             return i8237_readport(portnum);
         case 0x20:
         case 0x21: // i8259 PIC
-            return in8259(portnum);
+            return i8259_read(portnum);
         case 0x40:
         case 0x41:
         case 0x42:
-        case 0x43: // i8253 PIT
-            return in8253(portnum);
+            return i8253_read(portnum);
 
 // Keyboard
         case 0x60:
+            port60_read = true;
             return port60;
         case 0x61:
             return port61;
@@ -548,8 +577,14 @@ void get_sound_sample(const int16_t other_sample, int16_t *samples) {
 #else
     OPL_calc_buffer_linear(emu8950_opl, (int32_t *)samples, 1);
 
-    samples[1] = samples[0] += (int32_t)(speaker_sample() + other_sample + covox_sample + sn76489_sample());
-    midi_sample(samples);
+    samples[1] = samples[0] += (int32_t)(speaker_sample() + other_sample + covox_sample + sn76489_sample()
+#if !defined(MIDI_GM_DLS)
+            + midi_sample()
+#endif
+    );
+#if defined(MIDI_GM_DLS)
+    midi_dls_mix(samples);
+#endif
     cms_samples(samples);
 #endif
 

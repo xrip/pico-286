@@ -18,7 +18,7 @@ DWORD bytesWritten;
 DCB dcb;
 extern OPL *emu8950_opl;
 
-#define AUDIO_BUFFER_LENGTH ((SOUND_FREQUENCY / 5))
+#define AUDIO_BUFFER_LENGTH ((SOUND_FREQUENCY / 10))
 static int16_t audio_buffer[AUDIO_BUFFER_LENGTH * 2] = {};
 static int sample_index = 0;
 
@@ -237,11 +237,11 @@ static INLINE void renderer() {
                             break;
                     }
 
-                    uint32_t *tga_row = &VIDEORAM[tga_offset + (y / 2 >> 1) * 80 + (y / 2 & 1) * 8192]; // Precompute row start
+                    const uint32_t tga_bank = tga_offset + (y / 2 & 1) * 8192, tga_line = (y / 2 >> 1) * 80;
 
                     // Each byte containing 28 pixels
-                    for (int x = 320 / 4; x--;) {
-                        uint8_t two_pixels = *tga_row++; // Fetch 2 pixels from TGA memory
+                    for (int x = 0; x < 80; x++) {
+                        uint8_t two_pixels = VIDEORAM[tga_line_byte(tga_bank, tga_line, x)]; // Fetch 2 pixels from TGA memory
                         uint8_t pixel1_color = two_pixels >> 4;
                         uint8_t pixel2_color = two_pixels & 15;
 
@@ -255,12 +255,11 @@ static INLINE void renderer() {
                     break;
                 }
                 case 0x09: /* tandy 320x200 16 color */ {
-                    uint32_t *tga_row = &VIDEORAM[tga_offset + (y / 2 & 3) * 8192 + y / 8 * 160];
-                    //                  uint8_t *tga_row = &VIDEORAM[tga_offset+(((y / 2) & 3) * 8192) + ((y / 8) * 160)];
+                    const uint32_t tga_bank = tga_offset + (y / 2 & 3) * 8192, tga_line = y / 8 * 160;
 
                     // Each byte containing 4 pixels
-                    for (int x = 320 / 2; x--;) {
-                        uint8_t tga_byte = *tga_row++ & 0xFF;
+                    for (int x = 0; x < 160; x++) {
+                        uint8_t tga_byte = VIDEORAM[tga_line_byte(tga_bank, tga_line, x)] & 0xFF;
                         *pixels++ = *pixels++ = tga_palette[tga_palette_map[tga_byte >> 4 & 15]];
                         *pixels++ = *pixels++ = tga_palette[tga_palette_map[tga_byte & 15]];
                     }
@@ -278,9 +277,9 @@ static INLINE void renderer() {
                     break;
                 }
                 case 0x0D: /* EGA 320x200 16-color */ {
-                    const uint32_t *ega_row = &VIDEORAM[(y / 2) * 40];
+                    const uint32_t ega_row = ega_line_start(y / 2);
                     for (int i = 0; i < 40; i++) {
-                        uint32_t ega_planes = *ega_row++;
+                        uint32_t ega_planes = VIDEORAM[(ega_row + i) & 0xFFFF];
 
                         // Build 8 color nibbles packed into a 32-bit word
                         uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
@@ -298,9 +297,9 @@ static INLINE void renderer() {
                     break;
                 }
                 case 0x0E: /* EGA 640x200 16-color */ {
-                    const uint32_t *ega_row = &VIDEORAM[(y / 2) * 80];
+                    const uint32_t ega_row = ega_line_start(y / 2);
                     for (int i = 0; i < 80; i++) {
-                        uint32_t ega_planes = *ega_row++;
+                        uint32_t ega_planes = VIDEORAM[(ega_row + i) & 0xFFFF];
 
                         // Build 8 color nibbles packed into a 32-bit word
                         uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
@@ -320,9 +319,9 @@ static INLINE void renderer() {
                 case 0x10: /* EGA 640x350 16-color */
                     if (y >= 350) break;
                 case 0x12: /* VGA 640x480 16-color */ {
-                    const uint32_t *ega_row = &VIDEORAM[y * 80];
+                    const uint32_t ega_row = ega_line_start(y);
                     for (int i = 0; i < 80; i++) {
-                        uint32_t ega_planes = *ega_row++;
+                        uint32_t ega_planes = VIDEORAM[(ega_row + i) & 0xFFFF];
 
                         // Build 8 color nibbles packed into a 32-bit word
                         uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
@@ -923,10 +922,7 @@ extern "C" void HandleInput(WPARAM wParam, BOOL isKeyDown) {
         scancode |= 0x80;
     }
 
-    port60 = scancode;
-    port64 |= 2;
-
-    doirq(1);
+    keyboard_push(scancode);
     //printf("scancode %c", scancode);
 }
 

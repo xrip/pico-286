@@ -114,7 +114,11 @@ static int dma_chan_pal_conv_ctrl = -1;
 static int dma_chan_pal_conv = -1;
 
 //ДМА палитра для конвертации
+#if PICO_RP2350
+static __aligned(512) uint32_t conv_color[128];
+#else
 static __aligned(512) __scratch_x("palette_conv") uint32_t conv_color[128];
+#endif
 
 static enum graphics_mode_t graphics_mode;
 static output_format_e active_output_format;
@@ -155,7 +159,11 @@ void graphics_set_palette(uint8_t i, uint32_t color888) {
 
 
 //основная функция заполнения буферов видеоданных
+#if PICO_RP2350
+static void __not_in_flash("tv_main_loop") main_video_loopTV() {
+#else
 static void __scratch_x("tv_main_loop") main_video_loopTV() {
+#endif
     static uint dma_inx_out = 0;
     static uint lines_buf_inx = 0;
 

@@ -23,8 +23,8 @@
 
 MEMORY
 {
-    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = (16 * 1024 * 1024)
-    CMOS(rx) : ORIGIN = 0x10200000, LENGTH = 4k
+    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = (16 * 1024 * 1024 - 4k)
+    CMOS(rx) : ORIGIN = 0x10fff000, LENGTH = 4k
     RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 512k
     SCRATCH_X(rwx) : ORIGIN = 0x20080000, LENGTH = 4k
     SCRATCH_Y(rwx) : ORIGIN = 0x20081000, LENGTH = 4k
@@ -61,7 +61,7 @@ SECTIONS
          * FLASH ... we will include any thing excluded here in .data below by default */
         *(.init)
         *libgcc.a:cmse_nonsecure_call.o
-        *(EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libm.a:) .text*)
+        *(EXCLUDE_FILE(*libgcc.a: *lib[cg].a:*lib*_a-mem*.o *libm.a:) .text*)
         *(.fini)
         /* Pull all c'tors into .text */
         *crtbegin.o(.ctors)
@@ -123,7 +123,7 @@ SECTIONS
         "ERROR: Pico second stage bootloader must be no more than 256 bytes in size")
 
     .rodata : {
-        *(EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libm.a:) .rodata*)
+        *(EXCLUDE_FILE(*libgcc.a: *lib[cg].a:*lib*_a-mem*.o *libm.a:) .rodata*)
         *(.srodata*)
         . = ALIGN(4);
         *(SORT_BY_ALIGNMENT(SORT_BY_NAME(.flashdata*)))
@@ -171,11 +171,13 @@ SECTIONS
         __data_start__ = .;
         *(vtable)
 
+        __ram_code_start__ = .;
         *(.time_critical*)
 
         /* remaining .text and .rodata; i.e. stuff we exclude above because we want it in RAM */
         *(.text*)
         . = ALIGN(4);
+        __ram_code_end__ = .;
         *(.rodata*)
         . = ALIGN(4);
 
@@ -254,6 +256,9 @@ SECTIONS
         __scratch_y_end__ = .;
     } > SCRATCH_Y AT > FLASH
     __scratch_y_source__ = LOADADDR(.scratch_y);
+
+    ASSERT(SIZEOF(.scratch_x) == 0, "RP2350 scratch X is reserved for the core 1 stack")
+    ASSERT(SIZEOF(.scratch_y) == 0, "RP2350 scratch Y is reserved for the core 0 stack")
 
     /* .stack*_dummy section doesn't contains any symbols. It is only
      * used for linker to calculate size of stack sections, and assign

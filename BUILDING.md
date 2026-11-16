@@ -119,16 +119,131 @@ These builds target the Raspberry Pi Pico boards. The following instructions cre
 
 You can customize the build by enabling different options in the CMake command.
 
-### Display Options (mutually exclusive)
+### Display Options
 - `ENABLE_NTSC-TV=ON`: Use NTSC TV output.
 - `ENABLE_VGA=ON`: Use VGA output.
 - `ENABLE_HDMI=ON`: Use HDMI output.
 - `ENABLE_TFT=ON`: Use TFT display output.
 
+One of HDMI, VGA, or TFT may run with `ENABLE_NTSC-TV=ON`. NTSC may also run
+alone. M2P2 HDMI selects HSTX; RP2040 HDMI keeps the PIO driver. HDMI+NTSC
+requires M2P2 HSTX.
+
+M2P2 HDMI uses HSTX by default. An M2P2 HDMI build for a platform other than
+`rp2350-arm-s` is rejected; it cannot silently select PIO. RP2040 keeps PIO HDMI.
+For the explicit PIO/PWM comparison test, use `m2p2-hdmi-pio`. It runs at
+504 MHz so the PIO serializer gets exactly 252 MHz; NTSC is not paired with it.
+
+```sh
+cmake --preset m2p2-hdmi-pio
+cmake --build --preset m2p2-hdmi-pio
+```
+
+Its output ends in `-C504MHz-HDMI-PIO-PWM.uf2`. Normal M2P2 presets remain HSTX.
+The PIO test includes USB diagnostics and the 1200-baud BOOTSEL reset.
+Send one command at a time: `c` for clocks and memory timing, `s` for emulation
+and audio progress plus guest CS:IP/PIC state, `v` for PIO frame/IRQ progress,
+`d` for DMA/PIO status, `0` through `3` for DMA channels, and `f`/`g` for
+the core 1 fault record. Commands run from the USB worker IRQ, so they can
+work while the core 0 main loop is stuck. A core 0 HardFault or disabled
+interrupts will also stop USB. Counters and register reads are live samples.
+
+For M2P2 with at least 8 MB onboard QMI PSRAM, use the presets:
+
+```sh
+cmake --preset m2p2-hdmi-ntsc
+cmake --build --preset m2p2-hdmi-ntsc
+```
+
+Other presets: `m2p2-hdmi`, `m2p2-vga`, `m2p2-vga-ntsc`, `m2p2-tft`,
+`m2p2-tft-ntsc`, and `m2p2-ntsc`. They use PWM sound and NTSC GPIO22.
+Set `PICO_SDK_PATH` and make the ARM compiler, Ninja, and a host C++ compiler
+available. A compiler outside PATH may be given with
+`-DPICO_TOOLCHAIN_PATH=/path/to/arm-toolchain` at configure time.
+
+These presets set `ONBOARD_PSRAM=ON` and omit the SRAM fallback cache.
+RP2350 code, lookup tables, palettes, and swap metadata use normal SRAM.
+Scratch X and Y are reserved for separate 4 KB core stacks, with hardware
+stack-limit checks. The linker rejects non-stack scratch allocations.
+RP2040 keeps its existing placement.
+`m2p2-hdmi` builds HSTX-only at 500 MHz (1.60 V). HSTX+NTSC stays at 315 MHz
+(1.30 V). Both take the 126 MHz HSTX clock from a separate PLL_USB and stop
+USB/ADC. USB debugging and USB-triggered BOOTSEL are unavailable in these
+profiles; use the board's BOOTSEL button for the next flash.
+
+On RP2350, the OPL2 assembly runs from normal SRAM (2 KB), with its logic
+unchanged. Both flash and SRAM versions have faulted during HDMI interrupts
+at 504 MHz; the SRAM change is not a complete fix. See the
+[OPL2 board record](tests/graphics-perf/results/hstx-opl-sram.md).
+
+Every M2P2 build checks the flash Quad Enable bit before overclocking. If the
+bit is clear, the startup code sets and verifies it while running from RAM;
+if it is already set, no status-register write is made. The RP2350 ROM selects
+the initial flash read mode, then startup selects quad reads before
+PSRAM or core 1 starts. See [flash setup](drivers/flash-config/README.md).
+The flash timing now preserves the ROM boot profile's physical intervals
+and maximum rate when SYS changes. On the tested board, 50 MHz stock flash
+becomes about 45.45 MHz at 500 MHz SYS. This also retains the ROM QSPI pad settings.
+RP2350 filenames omit the flash speed field. The old `F100` label was the
+configured speed limit, not the actual flash clock. On M2P2, the actual rate
+depends on the boot profile, CPU clock, and saved timing settings.
+
+For the HDMI-only file:
+
+```sh
+cmake --preset m2p2-hdmi
+cmake --build --preset m2p2-hdmi
+```
+
+Output: `bin/rp2350-arm-s/Release/m2p2-286-P166-C500MHz-HDMI-HSTX-PWM.uf2`.
+For HDMI audio, turn off the other sound outputs:
+
+```sh
+cmake --preset m2p2-hdmi -DENABLE_PWM_SOUND=OFF -DENABLE_I2S_SOUND=OFF -DENABLE_HARDWARE_SOUND=OFF
+cmake --build --preset m2p2-hdmi
+```
+
+That output ends in `-C500MHz-HDMI-HSTX-HDMIAUDIO.uf2`. The independent-PLL
+500 MHz profile is under board testing; earlier 504 MHz checks are recorded
+in the [historical board record](tests/graphics-perf/results/hstx-504-board.md).
+See [VIDEO_MODES.md](VIDEO_MODES.md) for layouts and the board timing test.
+
 ### Audio Options (mutually exclusive)
+- With HSTX and all three options below off, audio goes over HDMI at 44.1 kHz, 16-bit stereo.
 - `ENABLE_I2S_SOUND=ON`: Use I2S for audio.
 - `ENABLE_PWM_SOUND=ON`: Use PWM for audio.
 - `ENABLE_HARDWARE_SOUND=ON`: Use a hardware sound chip.
+
+### Optional GM.DLS MIDI on RP2350
+
+`MIDI_GM_DLS=ON` selects the wavetable engine from the `midi` branch.
+The default remains the sine/noise MIDI engine. HDMI audio stays at 44,100 Hz.
+The packed bank must use that same rate; a 22,050 Hz bank is rejected.
+
+Pack your local `gm.dls` with a host C compiler:
+
+```sh
+cc -std=c11 -O2 tools/dls_pack.c -lm -o dls_pack
+./dls_pack gm.dls src/emulator/audio/gm_bank_44100.bin 44100
+```
+
+Then build M2P2 HSTX video and HDMI audio with GM.DLS:
+
+```sh
+cmake --preset m2p2-hdmi -DMIDI_GM_DLS=ON -DENABLE_PWM_SOUND=OFF -DENABLE_I2S_SOUND=OFF -DENABLE_HARDWARE_SOUND=OFF
+cmake --build --preset m2p2-hdmi
+```
+
+Output: `bin/rp2350-arm-s/Release/m2p2-286-P166-C500MHz-HDMI-HSTX-HDMIAUDIO-GMDLS.uf2`.
+`MIDI_GM_BANK` can point to another packed v4 bank at 44,100 Hz.
+The bank stays in flash; the engine has 32 voices and preserves stereo pan.
+MIDI commands go through a queue to the audio core. The engine does not
+allocate a wave cache during playback. MPU-401 reset clears its voices.
+
+RP2350 Arm builds use 16 MB flash in both SDK settings and linker scripts.
+The last 4 KB is reserved for CMOS; the launcher layout also reserves the
+first 64 KB. This requires a board with 16 MB physical flash.
+The GM.DLS option currently targets RP2350 Arm.
 
 Example of a different configuration (HDMI for rp2040):
 ```sh
@@ -141,4 +256,5 @@ cmake .. -DPICO_PLATFORM=rp2040 -DENABLE_HDMI=ON -DENABLE_I2S_SOUND=ON
 The project uses a custom boot stage 2 (`slower_boot2`) for Pico builds. This configuration slows down the flash clock divider, which can improve system stability, especially on startup.
 
 ### `PICO_BOARD` Variable
-The build system sets a `PICO_BOARD` variable to `pico2` internally. This is a low-level setting for the Pico SDK and is not intended to be changed by the user. The primary way to select the target hardware is via the `PICO_PLATFORM` variable (`rp2040` or `rp2350`).
+Set `PICO_BOARD=pico` for RP2040 or `PICO_BOARD=pico2` for RP2350 before the SDK
+is loaded. The M2P2 presets set `pico2` and `PICO_PLATFORM=rp2350-arm-s`.

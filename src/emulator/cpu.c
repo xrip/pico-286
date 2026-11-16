@@ -4,7 +4,7 @@
 
 //#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
 //#define CPU_LIMIT_SHIFT_COUNT
-#define CPU_NO_SALC
+//#define CPU_NO_SALC
 //#define CPU_SET_HIGH_FLAGS
 #define CPU_286_STYLE_PUSH_SP
 #if PICO_ON_DEVICE
@@ -12,6 +12,9 @@
 #include "disks-rp2350.c.inl"
 #include "network-redirector-rp2350.c.inl"
 #include "graphics.h"
+#if defined(VGA)
+#include "vga_crtc.h"
+#endif
 #include "psram_spi.h"
 #include "swap.h"
 #else
@@ -497,6 +500,9 @@ void intcall86(uint8_t intnum) {
                     // http://www.techhelpmanual.com/89-video_memory_layouts.html
 
                     videomode = CPU_AL & 0x7F;
+#if PICO_ON_DEVICE && defined(VGA)
+                    vga_crtc_reset(videomode);
+#endif
 
                     FIRST_RAM_PAGE[0x449] = CPU_AL;
                     FIRST_RAM_PAGE[0x44A] = videomode <= 2 || (videomode >= 0x8 && videomode <= 0xa) ? 40 : 80;
@@ -506,9 +512,10 @@ void intcall86(uint8_t intnum) {
                     if ((CPU_AL & 0x80) == 0x00) {
                         memset(VIDEORAM, 0x0, sizeof(VIDEORAM));
                     }
-                    vga_plane_offset = 0;
+                    vga_set_cpu_page_offset(0);
                     vga_planar_mode = 0;
                     tga_offset = 0x8000;
+                    crt_controller[0x13] = videomode == 0x0D ? 0x14 : 0x28; // line width in words; the BIOS does not set it
                     break;
                 case 0x05: /* Select Active Page */ {
                     if (CPU_AL >= 0x80) {
@@ -635,14 +642,31 @@ void intcall86(uint8_t intnum) {
         case 0x15: /* XMS */
             switch (CPU_AH) {
                 case 0x87: {
-                    //https://github.com/neozeed/himem.sys-2.06/blob/5761f4fc182543b3964fd0d3a236d04bac7bfb50/oemsrc/himem.asm#L690
-                    //                    printf("mem move?! %x %x:%x\n", CPU_CX, CPU_ES, CPU_SI);
-                    CPU_AX = 0;
+                    // Block move: ES:SI -> GDT, CX = words
+                    uint32_t src_descriptor = segbase(CPU_ES) + CPU_SI + 0x10;
+                    uint32_t dst_descriptor = segbase(CPU_ES) + CPU_SI + 0x18;
+                    uint32_t bytes = CPU_CX * 2u;
+                    if (bytes > readw86(src_descriptor) + 1u || bytes > readw86(dst_descriptor) + 1u) {
+                        CPU_AH = 2; // exception: past the segment limit
+                        CPU_FL_CF = 1;
+                        return;
+                    }
+                    uint32_t src = readdw86(src_descriptor + 2) & 0xFFFFFF;
+                    uint32_t dst = readdw86(dst_descriptor + 2) & 0xFFFFFF;
+                    int saved_a20 = a20_enabled;
+                    a20_enabled = 1; // the BIOS opens A20 for the move
+                    for (uint32_t i = 0; i < bytes; i += 2) {
+                        writew_linear(dst + i, readw_linear(src + i));
+                    }
+                    a20_enabled = saved_a20;
+                    CPU_AH = 0;
+                    CPU_FL_CF = 0;
                     return;
                 }
-                    return;
                 case 0x88: {
-                    CPU_AX = 64;
+                    // KB above 1 MB: HMA, then XMS[] (shared with the XMS driver)
+                    CPU_AX = (HMA_END - HMA_START + XMS_MEMORY_SIZE) / 1024;
+                    CPU_FL_CF = 0;
                     return;
                 }
             }
@@ -896,11 +920,7 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
             }
 
             if (cnt == 1) {
-                // of = cf ^ ( (s >> 7) & 1);
-                if ((s & 0x80) && cf)
-                    of = 1;
-                else
-                    of = 0;
+                of = cf ^ ((s >> 7) & 1);
             } else
                 of = 0;
             break;
@@ -1112,10 +1132,18 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
     return (uint16_t) s & 0xFFFF;
 }
 
+static uint16_t firstip; // IP of the current instruction, with its prefixes
+
+// A 286 fault returns to the instruction that caused it
+static void cpu_fault(const uint8_t vector) {
+    ip = firstip;
+    intcall86(vector);
+}
+
 static inline void op_div8(uint16_t valdiv, uint8_t divisor) {
     if (divisor == 0 || valdiv / divisor > 0xFF) {
         printf("[op_div8] %d / %d\n", valdiv, divisor);
-        intcall86(0);
+        cpu_fault(0);
         return;
     }
 
@@ -1126,7 +1154,7 @@ static inline void op_div8(uint16_t valdiv, uint8_t divisor) {
 static inline void op_idiv8(uint16_t valdiv, int8_t divisor) {
     if (divisor == 0) {
         printf("[op_idiv8] %d / 0\n", valdiv);
-        intcall86(0);
+        cpu_fault(0);
         return;
     }
     int16_t dividend = (int16_t) valdiv;
@@ -1134,7 +1162,7 @@ static inline void op_idiv8(uint16_t valdiv, int8_t divisor) {
     int16_t remainder = dividend % divisor;
     if (quotient < -128 || quotient > 127) {
         printf("[op_idiv8] %d / %d overflow\n", dividend, divisor);
-        intcall86(0);
+        cpu_fault(0);
         return;
     }
     CPU_AL = (uint8_t)quotient;
@@ -1146,7 +1174,7 @@ static inline void op_div16(uint32_t valdiv, uint16_t divisor) {
 //        CPU_DX = 0;
 //        CPU_AX = 0xFFFF;
 //        printf("[op_div16] %d / %d\n", valdiv, divisor);
-        intcall86(0);
+        cpu_fault(0);
         return;
     }
 
@@ -1159,14 +1187,14 @@ static inline void op_idiv16(uint32_t valdiv, uint16_t divisor) {
     int16_t divisor_signed = (int16_t)divisor;
     if (divisor_signed == 0) {
         printf("[op_idiv16] %d / 0\n", dividend);
-        intcall86(0);
+        cpu_fault(0);
         return;
     }
     int32_t quotient  = dividend / divisor_signed;
     int32_t remainder = dividend % divisor_signed;
     if (quotient < -32768 || quotient > 32767) {
         printf("[op_idiv16] %d / %d overflow\n", dividend, divisor_signed);
-        intcall86(0);
+        cpu_fault(0);
         return;
     }
     CPU_AX = (uint16_t)quotient;
@@ -1285,7 +1313,59 @@ static __not_in_flash() void op_grp5() {
     }
 }
 
+// Machine status word: bits 4-15 read as 1. PE (bit 0) stays 0, protected mode is not emulated
+static uint16_t msw;
+// GDTR and IDTR as SGDT/LGDT see them: 16-bit limit, 24-bit base.
+// They are only stored: real-mode interrupts always use the table at 0
+static uint8_t descriptor_table_registers[2][5];
+
+// 0F: the 286 system instructions that work in real mode; the others are invalid (#UD)
+static __not_in_flash() void op_0f() {
+    const uint8_t opcode = getmem8(CPU_CS, CPU_IP);
+    StepIP(1);
+    if (opcode == 0x06) { // CLTS
+        msw &= ~8;
+        return;
+    }
+    if (opcode != 0x01) {
+        cpu_fault(6);
+        return;
+    }
+    modregrm();
+    switch (reg) {
+        case 0: // SGDT
+        case 1: // SIDT
+        case 2: // LGDT
+        case 3: { // LIDT
+            if (mode == 3) break;
+            getea(rm);
+            uint8_t *table_register = descriptor_table_registers[reg & 1];
+            if (reg < 2) { // store
+                for (int i = 0; i < 5; i++) write86(ea + i, table_register[i]);
+                write86(ea + 5, 0xFF); // a 286 stores FFh here, a 386 stores 00h
+            } else { // load
+                for (int i = 0; i < 5; i++) table_register[i] = read86(ea + i);
+            }
+            return;
+        }
+        case 4: // SMSW
+            writerm16(rm, msw);
+            return;
+        case 6: { // LMSW
+            const uint16_t value = readrm16(rm);
+            if (value & 1) printf("[CPU] LMSW: protected mode is not emulated\r\n");
+            msw = 0xFFF0 | (value & 0x0E); // MP, EM, TS
+            return;
+        }
+    }
+    cpu_fault(6);
+}
+
 void reset86() {
+    msw = 0xFFF0;
+    memset(descriptor_table_registers, 0, sizeof(descriptor_table_registers));
+    descriptor_table_registers[1][0] = 0xFF; // IDT limit 03FFh
+    descriptor_table_registers[1][1] = 0x03;
     CPU_CS = 0xFFFF;
     CPU_SS = 0x0000;
     CPU_SP = 0x0000;
@@ -1295,7 +1375,9 @@ void reset86() {
         memset(RAM, 0, sizeof(RAM));
         memset(UMB, 0, sizeof(UMB));
         memset(HMA, 0, sizeof(HMA));
-    } else {
+    }
+#if PICO_ON_DEVICE && !defined(ONBOARD_PSRAM)
+    else {
         memset(SRAM, 0, sizeof(SRAM));
         if (PSRAM_AVAILABLE) {
             for (uint32_t a = HMA_START; a < HMA_END; a += 4) write32psram(a, 0);
@@ -1303,6 +1385,7 @@ void reset86() {
             for (uint32_t a = HMA_START; a < HMA_END; a += 4) swap_write32(a, 0);
         }
     }
+#endif
     init_umb();
     ip = 0x0000;
     i8237_reset();
@@ -1314,14 +1397,14 @@ extern volatile int16_t last_sb_sample;
 extern volatile bool ask_to_blast;
 
 void __not_in_flash() exec86(uint32_t execloops) {
-    static uint16_t firstip;
     static bool was_TF;
 
+    keyboard_pump();
     //counterticks = (uint64_t) ( (double) timerfreq / (double) 65536.0);
     //tickssource();
     for (uint32_t loopcount = 0; loopcount < execloops; loopcount++) {
-        if (unlikely(ifl && (i8259_controller.interrupt_request_register & (~i8259_controller.interrupt_mask_register)))) {
-            intcall86(nextintr()); // get next interrupt from the i8259, if any d
+        if (unlikely(ifl && i8259_get_pending_irqs())) {
+            intcall86(i8259_nextirq()); // get next interrupt from the i8259, if any d
         }
 #if PICO_ON_DEVICE
         if (ask_to_blast) {
@@ -1540,10 +1623,9 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_CS = pop();
                 break;
 #else
-                /*
-                            case 0xF: // 286 protected mode
-                            break;
-                */
+            case 0x0F:
+                op_0f();
+                break;
 #endif
 
             case 0x10: /* 10 ADC Eb Gb */
@@ -2279,10 +2361,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
                 putmem8(CPU_ES, CPU_DI, portin(CPU_DX));
                 if (df) {
-                    CPU_SI = CPU_SI - 1;
                     CPU_DI = CPU_DI - 1;
                 } else {
-                    CPU_SI = CPU_SI + 1;
                     CPU_DI = CPU_DI + 1;
                 }
 
@@ -2305,10 +2385,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
                 putmem16(CPU_ES, CPU_DI, portin16(CPU_DX));
                 if (df) {
-                    CPU_SI = CPU_SI - 2;
                     CPU_DI = CPU_DI - 2;
                 } else {
-                    CPU_SI = CPU_SI + 2;
                     CPU_DI = CPU_DI + 2;
                 }
 
@@ -2332,10 +2410,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 portout(CPU_DX, getmem8(useseg, CPU_SI));
                 if (df) {
                     CPU_SI = CPU_SI - 1;
-                    CPU_DI = CPU_DI - 1;
                 } else {
                     CPU_SI = CPU_SI + 1;
-                    CPU_DI = CPU_DI + 1;
                 }
 
                 if (reptype) {
@@ -2358,10 +2434,8 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 portout16(CPU_DX, getmem16(useseg, CPU_SI));
                 if (df) {
                     CPU_SI = CPU_SI - 2;
-                    CPU_DI = CPU_DI - 2;
                 } else {
                     CPU_SI = CPU_SI + 2;
-                    CPU_DI = CPU_DI + 2;
                 }
 
                 if (reptype) {
@@ -3289,7 +3363,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
             case 0xC8: /* C8 ENTER (80186+) */
                 stacksize = getmem16(CPU_CS, CPU_IP);
                 StepIP(2);
-                nestlev = getmem8(CPU_CS, CPU_IP);
+                nestlev = getmem8(CPU_CS, CPU_IP) & 0x1F;
                 StepIP(1);
                 push(CPU_BP);
                 frametemp = CPU_SP;
@@ -3299,14 +3373,14 @@ void __not_in_flash() exec86(uint32_t execloops) {
                         temp16 < nestlev;
                         ++temp16) {
                         CPU_BP = CPU_BP - 2;
-                        push(CPU_BP);
+                        push(getmem16(CPU_SS, CPU_BP)); // outer frame pointer
                     }
 
                     push(frametemp); //CPU_SP);
                 }
 
                 CPU_BP = frametemp;
-                CPU_SP = CPU_BP - stacksize;
+                CPU_SP = CPU_SP - stacksize;
 
                 break;
 
@@ -3391,7 +3465,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 oper1 = getmem8(CPU_CS, CPU_IP);
                 StepIP(1);
                 if (!oper1) {
-                    intcall86(0);
+                    cpu_fault(0);
                     break;
                 } /* division by zero */
 

@@ -148,7 +148,11 @@ static uint32_t conv_colorINV[2][256]; //2к
 static uint32_t* conv_color[2];
 
 //палитра сохранённая
+#if PICO_RP2350
+static uint8_t paletteRGB[3][256];
+#else
 static uint8_t __scratch_x("buff4") paletteRGB[3][256]; //768 байт
+#endif
 
 static repeating_timer_t video_timer;
 

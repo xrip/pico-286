@@ -611,9 +611,7 @@ extern "C" void HandleInput(unsigned int keycode, int isKeyDown) {
         scancode |= 0x80;
     }
 
-    port60 = scancode;
-    port64 |= 2;
-    doirq(1);
+    keyboard_push(scancode);
 }
 
 extern "C" void HandleMouse(int x, int y, int buttons) {

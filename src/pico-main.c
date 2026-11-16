@@ -3,6 +3,15 @@
 #include <pico/time.h>
 #include <pico/stdlib.h>
 #include <pico/multicore.h>
+#if defined(PC_USB_CONSOLE)
+#include <pico/stdio_usb.h>
+#include <pico/stdio/driver.h>
+#include "hdmi.h"
+#include <hardware/dma.h>
+#endif
+#if defined(HDMI_HSTX) || defined(PC_USB_CONSOLE)
+#include "fault_trace.h"
+#endif
 #include <hardware/clocks.h>
 #include <hardware/vreg.h>
 #include <hardware/pwm.h>
@@ -16,6 +25,7 @@
 #include "../../memops_opt/memops_opt.h"
 #else
 #include <hardware/structs/qmi.h>
+#include <hardware/structs/pads_qspi.h>
 #include <hardware/structs/xip.h>
 #include <hardware/regs/sysinfo.h>
 #endif
@@ -23,6 +33,14 @@
 #include "emulator/emulator.h"
 #include "audio.h"
 #include "graphics.h"
+#include "graphics_modes.h"
+#if defined(M2P2_FLASH_CONFIG)
+#include "flash_config.h"
+#include "flash_timing.h"
+#endif
+#if defined(VGA)
+#include "vga_crtc.h"
+#endif
 #include "ps2.h"
 #include "ff.h"
 #include "nespad.h"
@@ -44,14 +62,124 @@ FATFS fs;
 struct semaphore vga_start_semaphore;
 int cursor_blink_state = 0;
 
+#if HDMI_SOUND
+#include "hstx_audio.h"
+_Static_assert(SOUND_FREQUENCY == HSTX_AUDIO_SAMPLE_RATE, "HDMI audio runs at the emulator's sample rate");
+#endif
 #if I2S_SOUND
 i2s_config_t i2s_config;
 #elif PWM_SOUND || HARDWARE_SOUND
 pwm_config pwm;
 #endif
 
-// Debug VRAM for text output
-uint8_t __aligned(4) DEBUG_VRAM[80 * 10] = {0};
+static volatile bool boot_console = true;
+
+#if defined(PC_USB_CONSOLE)
+static volatile uint32_t core1_frames;
+static volatile uint32_t core0_batches;
+
+static void usb_video_status(void *unused) {
+    (void)unused;
+    if (!stdio_usb_connected()) return;
+    char detail[128];
+    int n;
+    const int command = getchar_timeout_us(0);
+    if (command == 'p') {
+        n = snprintf(detail, sizeof detail,
+                "pads=%08lx/%08lx/%08lx/%08lx/%08lx/%08lx rfmt=%08lx rcmd=%08lx\r\n",
+                (unsigned long)pads_qspi_hw->io[0], (unsigned long)pads_qspi_hw->io[1],
+                (unsigned long)pads_qspi_hw->io[2], (unsigned long)pads_qspi_hw->io[3],
+                (unsigned long)pads_qspi_hw->io[4], (unsigned long)pads_qspi_hw->io[5],
+                (unsigned long)qmi_hw->m[0].rfmt, (unsigned long)qmi_hw->m[0].rcmd);
+    } else if (command == 'm') {
+        extern uint32_t __ram_code_start__[], __ram_code_end__[], __data_start__[], __etext[];
+        const uintptr_t start = (uintptr_t)__ram_code_start__;
+        const uintptr_t end = (uintptr_t)__ram_code_end__;
+        const volatile uint32_t *ram = (const volatile uint32_t *)start;
+        const volatile uint32_t *flash = (const volatile uint32_t *)
+                ((uintptr_t)__etext + start - (uintptr_t)__data_start__);
+        unsigned mismatches = 0;
+        uintptr_t first = 0;
+        uint32_t actual = 0, expected = 0;
+        for (unsigned i = 0; i < (end - start) / sizeof(uint32_t); ++i) {
+            const uint32_t a = ram[i], b = flash[i];
+            if (a != b && ++mismatches == 1) {
+                first = start + i * sizeof(uint32_t);
+                actual = a;
+                expected = b;
+            }
+        }
+        n = snprintf(detail, sizeof detail,
+                "ramcode bytes=%lu bad=%u first=%08lx ram=%08lx flash=%08lx\r\n",
+                (unsigned long)(end - start), mismatches, (unsigned long)first,
+                (unsigned long)actual, (unsigned long)expected);
+    } else if (command == 'c') {
+        n = snprintf(detail, sizeof detail,
+                "clocks sys=%lu hstx=%lu usb=%lu vreg=%u flash=%08lx psram=%08lx\r\n",
+                (unsigned long)clock_get_hz(clk_sys),
+                (unsigned long)clock_get_hz(clk_hstx),
+                (unsigned long)clock_get_hz(clk_usb), (unsigned)vreg_get_voltage(),
+                (unsigned long)qmi_hw->m[0].timing, (unsigned long)qmi_hw->m[1].timing);
+    } else if (command == 'r' || command == 't') {
+        const volatile fault_trace_record_t *fault = &fault_trace[1];
+        const unsigned frame_bytes = (fault->exc_return & 0x10u) ? 32u : 104u;
+        const unsigned padding = (fault->xpsr & (1u << 9)) ? 4u : 0u;
+        const uintptr_t address = fault->sp + (command == 't' ? frame_bytes + padding : 0u);
+        if (!fault->frame_valid || address < 0x20000000u || address > 0x20082000u - 32u) return;
+        const volatile uint32_t *words = (const volatile uint32_t *)address;
+        n = snprintf(detail, sizeof detail, "stack %08lx: %08lx %08lx %08lx %08lx %08lx %08lx %08lx %08lx\r\n",
+                (unsigned long)address, (unsigned long)words[0], (unsigned long)words[1],
+                (unsigned long)words[2], (unsigned long)words[3], (unsigned long)words[4],
+                (unsigned long)words[5], (unsigned long)words[6], (unsigned long)words[7]);
+    } else if (command == 'f' || command == 'g' || command == 'h') {
+        const volatile fault_trace_record_t *fault = &fault_trace[1];
+        if (command == 'f') n = snprintf(detail, sizeof detail,
+                "fault core=%lu valid=%lu pc=%08lx lr=%08lx sp=%08lx cfsr=%08lx hfsr=%08lx\r\n",
+                (unsigned long)fault->core_seen, (unsigned long)fault->frame_valid,
+                (unsigned long)fault->pc, (unsigned long)fault->lr,
+                (unsigned long)fault->sp, (unsigned long)fault->cfsr, (unsigned long)fault->hfsr);
+        else if (command == 'h') n = snprintf(detail, sizeof detail,
+                "faultirq vtor=%08lx vector=%08lx\r\n",
+                (unsigned long)fault->vtor, (unsigned long)fault->video_dma_vector);
+        else n = snprintf(detail, sizeof detail,
+                "fault2 limit=%08lx bfar=%08lx xpsr=%08lx exc=%08lx masks=%lx/%lx/%lx\r\n",
+                (unsigned long)fault->original_msplim,
+                (unsigned long)fault->bfar, (unsigned long)fault->xpsr,
+                (unsigned long)fault->exc_return, (unsigned long)fault->primask,
+                (unsigned long)fault->basepri, (unsigned long)fault->faultmask);
+    } else if (command == 'v') {
+        hdmi_debug_state_t state;
+        hdmi_debug_snapshot(&state);
+        n = snprintf(detail, sizeof detail,
+                "pio mode=%02x 3da=%02x frames=%lu line=%lu irq=%lu/%lu\r\n",
+                (unsigned)videomode, port3DA, (unsigned long)state.frames,
+                (unsigned long)state.line, (unsigned long)state.irq_entries,
+                (unsigned long)state.irq_exits);
+    } else if (command == 's') {
+        n = snprintf(detail, sizeof detail,
+                "service cpu=%lu audio=%lu guest=%04x:%04x pic=%02x/%02x/%02x\r\n",
+                (unsigned long)core0_batches, (unsigned long)core1_frames,
+                (unsigned)CPU_CS, (unsigned)ip,
+                i8259.interrupt_request_register, i8259.in_service_register,
+                i8259.interrupt_mask_register);
+    } else if (command == 'd') {
+        n = snprintf(detail, sizeof detail, "dma ints=%08lx inte=%08lx pio=%08lx/%08lx\r\n",
+                (unsigned long)dma_hw->ints0, (unsigned long)dma_hw->inte0,
+                (unsigned long)PIO_VIDEO->fstat, (unsigned long)PIO_VIDEO->fdebug);
+    } else if (command >= '0' && command <= '3') {
+        hdmi_debug_state_t state;
+        hdmi_debug_snapshot(&state);
+        const unsigned channel = state.channel[command - '0'];
+        n = snprintf(detail, sizeof detail,
+                "channel=%u ctrl=%08lx count=%08lx read=%08lx write=%08lx\r\n", channel,
+                (unsigned long)dma_hw->ch[channel].ctrl_trig,
+                (unsigned long)dma_hw->ch[channel].transfer_count,
+                (unsigned long)dma_hw->ch[channel].read_addr,
+                (unsigned long)dma_hw->ch[channel].write_addr);
+    } else return;
+    if (n > 0) stdio_usb.out_chars(detail, n < sizeof detail ? n : sizeof detail - 1);
+}
+#endif
 
 // Function declarations
 bool handleScancode(uint32_t ps2scancode);
@@ -163,64 +291,94 @@ bool handleScancode(uint32_t ps2scancode) {
             break;
     }
 
-    port60 = ps2scancode;
-    port64 |= 2;
-    doirq(1);
+    keyboard_push(ps2scancode);
     return true;
 }
 
 INLINE void _putchar(char character) {
-    static uint8_t color = 0xf;
-    static int x = 0, y = 0;
+    if (!boot_console) return;
 
-    // Handle screen scrolling
-    if (y == 10) {
-        y = 9;
-        memmove(DEBUG_VRAM, DEBUG_VRAM + 80, 80 * 9);
-        memset(DEBUG_VRAM + 80 * 9, 0, 80);
+    static unsigned column, row;
+    uint32_t *cells = VIDEORAM + 0x8000;
+    if (row == 25) {
+        memmove(cells, cells + 160, 24 * 160 * sizeof(*cells));
+        memset(cells + 24 * 160, 0, 160 * sizeof(*cells));
+        row = 24;
     }
-
-    uint8_t *vidramptr = DEBUG_VRAM + __fast_mul(y, 80) + x;
-
-    if ((unsigned)character >= 32) {
-        // Convert to uppercase if lowercase
-        if (character >= 96) {
-            character -= 32;
-        }
-        *vidramptr = ((character - 32) & 63) | 0 << 6;
-
-        if (x == 80) {
-            x = 0;
-            y++;
-        } else {
-            x++;
-        }
-    } else if (character == '\n') {
-        x = 0;
-        y++;
+    if (character == '\n') {
+        column = 0;
+        ++row;
     } else if (character == '\r') {
-        x = 0;
-    } else if (character == 8 && x > 0) {
-        x--;
-        *vidramptr = 0;
+        column = 0;
+    } else if ((uint8_t)character >= 32) {
+        cells[(row * 80 + column) * 2] = (uint8_t)character;
+        cells[(row * 80 + column) * 2 + 1] = 15;
+        if (++column == 80) {
+            column = 0;
+            ++row;
+        }
     }
 }
 
 volatile int16_t last_sb_sample = 0;
 volatile bool ask_to_blast = false;
 
+void __time_critical_func(graphics_pc_snapshot)(graphics_pc_state_t *state) {
+    state->vram_offset = vram_offset;
+    state->tga_offset = tga_offset;
+    state->foreground = cga_foreground_color;
+    state->blink_mask = cga_blinking;
+    state->cursor_x = 0;
+    state->cursor_y = 0;
+    if (videomode <= TEXTMODE_80x25_COLOR && !boot_console) {
+#if defined(VGA)
+        if (!vga_crtc_get_cursor(&state->cursor_x, &state->cursor_y))
+#endif
+        {
+            state->cursor_x = CURSOR_X;
+            state->cursor_y = CURSOR_Y;
+        }
+    }
+    state->cursor_start = cursor_start;
+    state->cursor_end = cursor_end;
+    state->cursor_phase = cursor_blink_state != 0;
+}
+
+uint32_t __time_critical_func(graphics_pc_ega_line)(const unsigned line) {
+    return ega_line_start(line);
+}
+
+uint32_t graphics_pc_palette_color(uint8_t index, uint32_t color, bool composite_output) {
+    if (videomode <= TEXTMODE_80x25_COLOR && index < 16) {
+        return cga_palette[index];
+    }
+    if (videomode == COMPOSITE_160x200x16 || videomode == COMPOSITE_160x200x16_force) {
+        if (composite_output && index < 4) {
+            return cga_palette[cga_gfxpal[cga_colorset][cga_intensity][index]];
+        }
+        if (!composite_output && index < 16) {
+            return cga_composite_palette[videomode == COMPOSITE_160x200x16 ? 0 : cga_intensity << 1][index];
+        }
+    }
+    return color;
+}
+
 /* Renderer loop on Pico's second core */
 void __time_critical_func() second_core(void) {
     // Initialize graphics subsystem
-    graphics_init();
+#if defined(VGA)
+    vga_crtc_reset(videomode);
+#endif
     graphics_set_buffer((uint8_t *)VIDEORAM, 320, 200);
     graphics_set_textbuffer((uint8_t *)VIDEORAM + 32768*4);
+    graphics_set_mode(videomode);
     graphics_set_bgcolor(0);
     graphics_set_offset(0, 0);
     graphics_set_flashmode(true, true);
+    graphics_init();
 
     // Set initial VGA palette
-    for (uint8_t i = 0; i < 255; i++) {
+    for (unsigned i = 0; i < 256; i++) {
         graphics_set_palette(i, vga_palette[i]);
     }
 
@@ -305,7 +463,11 @@ void __time_critical_func() second_core(void) {
 #endif
 
         // Audio output at configured sample rate
+#if HDMI_SOUND
+        if (hstx_audio_has_room()) { // the HDMI clock sets the rate
+#else
         if (tick > last_sound_tick + (1000000 / SOUND_FREQUENCY)) {
+#endif
             int16_t samples[2];
             get_sound_sample(last_dss_sample + last_sb_sample, samples);
 
@@ -314,17 +476,24 @@ void __time_critical_func() second_core(void) {
 #elif PWM_SOUND
             pwm_set_gpio_level(PWM_LEFT_CHANNEL, (uint16_t)((int32_t)samples[0] + 0x8000L) >> 4);
             pwm_set_gpio_level(PWM_RIGHT_CHANNEL, (uint16_t)((int32_t)samples[1] + 0x8000L) >> 4);
+#elif HDMI_SOUND
+            hstx_audio_write(samples[0], samples[1]);
 #endif
             last_sound_tick = tick;
         }
 
         // Video frame rendering (~60Hz)
         if (tick >= last_frame_tick + 16667) {
-            static uint8_t old_video_mode;
+#if defined(PC_USB_CONSOLE)
+            ++core1_frames;
+#endif
+            static int old_video_mode = -1;
+            const int output_mode = videomode == VGA_320x200x256 && vga_planar_mode
+                    ? VGA_320x200x256x4 : videomode;
 
             // Handle video mode changes
-            if (old_video_mode != videomode) {
-                switch (videomode) {
+            if (old_video_mode != output_mode) {
+                switch (output_mode) {
                     case TEXTMODE_80x25_BW:
                     case TEXTMODE_40x25_BW:
                         case TEXTMODE_80x25_COLOR:
@@ -338,26 +507,22 @@ void __time_critical_func() second_core(void) {
                     case TGA_160x200x16:
                     case TGA_320x200x16:
                     case TGA_640x200x16:
-                        for (uint8_t i = 0; i < 15; i++) {
+                        for (uint8_t i = 0; i < 16; i++) {
                             graphics_set_palette(i, tga_palette[i]);
                         }
                         break;
 
                     case COMPOSITE_160x200x16:
-#ifndef NTSC
-                        for (uint8_t i = 0; i < 15; i++) {
+                        for (uint8_t i = 0; i < 16; i++) {
                             graphics_set_palette(i, cga_composite_palette[0][i]);
                         }
                         break;
-#endif
 
                     case COMPOSITE_160x200x16_force:
-#ifndef NTSC
-                        for (uint8_t i = 0; i < 15; i++) {
+                        for (uint8_t i = 0; i < 16; i++) {
                             graphics_set_palette(i, cga_composite_palette[cga_intensity << 1][i]);
                         }
                         break;
-#endif
                     case CGA_320x200x4_BW:
                     case CGA_320x200x4:
                         for (uint8_t i = 0; i < 4; i++) {
@@ -367,23 +532,22 @@ void __time_critical_func() second_core(void) {
 
 
                     case VGA_320x200x256:
-                        if (vga_planar_mode) {
-                            videomode = VGA_320x200x256x4;
-                        }
                     case VGA_320x200x256x4:
                     default:
-                        for (uint8_t i = 0; i < 255; i++) {
+                        for (unsigned i = 0; i < 256; i++) {
                             graphics_set_palette(i, vga_palette[i]);
                         }
                         break;
                 }
-                graphics_set_mode(videomode);
-                old_video_mode = videomode;
+                graphics_set_mode(output_mode);
+                old_video_mode = output_mode;
             }
 #if defined(TFT)
             refresh_lcd();
+#if !defined(NTSC_TV)
             port3DA = 8;
             port3DA |= 1;
+#endif
 #endif
             last_frame_tick = tick;
         }
@@ -419,7 +583,9 @@ inline static uint32_t __not_in_flash_func(_butter_psram_size)() {
     return res << 20;
 }
 void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
+    const int clock_hz = clock_get_hz(clk_sys);
     gpio_set_function(cs_pin, GPIO_FUNC_XIP_CS1);
+    const uint32_t saved_interrupts = save_and_disable_interrupts();
 
     // Enable direct mode, PSRAM CS, clkdiv of 10
     qmi_hw->direct_csr = 10 << QMI_DIRECT_CSR_CLKDIV_LSB |
@@ -440,7 +606,6 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
 
     // Set PSRAM timing
     const int max_psram_freq = PSRAM_FREQ_MHZ * MHZ;
-    const int clock_hz = clock_get_hz(clk_sys);
     int divisor = (clock_hz + max_psram_freq - 1) / max_psram_freq;
 
     if (divisor == 1 && clock_hz > 100000000) {
@@ -490,6 +655,7 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
 
     // Enable writes to PSRAM
     hw_set_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_WRITABLE_M1_BITS);
+    restore_interrupts(saved_interrupts);
     // detect a chip size
     butter_psram_size = _butter_psram_size();
 }
@@ -512,9 +678,19 @@ int flash_mhz = FLASH_FREQ_MHZ;
 int psram_mhz = PSRAM_FREQ_MHZ;
 uint new_flash_timings = 0;
 uint new_psram_timings = 0;
+#if defined(M2P2_FLASH_CONFIG)
+static uint32_t boot_flash_timing, boot_flash_hz;
+#endif
 
 void __not_in_flash() flash_timings() {
+    uint32_t timing = new_flash_timings;
     if (!new_flash_timings) {
+#if defined(M2P2_FLASH_CONFIG)
+        if (!flash_timing_for_clock(boot_flash_timing, boot_flash_hz,
+                cpu_mhz * MHZ, flash_mhz * MHZ, &timing)) {
+            panic("Cannot preserve boot flash timing at the requested CPU clock");
+        }
+#else
         const int max_flash_freq = flash_mhz * MHZ;
         const int clock_hz = cpu_mhz * MHZ;
         int divisor = (clock_hz + max_flash_freq - 1) / max_flash_freq;
@@ -525,12 +701,22 @@ void __not_in_flash() flash_timings() {
         if (clock_hz / divisor > 100000000) {
             rxdelay += 1;
         }
-        qmi_hw->m[0].timing = 0x60007000 |
+        timing = 0x60007000 |
                             rxdelay << QMI_M0_TIMING_RXDELAY_LSB |
                             divisor << QMI_M0_TIMING_CLKDIV_LSB;
-    } else {
-        qmi_hw->m[0].timing = new_flash_timings;
+#endif
     }
+    // Startup only: core 1 and video DMA have not started yet.
+    const uint32_t saved_interrupts = save_and_disable_interrupts();
+    qmi_hw->direct_csr = QMI_DIRECT_CSR_EN_BITS;
+    while (qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) {}
+    qmi_hw->m[0].timing = timing;
+    qmi_hw->direct_csr = 0;
+    __dsb();
+    (void)*(const volatile uint32_t *)XIP_NOCACHE_NOALLOC_BASE;
+    __dsb();
+    __isb();
+    restore_interrupts(saved_interrupts);
 }
 
 void __not_in_flash() psram_timings() {
@@ -611,12 +797,18 @@ static void load_config_286() {
         while (t - buff < br) {
             if (strcmp(t, "CPU") == 0) {
                 t = next_token(t);
+#if defined(HDMI_HSTX) || defined(NTSC_TV) || defined(HDMI)
+                // These scanout clocks are fixed. A saved CPU setting must
+                // not retune PLL_USB or invalidate the NTSC carrier.
+                new_cpu_mhz = CPU_FREQ_MHZ;
+#else
                 new_cpu_mhz = atoi(t);
                 if (clock_get_hz(clk_sys) != new_cpu_mhz * MHZ) {
                     if (set_sys_clock_hz(new_cpu_mhz * MHZ, 0) ) {
                         cpu_mhz = new_cpu_mhz;
                     }
                 }
+#endif
             } else if (strcmp(t, "VREG") == 0) {
                 t = next_token(t);
                 new_vreg = atoi(t);
@@ -664,6 +856,32 @@ static void load_config_286() {
 int main(void) {
     // Platform-specific initialization
 #if PICO_RP2350
+#if defined(M2P2_FLASH_CONFIG)
+    const uint qmi_psram_cs =
+            (*((io_ro_32 *)(SYSINFO_BASE + SYSINFO_PACKAGE_SEL_OFFSET)) & 1u) ? 8u : 47u;
+    gpio_put(qmi_psram_cs, true);
+    gpio_set_dir(qmi_psram_cs, GPIO_OUT);
+    gpio_set_function(qmi_psram_cs, GPIO_FUNC_SIO);
+    boot_flash_hz = clock_get_hz(clk_sys);
+    boot_flash_timing = qmi_hw->m[0].timing;
+    if (!flash_config_init()) {
+        panic("Flash Quad Enable setup failed; CPU clock was not raised");
+    }
+#endif
+#if defined(PC_USB_CONSOLE)
+    stdio_usb_init();
+    // The SDK calls this from its USB worker IRQ after releasing the USB mutex.
+    stdio_set_chars_available_callback(usb_video_status, NULL);
+#endif
+#if defined(HDMI_HSTX)
+    flash_timings();
+    graphics_prepare_clock();
+    vreg = vreg_get_voltage();
+    new_vreg = vreg;
+#else
+#if defined(HDMI)
+    clock_stop(clk_hstx);
+#endif
     vreg_disable_voltage_limit();
     vreg_set_voltage(vreg);
     flash_timings();
@@ -672,6 +890,7 @@ int main(void) {
         cpu_mhz = 378;
         set_sys_clock_hz(cpu_mhz * MHZ, 1); // fallback to failsafe clocks
     }
+#endif
 #else
     memcpy_wrapper_replace(NULL);
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
@@ -679,7 +898,11 @@ int main(void) {
 #endif
 
     // Set exception handler
+#if defined(HDMI_HSTX) || defined(PC_USB_CONSOLE)
+    exception_set_exclusive_handler(HARDFAULT_EXCEPTION, fault_trace_handler);
+#else
     exception_set_exclusive_handler(HARDFAULT_EXCEPTION, sigbus);
+#endif
 
     // Initialize onboard LED
     gpio_init(PICO_DEFAULT_LED_PIN);
@@ -701,6 +924,9 @@ int main(void) {
     }
 #endif
     // Mount SD card filesystem
+#if defined(MIDI_GM_DLS)
+    midi_dls_init();
+#endif
     if (FR_OK != f_mount(&fs, "0", 1)) {
         sem_init(&vga_start_semaphore, 0, 1);
         multicore_launch_core1(second_core);
@@ -723,21 +949,40 @@ int main(void) {
     // Initialize PSRAM
     rp2350a = (*((io_ro_32*)(SYSINFO_BASE + SYSINFO_PACKAGE_SEL_OFFSET)) & 1);
     int gp;
-#ifdef MURM2
+#if defined(M2P2_FLASH_CONFIG)
+    gp = qmi_psram_cs;
+#elif defined(MURM2)
     gp = rp2350a ?  8 : 47;
 #else
     gp = rp2350a ? 19 : 47;
 #endif
     psram_init(gp);
+#if defined(ONBOARD_PSRAM)
+    if (butter_psram_size < MB8) {
+        panic("This firmware requires at least 8 MB onboard QMI PSRAM");
+    }
+#endif
+    write86 = write86_ob;
+    writew86 = writew86_ob;
+    writedw86 = writedw86_ob;
+    read86 = read86_ob;
+    readw86 = readw86_ob;
+    readdw86 = readdw86_ob;
+
+#if !defined(ONBOARD_PSRAM)
     if (!butter_psram_size) {
-        if (init_psram() ) {
+        // SPI PSRAM GPIO18/19 cannot share the video pins.
+#if !defined(HDMI_HSTX) && !(defined(MURM2) && (defined(VGA) || defined(TFT)))
+        if (init_psram()) {
             write86 = write86_mp;
             writew86 = writew86_mp;
             writedw86 = writedw86_mp;
             read86 = read86_mp;
             readw86 = readw86_mp;
             readdw86 = readdw86_mp;
-        } else {
+        } else
+#endif
+        {
             init_swap();
             write86 = write86_sw;
             writew86 = writew86_sw;
@@ -746,14 +991,8 @@ int main(void) {
             readw86 = readw86_sw;
             readdw86 = readdw86_sw;
         }
-    } else {
-        write86 = write86_ob;
-        writew86 = writew86_ob;
-        writedw86 = writedw86_ob;
-        read86 = read86_ob;
-        readw86 = readw86_ob;
-        readdw86 = readdw86_ob;
     }
+#endif
 
     // Initialize peripherals
     keyboard_init();
@@ -790,15 +1029,18 @@ int main(void) {
             printf("PSRAM max %d MHz [T%p]\n", psram_mhz, qmi_hw->m[1].timing);
         }
         printf("On-Board-PSRAM mode (GP%d)\n", gp);
+#if !defined(ONBOARD_PSRAM)
     } else if (write86 == write86_mp) {
         printf("Murmulator-Board-PSRAM mode\n");
     } else {
         printf("Swap-RAM mode (8 MB)\n");
+#endif
     }
 
     // Initialize audio and reset emulator
     // adlib_init(SOUND_FREQUENCY);
     sn76489_reset();
+    boot_console = false;
     reset86();
 
     // Initialize mouse control variables
@@ -812,6 +1054,9 @@ int main(void) {
     // Main emulation loop
     while (true) {
         exec86(tormoz);
+#if defined(PC_USB_CONSOLE)
+        ++core0_batches;
+#endif
 #if !PICO_RP2040
         if (delay) sleep_us(delay);
 #endif

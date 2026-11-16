@@ -1,0 +1,9 @@
+BOOT sys=150000000 Hz recovered=0 stage=5
+STAGE 1: read flash at boot clock
+JEDEC=ef4016 SR1=00 SR2=02
+STAGE 2: automatic QE and quad XIP
+QE=1 QMI timing=6000720c rfmt=000492a8 rcmd=000000eb padclk=00000021
+STAGE 3: flash divider 6 and RX delay 6
+STAGE 4: VREG 1.60V and CPU 504MHz
+STAGE 5: uncached flash read checks
+RESULT sys=504000000 Hz checksum=a0d15df6 bad=0/100

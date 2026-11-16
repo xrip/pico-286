@@ -1,0 +1,32 @@
+; Expand one command into eight physical pixels, including even/odd TMDS phase.
+; The CPU sends a glyph scanline and two colours, never an expanded pixel row.
+;
+; Command: [31:27] background, [26:24] zero, [23:8] (glyph,phase) bit pairs,
+;          [7:5] zero, [4:0] foreground. First pixel is the low pair.
+; Y = palette base >> 9. Each of two phases has 32 eight-byte palette entries.
+; Colours 0..15 are CGA; 16..19 are controls duplicated in both phases.
+;
+; Configure: IN right, autopush 24; OUT right, no autopull, threshold 24.
+; X keeps the command while OSR shifts its eight pixel pairs. On the foreground
+; path IN X,5 supplies the colour. On the background path MOV ISR,X supplies
+; the high five bits; the following 24 shifts discard the remaining command.
+; Autopush clears ISR after every pixel. OUT PC,1 requires absolute origin 0.
+.program hdmi_text
+.origin 0
+
+    jmp background
+    in x, 5
+    jmp phase
+background:
+    mov isr, x
+phase:
+    in osr, 1
+    in y, 23
+    out null, 1
+    jmp !osre pixel
+public entry:
+    pull block
+    mov x, osr
+    out null, 8
+pixel:
+    out pc, 1
