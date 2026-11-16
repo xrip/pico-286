@@ -8,6 +8,9 @@
  * line pipeline, replaces resource/lifecycle handling, and omits HDMI audio.
  */
 #include "hstx_video.h"
+#if defined(HDMI_SOUND)
+#include "hstx_audio.h"
+#endif
 
 #include <assert.h>
 #include <stddef.h>
@@ -31,19 +34,32 @@
 extern volatile uint8_t port3DA;
 #endif
 
-enum {
-    V_FRONT = 10,
-    V_SYNC = 2,
-    V_BACK = 33,
-    V_ACTIVE_START = V_FRONT + V_SYNC + V_BACK,
-    V_TOTAL = V_ACTIVE_START + HSTX_VIDEO_HEIGHT
-};
-
-/* Blank and active packets consume one payload word per two physical pixels.
- * Their DMA completion points therefore agree, including active/blank edges.
+/* Blank and active packets end with payload words that last to the end of
+ * the line. Their DMA completion points therefore agree, including active/blank edges.
  * Nine-word blank lists would reintroduce a sub-line rearm deadline there. */
+#if defined(HDMI_SOUND)
+/* Each line carries its own data island, so blank and black lines cannot
+ * share a packet. Two are enough: when the IRQ writes the line after next,
+ * the DMA has read all of the line before (it has completed) and is on the
+ * next one, which has the other packet. */
+static hstx_video_packet_t spare_packets[2];
+static uint spare_slot;
+
+static hstx_video_packet_t *__time_critical_func(spare_packet)(bool active, bool vsync) {
+    spare_slot ^= 1u;
+    hstx_packet_init(&spare_packets[spare_slot], active, vsync);
+    return &spare_packets[spare_slot];
+}
+#define BLANK_PACKET(vsync) spare_packet(false, vsync)
+#define BLACK_PACKET spare_packet(true, false)
+#define START_PACKET (&spare_packets[0])
+#else
 static hstx_video_packet_t blank_packets[2];
 static hstx_video_packet_t black_packet;
+#define BLANK_PACKET(vsync) (&blank_packets[(vsync) ? 1u : 0u])
+#define BLACK_PACKET (&black_packet)
+#define START_PACKET (&blank_packets[0])
+#endif
 
 static int dma_channels[2] = {-1, -1};
 static uint32_t dma_mask;
@@ -100,9 +116,14 @@ static void __time_critical_func(hstx_configure_serializer)(void) {
     hstx_ctrl_hw->expand_shift =
         2u << HSTX_CTRL_EXPAND_SHIFT_ENC_N_SHIFTS_LSB |
         16u << HSTX_CTRL_EXPAND_SHIFT_ENC_SHIFT_LSB |
+#if defined(HDMI_SOUND)
+        1u << HSTX_CTRL_EXPAND_SHIFT_RAW_N_SHIFTS_LSB;
+#else
         2u << HSTX_CTRL_EXPAND_SHIFT_RAW_N_SHIFTS_LSB;
-    /* RAW_SHIFT=0 repeats each blank payload symbol twice. RAW_REPEAT porch
-     * commands ignore RAW_N_SHIFTS, so their physical pixel counts stay exact. */
+#endif
+    /* RAW_SHIFT=0 repeats each blank payload symbol twice (once with
+     * HDMI_SOUND: see hstx_packet.h). RAW_REPEAT porch commands ignore
+     * RAW_N_SHIFTS, so their physical pixel counts stay exact. */
 
     /* Five DDR shifts emit one 10-bit TMDS symbol per lane. */
     hstx_ctrl_hw->csr = HSTX_CTRL_CSR_EXPAND_EN_BITS |
@@ -139,6 +160,12 @@ static bool __time_critical_func(hstx_start_pipeline)(void) {
     hstx_configure_serializer();
     next_vline = 2;
     expected_completed_slot = 0;
+#if defined(HDMI_SOUND)
+    /* Lines 0 and 1 both send START_PACKET; the next spare write goes to the other one. */
+    hstx_packet_init(START_PACKET, false, false);
+    hstx_packet_set_island(START_PACKET, hstx_audio_island(0));
+    spare_slot = 0;
+#endif
     for (uint slot = 0; slot < 2; ++slot) {
         dma_channel_hw_t *channel = &dma_hw->ch[dma_channels[slot]];
         channel->al1_ctrl = dma_ctrl32[slot] & ~DMA_CH0_CTRL_TRIG_EN_BITS;
@@ -146,7 +173,7 @@ static bool __time_critical_func(hstx_start_pipeline)(void) {
         // A peripheral reset also resets its DREQ producer. Discard old DMA
         // credits and request a fresh handshake before restarting its FIFO.
         dma_debug_hw->ch[dma_channels[slot]].dbg_ctdreq = 0;
-        hstx_arm_transfer(slot, &blank_packets[0]);
+        hstx_arm_transfer(slot, START_PACKET);
     }
     dma_hw->ints1 = dma_mask;
     dma_set_irq1_channel_mask_enabled(dma_mask, true);
@@ -171,21 +198,24 @@ static bool __time_critical_func(hstx_start_pipeline)(void) {
 }
 
 static void __time_critical_func(hstx_queue_next_transfer)(uint slot) {
-    const hstx_video_packet_t *packet;
+    hstx_video_packet_t *packet;
     if (next_vline >= V_ACTIVE_START) {
         packet = line_callback != NULL ? line_callback(next_vline - V_ACTIVE_START) : NULL;
-        if (packet == NULL || ((uintptr_t)packet & 3u)) packet = &black_packet;
+        if (packet == NULL || ((uintptr_t)packet & 3u)) packet = BLACK_PACKET;
     } else {
         const bool vsync = next_vline >= V_FRONT && next_vline < V_FRONT + V_SYNC;
 #if defined(GRAPHICS_PC_EMULATOR)
         port3DA = 9;
 #endif
-        packet = &blank_packets[vsync ? 1u : 0u];
+        packet = BLANK_PACKET(vsync);
         if (next_vline == V_FRONT) {
             ++hstx_video_frame_count;
             if (vsync_callback != NULL) vsync_callback();
         }
     }
+#if defined(HDMI_SOUND)
+    hstx_packet_set_island(packet, hstx_audio_island(next_vline));
+#endif
     hstx_arm_transfer(slot, packet);
     if (++next_vline == V_TOTAL) next_vline = 0;
 }
@@ -293,9 +323,13 @@ bool hstx_video_init(void) {
         channel_config_set_transfer_data_size(&config, DMA_SIZE_32);
         dma_ctrl32[slot] = config.ctrl;
     }
+#if defined(HDMI_SOUND)
+    hstx_audio_init();
+#else
     hstx_packet_init(&blank_packets[0], false, false);
     hstx_packet_init(&blank_packets[1], false, true);
     hstx_packet_init(&black_packet, true, false);
+#endif
     owner_core = get_core_num();
     previous_irq_priority = irq_get_priority(DMA_IRQ_1);
     irq_was_enabled = irq_is_enabled(DMA_IRQ_1);

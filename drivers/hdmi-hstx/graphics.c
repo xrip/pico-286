@@ -50,9 +50,9 @@ static hstx_video_packet_t packets[4];
 static unsigned packet_slot = 3;
 static uint8_t staging[GRAPHICS_FRAME_WIDTH] __attribute__((aligned(4)));
 static enum graphics_mode_t repeated_mode;
-static const hstx_video_packet_t *repeated_packet;
+static hstx_video_packet_t *repeated_packet;
 
-static const hstx_video_packet_t *__time_critical_func(hstx_graphics_line)(
+static hstx_video_packet_t *__time_critical_func(hstx_graphics_line)(
         uint32_t output_line) {
     const enum graphics_mode_t mode = graphics_source_mode();
 #if defined(GRAPHICS_PC_EMULATOR)
@@ -62,7 +62,16 @@ static const hstx_video_packet_t *__time_critical_func(hstx_graphics_line)(
         const unsigned width = graphics_source_native_width();
         if (width == GRAPHICS_FRAME_WIDTH && (output_line & 1u) &&
                 repeated_packet != NULL && repeated_mode == mode) {
+#if defined(HDMI_SOUND)
+            // The line carries its own data island: copy the pixels to a packet of its own.
+            packet_slot = hstx_packet_next_slot(packet_slot);
+            hstx_video_packet_t *packet = &packets[packet_slot];
+            for (unsigned i = 0; i < HSTX_PACKET_PIXEL_WORDS; ++i)
+                packet->payload.pairs[i] = repeated_packet->payload.pairs[i];
+            return packet;
+#else
             return repeated_packet;
+#endif
         }
         packet_slot = hstx_packet_next_slot(packet_slot);
         hstx_video_packet_t *packet = &packets[packet_slot];

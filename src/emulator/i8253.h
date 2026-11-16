@@ -69,7 +69,7 @@ static inline uint16_t i8253_get_current_count(const i8253_channel_s *channel) {
 }
 
 // PC speaker = channel 2 OUT2 AND port 61h bit 1; with GATE2 (bit 0) off, OUT2 stays high.
-#define SPEAKER_ON_PWM_PIN (PICO_ON_DEVICE && !I2S_SOUND && !HARDWARE_SOUND)
+#define SPEAKER_ON_PWM_PIN (PICO_ON_DEVICE && !I2S_SOUND && !HARDWARE_SOUND && !HDMI_SOUND)
 #if SPEAKER_ON_PWM_PIN
 #include <hardware/clocks.h>
 // The beeper PWM counts at twice the PIT clock: at the PIT clock the divider would be above 255.

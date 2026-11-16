@@ -58,6 +58,10 @@ FATFS fs;
 struct semaphore vga_start_semaphore;
 int cursor_blink_state = 0;
 
+#if HDMI_SOUND
+#include "hstx_audio.h"
+_Static_assert(SOUND_FREQUENCY == HSTX_AUDIO_SAMPLE_RATE, "HDMI audio runs at the emulator's sample rate");
+#endif
 #if I2S_SOUND
 i2s_config_t i2s_config;
 #elif PWM_SOUND || HARDWARE_SOUND
@@ -475,7 +479,11 @@ void __time_critical_func() second_core(void) {
 #endif
 
         // Audio output at configured sample rate
+#if HDMI_SOUND
+        if (hstx_audio_has_room()) { // the HDMI clock sets the rate
+#else
         if (tick > last_sound_tick + (1000000 / SOUND_FREQUENCY)) {
+#endif
             int16_t samples[2];
             get_sound_sample(last_dss_sample + last_sb_sample, samples);
 
@@ -484,6 +492,8 @@ void __time_critical_func() second_core(void) {
 #elif PWM_SOUND
             pwm_set_gpio_level(PWM_LEFT_CHANNEL, (uint16_t)((int32_t)samples[0] + 0x8000L) >> 4);
             pwm_set_gpio_level(PWM_RIGHT_CHANNEL, (uint16_t)((int32_t)samples[1] + 0x8000L) >> 4);
+#elif HDMI_SOUND
+            hstx_audio_write(samples[0], samples[1]);
 #endif
             last_sound_tick = tick;
         }

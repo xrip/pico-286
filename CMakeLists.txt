@@ -167,7 +167,11 @@ else ()
         math(EXPR AUDIO_COUNT "${AUDIO_COUNT} + 1")
     endif ()
 
-    if (AUDIO_COUNT EQUAL 0)
+    # HSTX without a chosen audio option sends the sound over HDMI.
+    set(HDMI_SOUND OFF)
+    if (AUDIO_COUNT EQUAL 0 AND HDMI_HSTX)
+        set(HDMI_SOUND ON)
+    elseif (AUDIO_COUNT EQUAL 0)
         message(FATAL_ERROR "At least one audio option must be enabled")
     elseif (AUDIO_COUNT GREATER 1)
         message(FATAL_ERROR "Only one audio option can be enabled at a time")
@@ -217,6 +221,8 @@ else ()
         set(BUILD_NAME "${BUILD_NAME}-PWM")
     elseif (ENABLE_HARDWARE_SOUND)
         set(BUILD_NAME "${BUILD_NAME}-HW")
+    elseif (HDMI_SOUND)
+        set(BUILD_NAME "${BUILD_NAME}-HDMIAUDIO")
     endif ()
 
     # =========================
@@ -365,6 +371,7 @@ else ()
             $<$<BOOL:${ENABLE_I2S_SOUND}>:I2S_SOUND>
             $<$<BOOL:${ENABLE_PWM_SOUND}>:PWM_SOUND>
             $<$<BOOL:${ENABLE_HARDWARE_SOUND}>:HARDWARE_SOUND>
+            $<$<BOOL:${HDMI_SOUND}>:HDMI_SOUND>
 
             PSRAM
     )
