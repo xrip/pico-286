@@ -78,11 +78,13 @@ static inline __attribute__((always_inline)) bool PC_FAST_FN(render)(
             if (low_y >= 200) return false;
             source_wide = mode != EGA_320x200x16x4;
             words = source_wide ? 80 : 40;
-            base = low_y * words;
+            graphics_pc_snapshot(&state);
+            base = pc_ega_line(&state, low_y);
             break;
         case EGA_640x350x16x4: case VGA_640x480x16:
             if (y >= (mode == EGA_640x350x16x4 ? 350u : 480u)) return false;
-            base = y * 80;
+            graphics_pc_snapshot(&state);
+            base = pc_ega_line(&state, y);
             words = 80;
             break;
         case VGA_320x200x256: case VGA_320x200x256x4:

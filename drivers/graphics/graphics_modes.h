@@ -83,9 +83,15 @@ typedef struct graphics_pc_state {
     uint8_t cursor_start;
     uint8_t cursor_end;
     bool cursor_phase;
+    uint8_t ega_line_words; // CRTC 13h: the EGA line width in words
 } graphics_pc_state_t;
 
 void graphics_pc_snapshot(graphics_pc_state_t *state);
+
+// EGA graphics: VRAM word address of display line `line`, before the 64K wrap.
+static inline __attribute__((always_inline)) unsigned pc_ega_line(const graphics_pc_state_t *state, unsigned line) {
+    return state->vram_offset + line * 2u * state->ega_line_words;
+}
 typedef struct graphics_pc_view {
     enum graphics_mode_t mode;
     const uint32_t *vram;

@@ -168,7 +168,7 @@ static inline __attribute__((always_inline)) void PC_FN(render_line)(
             const bool narrow = mode == EGA_320x200x16x4;
             const unsigned words = narrow ? 40u : 80u;
             const unsigned source_y = mode == EGA_640x350x16x4 || mode == VGA_640x480x16 ? y : low_y;
-            const unsigned base = source_y * words;
+            const unsigned base = pc_ega_line(state, source_y);
             const unsigned step = !narrow && width == 320 ? 2u : 1u;
             const unsigned repeat = narrow && width == 640 ? 2u : 1u;
             for (unsigned word = 0; word < words; ++word) {

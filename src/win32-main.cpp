@@ -278,9 +278,9 @@ static INLINE void renderer() {
                     break;
                 }
                 case 0x0D: /* EGA 320x200 16-color */ {
-                    const uint32_t *ega_row = &VIDEORAM[(y / 2) * 40];
+                    const uint32_t ega_row = ega_line_start(y / 2);
                     for (int i = 0; i < 40; i++) {
-                        uint32_t ega_planes = *ega_row++;
+                        uint32_t ega_planes = VIDEORAM[(ega_row + i) & 0xFFFF];
 
                         // Build 8 color nibbles packed into a 32-bit word
                         uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
@@ -298,9 +298,9 @@ static INLINE void renderer() {
                     break;
                 }
                 case 0x0E: /* EGA 640x200 16-color */ {
-                    const uint32_t *ega_row = &VIDEORAM[(y / 2) * 80];
+                    const uint32_t ega_row = ega_line_start(y / 2);
                     for (int i = 0; i < 80; i++) {
-                        uint32_t ega_planes = *ega_row++;
+                        uint32_t ega_planes = VIDEORAM[(ega_row + i) & 0xFFFF];
 
                         // Build 8 color nibbles packed into a 32-bit word
                         uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);
@@ -320,9 +320,9 @@ static INLINE void renderer() {
                 case 0x10: /* EGA 640x350 16-color */
                     if (y >= 350) break;
                 case 0x12: /* VGA 640x480 16-color */ {
-                    const uint32_t *ega_row = &VIDEORAM[y * 80];
+                    const uint32_t ega_row = ega_line_start(y);
                     for (int i = 0; i < 80; i++) {
-                        uint32_t ega_planes = *ega_row++;
+                        uint32_t ega_planes = VIDEORAM[(ega_row + i) & 0xFFFF];
 
                         // Build 8 color nibbles packed into a 32-bit word
                         uint32_t eight_pixels = ega_pack8_from_planes(ega_planes);

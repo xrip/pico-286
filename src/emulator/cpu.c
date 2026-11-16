@@ -515,6 +515,7 @@ void intcall86(uint8_t intnum) {
                     vga_plane_offset = 0;
                     vga_planar_mode = 0;
                     tga_offset = 0x8000;
+                    crt_controller[0x13] = videomode == 0x0D ? 0x14 : 0x28; // line width in words; the BIOS does not set it
                     break;
                 case 0x05: /* Select Active Page */ {
                     if (CPU_AL >= 0x80) {

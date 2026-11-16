@@ -164,7 +164,9 @@ bool __time_critical_func(graphics_source_render_ntsc_fast)(
             }
             return true;
         case EGA_320x200x16x4:
-            source = view.vram + row * 40u;
+            base = pc_ega_line(&state, row) & 65535u;
+            if (base + 40u > 65536u) return false;
+            source = view.vram + base;
 #pragma GCC unroll 2
             for (unsigned x = 0; x < 40u; ++x) {
                 const uint32_t planes = *source++;

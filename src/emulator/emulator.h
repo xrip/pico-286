@@ -216,6 +216,12 @@ void keyboard_pump(void);
 extern volatile uint8_t port3DA;
 extern uint32_t vram_offset;
 extern uint32_t tga_offset;
+extern uint8_t crt_controller[32];
+
+// EGA graphics: VIDEORAM index of display line `line`. CRTC 13h gives the line width in words.
+static inline uint32_t ega_line_start(const unsigned line) {
+    return vram_offset + line * 2 * crt_controller[0x13];
+}
 
 // CPU
 extern void exec86(uint32_t execloops);
