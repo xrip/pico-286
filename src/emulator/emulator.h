@@ -244,6 +244,8 @@ extern void sn76489_reset();
 #define XMS_FN_IP 0x03FF
 
 extern uint8_t xms_handler();
+uint16_t readw_linear(uint32_t address);
+void writew_linear(uint32_t address, uint16_t value);
 
 #include "i8237.h"
 

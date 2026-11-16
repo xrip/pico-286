@@ -635,14 +635,31 @@ void intcall86(uint8_t intnum) {
         case 0x15: /* XMS */
             switch (CPU_AH) {
                 case 0x87: {
-                    //https://github.com/neozeed/himem.sys-2.06/blob/5761f4fc182543b3964fd0d3a236d04bac7bfb50/oemsrc/himem.asm#L690
-                    //                    printf("mem move?! %x %x:%x\n", CPU_CX, CPU_ES, CPU_SI);
-                    CPU_AX = 0;
+                    // Block move: ES:SI -> GDT, CX = words
+                    uint32_t src_descriptor = segbase(CPU_ES) + CPU_SI + 0x10;
+                    uint32_t dst_descriptor = segbase(CPU_ES) + CPU_SI + 0x18;
+                    uint32_t bytes = CPU_CX * 2u;
+                    if (bytes > readw86(src_descriptor) + 1u || bytes > readw86(dst_descriptor) + 1u) {
+                        CPU_AH = 2; // exception: past the segment limit
+                        CPU_FL_CF = 1;
+                        return;
+                    }
+                    uint32_t src = readdw86(src_descriptor + 2) & 0xFFFFFF;
+                    uint32_t dst = readdw86(dst_descriptor + 2) & 0xFFFFFF;
+                    int saved_a20 = a20_enabled;
+                    a20_enabled = 1; // the BIOS opens A20 for the move
+                    for (uint32_t i = 0; i < bytes; i += 2) {
+                        writew_linear(dst + i, readw_linear(src + i));
+                    }
+                    a20_enabled = saved_a20;
+                    CPU_AH = 0;
+                    CPU_FL_CF = 0;
                     return;
                 }
-                    return;
                 case 0x88: {
-                    CPU_AX = 64;
+                    // KB above 1 MB: HMA, then XMS[] (shared with the XMS driver)
+                    CPU_AX = (HMA_END - HMA_START + XMS_MEMORY_SIZE) / 1024;
+                    CPU_FL_CF = 0;
                     return;
                 }
             }
