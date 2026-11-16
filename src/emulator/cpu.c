@@ -512,7 +512,7 @@ void intcall86(uint8_t intnum) {
                     if ((CPU_AL & 0x80) == 0x00) {
                         memset(VIDEORAM, 0x0, sizeof(VIDEORAM));
                     }
-                    vga_plane_offset = 0;
+                    vga_set_cpu_page_offset(0);
                     vga_planar_mode = 0;
                     tga_offset = 0x8000;
                     crt_controller[0x13] = videomode == 0x0D ? 0x14 : 0x28; // line width in words; the BIOS does not set it

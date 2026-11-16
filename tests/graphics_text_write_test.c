@@ -8,6 +8,7 @@
 uint8_t *text_buffer;
 void vga_graphics_init(void) {}
 void graphics_pc_snapshot(graphics_pc_state_t *state) { memset(state, 0, sizeof(*state)); }
+uint32_t graphics_pc_ega_line(unsigned line) { return line * 40u; }
 
 #if defined(GRAPHICS_PC_EMULATOR)
 static uint32_t storage[80 * 30 * 2 + 4];

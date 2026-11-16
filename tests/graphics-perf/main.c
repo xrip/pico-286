@@ -69,6 +69,10 @@ static const enum graphics_mode_t ntsc_modes[] = {4, 5, 6, 8, 9, 0x0d, 0x13, 0xf
 void __time_critical_func(graphics_pc_snapshot)(graphics_pc_state_t *out) {
     *out = bench_state;
 }
+// EGA lines at the standard width, start address 0: as the old loops
+uint32_t __time_critical_func(graphics_pc_ega_line)(unsigned line) {
+    return line * (graphics_source_mode() == EGA_320x200x16x4 ? 40u : 80u);
+}
 
 static unsigned source_rows(enum graphics_mode_t mode) {
     switch (mode) {
@@ -204,7 +208,11 @@ static void fill_source(unsigned seed, unsigned backend) {
         bench_text_pairs[i * 4 + 2] = bg | ((uint16_t)fg << 8);
         bench_text_pairs[i * 4 + 3] = fg | ((uint16_t)fg << 8);
     }
-    bench_state.vram_offset = seed * 0x117u;
+    // The old loops ignore the CRTC start address in Tandy modes.
+    const enum graphics_mode_t mode = graphics_source_mode();
+    const bool tandy = mode == TGA_160x200x16 || mode == TGA_320x200x16 || mode == TGA_640x200x16 ||
+                       mode == COMPOSITE_160x200x16 || mode == COMPOSITE_160x200x16_force;
+    bench_state.vram_offset = tandy ? 0 : seed * 0x117u;
     // This is also built once outside scanout by the real VGA backend.
     for (unsigned attr = 0; attr < 256; ++attr) {
         const uint32_t bg = bench_text_pairs[attr * 4u] & 255u;

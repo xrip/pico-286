@@ -8,6 +8,7 @@ static graphics_pc_state_t state;
 uint8_t *text_buffer;
 
 void graphics_pc_snapshot(graphics_pc_state_t *out) { *out = state; }
+uint32_t graphics_pc_ega_line(unsigned line) { return state.vram_offset + line * 40u; } // EGA 0Dh only
 
 int main(void) {
     const enum graphics_mode_t modes[] = {0, 1, 2, 3, 4, 5, 6, 8, 9, 13, 19, 255, 116, 118};

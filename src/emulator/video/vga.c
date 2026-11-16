@@ -12,7 +12,6 @@ static uint8_t sequencer_register = 0;
 static uint8_t graphics_control_register = 0;
 
 static uint8_t color_index = 0, read_color_index = 0, vga_register;
-uint32_t vga_plane_offset = 0; // Tandy CPU page (port 3DFh), added to every CPU access of video memory
 uint8_t vga_planar_mode = 0;
 
 // Latches (32-bit).
@@ -127,11 +126,16 @@ typedef struct {
     uint8_t write_mode; // write mode 0..3
     uint8_t read_mode; // read mode 0 or 1
     uint8_t chain4;
+    uint32_t cpu_page_offset; // Tandy CPU page (port 3DFh), added to every CPU access of video memory
 
     // any other cached flags...
 } vga_cache_t;
 
 static vga_cache_t vga;
+
+void vga_set_cpu_page_offset(const uint32_t offset) {
+    vga.cpu_page_offset = offset;
+}
 
 
 // Call whenever sequencer reg 2 or memory_mode changed
@@ -166,7 +170,7 @@ static inline void vga_update_gc_cache(void) {
 // Read a byte from VGA memory (emulates CPU byte read from VGA window).
 // Performs latch update on read.
 uint8_t __not_in_flash() vga_mem_read(const uint32_t address) {
-    vga_latch32 = VIDEORAM[(address + vga_plane_offset) & 0xFFFF];
+    vga_latch32 = VIDEORAM[(address + vga.cpu_page_offset) & 0xFFFF];
 
     if (vga.read_mode == 0) {
         // return the selected byte from latch
@@ -184,7 +188,7 @@ uint8_t __not_in_flash() vga_mem_read(const uint32_t address) {
 }
 
 uint16_t __not_in_flash() vga_mem_read16(uint32_t address) {
-    address = (address + vga_plane_offset) & 0xFFFF;
+    address = (address + vga.cpu_page_offset) & 0xFFFF;
 
     // Load two DWORDs from VRAM
     const uint32_t plane_lo = VIDEORAM[address];
@@ -316,7 +320,7 @@ void __not_in_flash() vga_mem_write(const uint32_t address, const uint8_t cpu_da
     const uint32_t map_mask32 = vga.map_mask32;
     const uint32_t enable_set_reset32 = vga.enable_set_reset32;
     const uint32_t set_reset32 = vga.set_reset32;
-    uint32_t *videoram_data = &VIDEORAM[(address + vga_plane_offset) & 0xFFFF]; // current data pointer
+    uint32_t *videoram_data = &VIDEORAM[(address + vga.cpu_page_offset) & 0xFFFF]; // current data pointer
 
     switch (vga.write_mode) {
         case 0: {
@@ -375,7 +379,7 @@ void __not_in_flash() vga_mem_write16(const uint32_t address, const uint16_t cpu
     const uint8_t logic = vga.logical_operation;
     const uint8_t wmode = vga.write_mode;
 
-    uint32_t *p0 = &VIDEORAM[(address + vga_plane_offset) & 0xFFFFu];
+    uint32_t *p0 = &VIDEORAM[(address + vga.cpu_page_offset) & 0xFFFFu];
     uint32_t *p1 = p0 + 1;
 
     if (wmode == 1) {
