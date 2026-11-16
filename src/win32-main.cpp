@@ -237,11 +237,11 @@ static INLINE void renderer() {
                             break;
                     }
 
-                    uint32_t *tga_row = &VIDEORAM[tga_offset + (y / 2 >> 1) * 80 + (y / 2 & 1) * 8192]; // Precompute row start
+                    const uint32_t tga_bank = tga_offset + (y / 2 & 1) * 8192, tga_line = (y / 2 >> 1) * 80;
 
                     // Each byte containing 28 pixels
-                    for (int x = 320 / 4; x--;) {
-                        uint8_t two_pixels = *tga_row++; // Fetch 2 pixels from TGA memory
+                    for (int x = 0; x < 80; x++) {
+                        uint8_t two_pixels = VIDEORAM[tga_line_byte(tga_bank, tga_line, x)]; // Fetch 2 pixels from TGA memory
                         uint8_t pixel1_color = two_pixels >> 4;
                         uint8_t pixel2_color = two_pixels & 15;
 
@@ -255,12 +255,11 @@ static INLINE void renderer() {
                     break;
                 }
                 case 0x09: /* tandy 320x200 16 color */ {
-                    uint32_t *tga_row = &VIDEORAM[tga_offset + (y / 2 & 3) * 8192 + y / 8 * 160];
-                    //                  uint8_t *tga_row = &VIDEORAM[tga_offset+(((y / 2) & 3) * 8192) + ((y / 8) * 160)];
+                    const uint32_t tga_bank = tga_offset + (y / 2 & 3) * 8192, tga_line = y / 8 * 160;
 
                     // Each byte containing 4 pixels
-                    for (int x = 320 / 2; x--;) {
-                        uint8_t tga_byte = *tga_row++ & 0xFF;
+                    for (int x = 0; x < 160; x++) {
+                        uint8_t tga_byte = VIDEORAM[tga_line_byte(tga_bank, tga_line, x)] & 0xFF;
                         *pixels++ = *pixels++ = tga_palette[tga_palette_map[tga_byte >> 4 & 15]];
                         *pixels++ = *pixels++ = tga_palette[tga_palette_map[tga_byte & 15]];
                     }

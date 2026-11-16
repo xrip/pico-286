@@ -54,8 +54,9 @@ bool __time_critical_func(graphics_pc_hdmi_render)(
         case TGA_160x200x16: {
             graphics_pc_state_t state;
             graphics_pc_snapshot(&state);
-            const unsigned base = (state.tga_offset + (row >> 1) * 80u +
-                                   ((row & 1u) << 13)) & 0xffffu;
+            const unsigned offset = pc_bank_offset(&state, (row >> 1) * 80u);
+            if (offset > 0x2000u - 80u) return false; // the line wraps inside its bank
+            const unsigned base = (state.tga_offset + offset + ((row & 1u) << 13)) & 0xffffu;
             if (base > 65536u - 80u) return false;
             const uint32_t *source = vram + base;
 #pragma GCC unroll 4
@@ -70,8 +71,9 @@ bool __time_critical_func(graphics_pc_hdmi_render)(
         case TGA_320x200x16: {
             graphics_pc_state_t state;
             graphics_pc_snapshot(&state);
-            const unsigned base = (state.tga_offset + (row & 3u) * 8192u +
-                                   (row >> 2) * 160u) & 0xffffu;
+            const unsigned offset = pc_bank_offset(&state, (row >> 2) * 160u);
+            if (offset > 0x2000u - 160u) return false;
+            const unsigned base = (state.tga_offset + offset + (row & 3u) * 8192u) & 0xffffu;
             if (base > 65536u - 160u) return false;
             const uint32_t *source = vram + base;
             hdmi_pixels16_t *pairs = (hdmi_pixels16_t *)output;

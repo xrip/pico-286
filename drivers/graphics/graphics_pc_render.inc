@@ -134,23 +134,25 @@ static inline __attribute__((always_inline)) void PC_FN(render_line)(
         }
         case COMPOSITE_160x200x16: case COMPOSITE_160x200x16_force:
         case TGA_160x200x16: case TGA_320x200x16: case TGA_640x200x16: {
-            unsigned base, bytes, repeat;
+            unsigned bank, offset = 0, bytes, repeat;
             const bool narrow = mode != TGA_320x200x16 && mode != TGA_640x200x16;
             if (narrow) {
-                base = state->tga_offset + (low_y >> 1) * 80u + ((low_y & 1u) << 13);
+                bank = state->tga_offset + ((low_y & 1u) << 13);
+                offset = pc_bank_offset(state, (low_y >> 1) * 80u);
                 bytes = 80;
                 repeat = width == 640 ? 4u : 2u;
             } else if (mode == TGA_320x200x16) {
-                base = state->tga_offset + (low_y & 3u) * 8192u + (low_y >> 2) * 160u;
+                bank = state->tga_offset + (low_y & 3u) * 8192u;
+                offset = pc_bank_offset(state, (low_y >> 2) * 160u);
                 bytes = 160;
                 repeat = width == 640 ? 2u : 1u;
             } else {
-                base = low_y * 320u;
+                bank = low_y * 320u;
                 bytes = 320;
                 repeat = 1;
             }
             for (unsigned byte = 0; byte < bytes; ++byte) {
-                const uint8_t pixels = (uint8_t)pc_word(vram, base + byte);
+                const uint8_t pixels = (uint8_t)pc_word(vram, bank + ((offset + byte) & 0x1fffu));
                 uint8_t left = pixels >> 4;
                 uint8_t right = pixels & 15u;
                 if (mode == TGA_160x200x16) {

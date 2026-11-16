@@ -129,7 +129,9 @@ bool __time_critical_func(graphics_source_render_ntsc_fast)(
             return true;
         }
         case TGA_160x200x16: {
-            base = (state.tga_offset + (row >> 1) * 80u + ((row & 1u) << 13)) & 65535u;
+            base = pc_bank_offset(&state, (row >> 1) * 80u);
+            if (base + 80u > 0x2000u) return false; // the line wraps inside its bank
+            base = (base + state.tga_offset + ((row & 1u) << 13)) & 65535u;
             if (base + 80u > 65536u) return false;
             source = view.vram + base;
             // A Tandy pixel owns both phase pairs. Put them next to each
@@ -152,7 +154,9 @@ bool __time_critical_func(graphics_source_render_ntsc_fast)(
             return true;
         }
         case TGA_320x200x16:
-            base = (state.tga_offset + ((row & 3u) << 13) + (row >> 2) * 160u) & 65535u;
+            base = pc_bank_offset(&state, (row >> 2) * 160u);
+            if (base + 160u > 0x2000u) return false;
+            base = (base + state.tga_offset + ((row & 3u) << 13)) & 65535u;
             if (base + 160u > 65536u) return false;
             source = view.vram + base;
 #pragma GCC unroll 8

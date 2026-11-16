@@ -223,6 +223,11 @@ static inline uint32_t ega_line_start(const unsigned line) {
     return vram_offset + line * 2 * crt_controller[0x13];
 }
 
+// Tandy graphics: VIDEORAM index of byte `x` of a display line. The CRTC start address wraps inside each 8K bank.
+static inline uint32_t tga_line_byte(const uint32_t bank, const uint32_t line, const unsigned x) {
+    return (bank + ((vram_offset * 2 + line + x) & 0x1FFF)) & 0xFFFF;
+}
+
 // CPU
 extern void exec86(uint32_t execloops);
 

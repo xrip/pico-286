@@ -60,11 +60,15 @@ static inline __attribute__((always_inline)) bool PC_FAST_FN(render)(
             if (low_y >= 200) return false;
             graphics_pc_snapshot(&state);
             if (mode == TGA_320x200x16) {
-                base = state.tga_offset + (low_y & 3u) * 8192u + (low_y >> 2) * 160u;
                 words = 160;
+                base = pc_bank_offset(&state, (low_y >> 2) * 160u);
+                if (base + words > 0x2000u) return false; // the line wraps inside its bank
+                base += state.tga_offset + (low_y & 3u) * 8192u;
             } else {
-                base = state.tga_offset + (low_y >> 1) * 80u + ((low_y & 1u) << 13);
                 words = 80;
+                base = pc_bank_offset(&state, (low_y >> 1) * 80u);
+                if (base + words > 0x2000u) return false;
+                base += state.tga_offset + ((low_y & 1u) << 13);
             }
             foreground = state.foreground;
             source_wide = false;

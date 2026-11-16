@@ -92,6 +92,11 @@ void graphics_pc_snapshot(graphics_pc_state_t *state);
 static inline __attribute__((always_inline)) unsigned pc_ega_line(const graphics_pc_state_t *state, unsigned line) {
     return state->vram_offset + line * 2u * state->ega_line_words;
 }
+
+// Tandy graphics: offset of a display line inside its 8K bank. The CRTC start address wraps inside the bank.
+static inline __attribute__((always_inline)) unsigned pc_bank_offset(const graphics_pc_state_t *state, unsigned line) {
+    return ((state->vram_offset << 1) + line) & 0x1fffu;
+}
 typedef struct graphics_pc_view {
     enum graphics_mode_t mode;
     const uint32_t *vram;
