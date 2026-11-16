@@ -1398,6 +1398,7 @@ extern volatile bool ask_to_blast;
 void __not_in_flash() exec86(uint32_t execloops) {
     static bool was_TF;
 
+    keyboard_pump();
     //counterticks = (uint64_t) ( (double) timerfreq / (double) 65536.0);
     //tickssource();
     for (uint32_t loopcount = 0; loopcount < execloops; loopcount++) {

@@ -20,6 +20,34 @@ OPL *emu8950_opl;
 #include "audio/sound_blaster.c.inl"
 uint8_t crt_controller_idx, crt_controller[32];
 uint8_t port60, port61, port64;
+
+// Keyboard queue: a scancode goes to port 60h only after the one before it is read.
+// One producer (the host input code) and one consumer (exec86).
+static uint8_t keyboard_queue[16];
+static uint8_t keyboard_head, keyboard_tail;
+static bool port60_read = true;
+
+void keyboard_push(const uint8_t scancode) {
+    const uint8_t head = keyboard_head;
+    const uint8_t next = (head + 1) % sizeof(keyboard_queue);
+    if (next == __atomic_load_n(&keyboard_tail, __ATOMIC_ACQUIRE)) return; // full: the key is lost
+    keyboard_queue[head] = scancode;
+    __atomic_store_n(&keyboard_head, next, __ATOMIC_RELEASE);
+}
+
+void keyboard_pump(void) {
+    if (i8259.in_service_register & 2) return;
+    if (port60_read) {
+        const uint8_t tail = keyboard_tail;
+        if (tail == __atomic_load_n(&keyboard_head, __ATOMIC_ACQUIRE)) return;
+        port60 = keyboard_queue[tail];
+        __atomic_store_n(&keyboard_tail, (uint8_t)((tail + 1) % sizeof(keyboard_queue)), __ATOMIC_RELEASE);
+        port60_read = false;
+        port64 |= 2;
+    }
+    doirq(1); // like the 8042: IRQ1 stays up until port 60h is read, even after ICW1 clears IRR
+}
+
 uint8_t cursor_start = 12, cursor_end = 13;
 uint32_t vram_offset = 0x0;
 
@@ -409,6 +437,7 @@ uint16_t portin(uint16_t portnum) {
 
 // Keyboard
         case 0x60:
+            port60_read = true;
             return port60;
         case 0x61:
             return port61;

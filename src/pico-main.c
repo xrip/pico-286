@@ -306,9 +306,7 @@ bool handleScancode(uint32_t ps2scancode) {
             break;
     }
 
-    port60 = ps2scancode;
-    port64 |= 2;
-    doirq(1);
+    keyboard_push(ps2scancode);
     return true;
 }
 

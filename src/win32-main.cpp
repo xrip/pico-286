@@ -923,10 +923,7 @@ extern "C" void HandleInput(WPARAM wParam, BOOL isKeyDown) {
         scancode |= 0x80;
     }
 
-    port60 = scancode;
-    port64 |= 2;
-
-    doirq(1);
+    keyboard_push(scancode);
     //printf("scancode %c", scancode);
 }
 

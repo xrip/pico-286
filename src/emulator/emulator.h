@@ -211,6 +211,8 @@ extern uint16_t portin(uint16_t portnum);
 extern uint16_t portin16(uint16_t portnum);
 
 extern uint8_t port60, port61, port64;
+void keyboard_push(uint8_t scancode);
+void keyboard_pump(void);
 extern volatile uint8_t port3DA;
 extern uint32_t vram_offset;
 extern uint32_t tga_offset;
