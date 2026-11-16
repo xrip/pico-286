@@ -9,7 +9,7 @@
 #define DMA_CHANNEL_MASK_REGISTER 0x0A
 #define DMA_MODE_REGISTER 0x0B
 #define DMA_CLEAR_FF 0x0C
-#define DMA_STATUS_REGISTER 0x0D
+#define DMA_STATUS_REGISTER 0x08 // read; a write to 0x08 is the command register
 #define DMA_MASTER_CLEAR 0x0D
 #define DMA_CLEAR_MASK_REGISTER 0x0E
 #define DMA_MASK_REGISTER 0x0F
@@ -77,11 +77,6 @@ static inline void i8237_writeport(const uint16_t port_number, const uint8_t dat
     }
 
     switch (port) {
-        case DMA_COMMAND_REGISTER:
-            for (uint8_t channel = 0; channel < DMA_CHANNELS; ++channel) {
-                dma_channels[channel].auto_init = (data >> 5) & 1;
-            }
-            break;
         case DMA_REQUEST_REGISTER:
             dma_channels[data & 3].dreq = (data >> 2) & 1;
             break;
@@ -122,8 +117,8 @@ static inline void i8237_writepage(const uint16_t port_number, const uint8_t dat
     switch (port_number) {
         case 0x81: channel = 2; break;
         case 0x82: channel = 3; break;
-        case 0x83: channel = 0; break;
-        case 0x87: channel = 1; break;
+        case 0x83: channel = 1; break;
+        case 0x87: channel = 0; break;
         default: return;
     }
     dma_channels[channel].page = (uint32_t)data << 16;
@@ -148,15 +143,12 @@ static inline uint8_t i8237_readport(const uint16_t port_number) {
     }
 
     if (port == DMA_STATUS_REGISTER) {
+        // bits 0-3: terminal count (cleared by this read), bits 4-7: request
         uint8_t value = 0;
         for (uint8_t channel = 0; channel < DMA_CHANNELS; ++channel) {
-            if (dma_channels[channel].dreq) {
-                value |= (uint8_t)(1u << channel);
-            }
-            if (dma_channels[channel].finished) {
-                value |= (uint8_t)(1u << (channel + 4));
-                dma_channels[channel].finished = 0;
-            }
+            value |= (uint8_t)(dma_channels[channel].finished << channel);
+            value |= (uint8_t)(dma_channels[channel].dreq << (channel + 4));
+            dma_channels[channel].finished = 0;
         }
         return value;
     }
@@ -168,8 +160,8 @@ static inline uint8_t i8237_readpage(const uint16_t port_number) {
     switch (port_number) {
         case 0x81: channel = 2; break;
         case 0x82: channel = 3; break;
-        case 0x83: channel = 0; break;
-        case 0x87: channel = 1; break;
+        case 0x83: channel = 1; break;
+        case 0x87: channel = 0; break;
         default: return 0xFF;
     }
     return (uint8_t)(dma_channels[channel].page >> 16);

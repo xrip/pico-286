@@ -92,8 +92,17 @@ static void test_i8237(void) {
     assert(i8237_read(2) == 0x5A);
     assert(dma_channels[2].address == 0x1234);
     assert(dma_channels[2].count == 1);
-    assert(i8237_readport(DMA_STATUS_REGISTER) == (1u << 6));
+    assert(i8237_readport(DMA_STATUS_REGISTER) == (1u << 2)); // TC of channel 2
     assert(i8237_readport(DMA_STATUS_REGISTER) == 0);
+
+    i8237_writeport(DMA_COMMAND_REGISTER, 0x00);
+    assert(dma_channels[2].auto_init == 1);
+
+    i8237_writepage(0x87, 0x03);
+    i8237_writepage(0x83, 0x02);
+    assert(dma_channels[0].page == 0x30000);
+    assert(dma_channels[1].page == 0x20000);
+    assert(i8237_readpage(0x83) == 2);
 }
 
 int main(void) {
