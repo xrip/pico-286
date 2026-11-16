@@ -19,7 +19,6 @@ i8253_s i8253;
 dma_channel_s dma_channels[DMA_CHANNELS];
 uint8_t i8237_byte_flipflop;
 uint8_t port61;
-int speakerenabled;
 int timer_period;
 
 static uint64_t now_us = 1000000;

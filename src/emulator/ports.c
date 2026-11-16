@@ -133,20 +133,9 @@ void portout(uint16_t portnum, uint16_t value) {
             return i8253_write(portnum, value);
         case 0x61: // PC Speaker
             port61 = value;
-            if ((value & 3) == 3) {
-#if I2S_SOUND || HARDWARE_SOUND || !PICO_ON_DEVICE
-                speakerenabled = 1;
-#else
-                pwm_set_gpio_level(PWM_BEEPER, 127);
+#if SPEAKER_ON_PWM_PIN
+            speaker_update();
 #endif
-            } else {
-#if I2S_SOUND || HARDWARE_SOUND || !PICO_ON_DEVICE
-                speakerenabled = 0;
-#else
-                pwm_set_gpio_level(PWM_BEEPER, 0);
-#endif
-            }
-
             break;
         case 0x64: // Keyboard Controller
 #if PICO_ON_DEVICE

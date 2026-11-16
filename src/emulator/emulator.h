@@ -294,7 +294,11 @@ extern int16_t covox_sample;
 #endif
 #endif
 static INLINE int16_t speaker_sample() {
-    if (!speakerenabled) return 0;
+#if SPEAKER_ON_PWM_PIN
+    return 0; // the speaker has its own PWM pin
+#else
+    if (!(port61 & 2)) return 0;
+    if (!(port61 & 1)) return 4096; // GATE2 off: OUT2 stays high, the speaker follows bit 1
     static uint32_t speakerfullstep, speakerhalfstep, speakercurstep = 0;
     int16_t speakervalue;
     speakerfullstep = SOUND_FREQUENCY / i8253_frequency(2);
@@ -308,6 +312,7 @@ static INLINE int16_t speaker_sample() {
     }
     speakercurstep = (speakercurstep + 1) % speakerfullstep;
     return speakervalue;
+#endif
 }
 
 extern void get_sound_sample(int16_t other_sample, int16_t *samples);

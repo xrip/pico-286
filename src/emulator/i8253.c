@@ -16,7 +16,6 @@ i8253_s i8253 = {
     },
 };
 
-int speakerenabled = 0;
 int timer_period = 54925;
 
 uint64_t i8253_now_us(void) {
