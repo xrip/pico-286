@@ -163,7 +163,8 @@ static uint32_t hdmi_color_distance(uint32_t a, uint32_t b) {
     return (uint32_t)(r * r + g * g + blue * blue);
 }
 
-static void hdmi_find_tail_color(unsigned tail) {
+// In SRAM: graphics_set_palette() calls it under hdmi_lock.
+static void __time_critical_func(hdmi_find_tail_color)(unsigned tail) {
     uint32_t best = UINT32_MAX;
     for (unsigned i = 0; i < 16u; ++i) {
         const uint32_t distance = hdmi_color_distance(base_rgb[i], tail_rgb[tail]);
@@ -604,6 +605,35 @@ static __force_inline void hdmi_render_text(unsigned line, uint8_t *output) {
     }
 }
 
+// A colour written while the DMA reads its entry can go out half old, half
+// new: often an illegal TMDS code, sometimes a control token in the middle of
+// a line, and receivers lose sync. So graphics_set_palette() queues the new
+// entry words, and the scanline IRQ stores them first thing at the next line,
+// while the DMA still sends its sync and porch (control entries only).
+static uint32_t pending_words[HDMI_CTRL_BASE_INDEX][4];
+static uint32_t pending_colors[(HDMI_CTRL_BASE_INDEX + 31u) / 32u]; // one bit per queued colour
+
+// Stores up to `limit` queued colours. The caller holds hdmi_lock.
+static void __time_critical_func(hdmi_store_pending_colors)(unsigned limit) {
+    for (unsigned word = 0; word < count_of(pending_colors); ++word) {
+        for (unsigned bit = 0; pending_colors[word] != 0u && bit < 32u; ++bit) {
+            if (!(pending_colors[word] & (1u << bit))) continue;
+            if (limit-- == 0u) return;
+            pending_colors[word] &= ~(1u << bit);
+            const unsigned index = word * 32u + bit;
+            const uint32_t *words = pending_words[index];
+            if (text_mode || wide_mode) { // the two pixel phases of a 16-colour entry
+                workspace.wide.palette[index][0] = words[0];
+                workspace.wide.palette[index][1] = words[1];
+                workspace.wide.palette[index + 32u][0] = words[2];
+                workspace.wide.palette[index + 32u][1] = words[3];
+            } else {
+                for (unsigned i = 0; i < 4u; ++i) workspace.graphics.palette[index][i] = words[i];
+            }
+        }
+    }
+}
+
 static __force_inline uint8_t *hdmi_line_buffer(unsigned buffer) {
     return text_mode ? workspace.text.lines[buffer] :
             (wide_mode ? workspace.wide.lines[buffer] : workspace.graphics.lines[buffer]);
@@ -705,6 +735,8 @@ static void __time_critical_func(hdmi_scanline_interrupt_handler)(void) {
         return;
     }
     dma_hw->ints0 = 1u << dma_channel_control;
+    // The DMA now sends this line's sync and porch: store queued colours first.
+    hdmi_store_pending_colors(16u);
     unsigned line = hdmi_current_scanline + 1u;
     if (line == HDMI_TOTAL_SCANLINES) line = 0;
     hdmi_current_scanline = (uint16_t)line;
@@ -871,9 +903,11 @@ void graphics_set_mode(enum graphics_mode_t mode) {
     const bool want_wide = hdmi_wants_wide();
     if (initialized && (want_text != text_mode || want_wide != wide_mode)) {
         hdmi_stop_output();
+        hdmi_store_pending_colors(HDMI_CTRL_BASE_INDEX);
         hdmi_change_workspace_mode(want_text, want_wide);
         hdmi_start_output();
     } else if (!initialized) {
+        hdmi_store_pending_colors(HDMI_CTRL_BASE_INDEX);
         hdmi_change_workspace_mode(want_text, want_wide);
     }
     hdmi_leave(irq_state);
@@ -890,15 +924,15 @@ void graphics_wait_vblank(void) {
     }
 }
 
-void graphics_set_palette(uint8_t index, uint32_t color888) {
+// In SRAM: it holds hdmi_lock, which the scanline IRQ needs at the start of each line.
+void __time_critical_func(graphics_set_palette)(uint8_t index, uint32_t color888) {
 #if defined(GRAPHICS_PC_EMULATOR)
     color888 = graphics_pc_palette_color(index, color888, false);
 #endif
-    const uint8_t code = index;
-    uint32_t encoded[4];
-    // Encoding does not hold the IRQ lock. Only the short final publication
-    // is serialized against scanout and in-place workspace repacking.
-    hdmi_encode_graphics_rgb(encoded, color888);
+    uint32_t graphics_words[4], small_words[4];
+    hdmi_encode_graphics_rgb(graphics_words, color888);
+    hdmi_store_pixel(small_words, hdmi_text_pixel(color888, 0));
+    hdmi_store_pixel(small_words + 2, hdmi_text_pixel(color888, 1));
     const uint32_t irq_state = hdmi_enter();
     hdmi_initialize_palette();
     if (index >= HDMI_CTRL_BASE_INDEX) {
@@ -909,22 +943,22 @@ void graphics_set_palette(uint8_t index, uint32_t color888) {
         hdmi_leave(irq_state);
         return;
     }
+    bool queue = true;
     if (text_mode || wide_mode) {
-        uint8_t *cached = workspace.text.graphics_rgb[code];
+        uint8_t *cached = workspace.text.graphics_rgb[index];
         cached[0] = (uint8_t)(color888 >> 16);
         cached[1] = (uint8_t)(color888 >> 8);
         cached[2] = (uint8_t)color888;
 #if defined(GRAPHICS_PC_EMULATOR)
-        if (index < 16u) { // PC text follows the palette too; both layouts share it
+        queue = index < 16u; // PC text follows the palette too; both layouts share it
 #else
-        if (wide_mode && index < 16u) {
+        queue = wide_mode && index < 16u;
 #endif
-            for (unsigned phase = 0; phase < 2; ++phase)
-                hdmi_store_pixel(workspace.wide.palette[index + phase * 32u],
-                                  hdmi_text_pixel(color888, phase));
-        }
-    } else {
-        memcpy(workspace.graphics.palette[code], encoded, sizeof(encoded));
+    }
+    if (queue) {
+        const uint32_t *words = text_mode || wide_mode ? small_words : graphics_words;
+        for (unsigned i = 0; i < 4u; ++i) pending_words[index][i] = words[i];
+        pending_colors[index / 32u] |= 1u << (index % 32u);
     }
     if (index < 16u) {
         base_rgb[index] = color888;
@@ -961,6 +995,7 @@ void hdmi_graphics_init(void) {
     if (graphics_framebuffer == NULL) graphics_framebuffer = hdmi_primary_framebuffer;
 #endif
     pending_framebuffer = NULL;
+    hdmi_store_pending_colors(HDMI_CTRL_BASE_INDEX);
     hdmi_change_workspace_mode(hdmi_wants_text(), hdmi_wants_wide());
     sm_video_output = pio_claim_unused_sm(PIO_VIDEO, true);
     sm_address_converter = pio_claim_unused_sm(PIO_VIDEO_ADDR, true);
