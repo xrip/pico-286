@@ -15,12 +15,15 @@ struct hdmi_line_schedule {
 
 // A repeated 320-pixel row reuses its DMA address, without copying 400 bytes.
 // Return true only when the selected buffer needs fresh pixel data.
+// `sending` is the buffer the DMA reads now; a new row goes into the other
+// one. Even after a late IRQ (two lines for one call) the CPU then never
+// writes the row that is on air.
 static inline bool hdmi_schedule_line(struct hdmi_line_schedule *state,
-                                      unsigned line, bool doubled_rows) {
+                                      unsigned line, bool doubled_rows, unsigned sending) {
     const bool same = line == state->line;
     const bool repeat = doubled_rows && line < 480u && (line & 1u) &&
                         line == state->line + 1u;
-    if (!same && !repeat) state->buffer ^= 1u;
+    if (!same && !repeat) state->buffer = sending ^ 1u;
     state->line = line;
     return !same && !repeat;
 }

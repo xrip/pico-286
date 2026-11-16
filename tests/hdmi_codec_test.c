@@ -45,31 +45,36 @@ static void test_wide_pio_addresses(void) {
 static void test_dma_row_lifetime(void) {
     for (unsigned doubled = 0; doubled < 2; ++doubled) {
         struct hdmi_line_schedule schedule = {UINT32_MAX, 0};
+        unsigned slots[2] = {7, 7}; // the buffer each DMA ring slot points to; 7: none yet
         // Startup prepares two lines, then the first IRQ requests the second
         // one again while DMA reads the first. It must not touch that buffer.
-        assert(hdmi_schedule_line(&schedule, 480, doubled));
-        const unsigned first = schedule.buffer;
-        assert(hdmi_schedule_line(&schedule, 481, doubled));
-        const unsigned second = schedule.buffer;
-        assert(first != second);
-        assert(!hdmi_schedule_line(&schedule, 481, doubled));
-        assert(schedule.buffer == second);
+        assert(hdmi_schedule_line(&schedule, 480, doubled, slots[1]));
+        slots[0] = schedule.buffer;
+        assert(hdmi_schedule_line(&schedule, 481, doubled, slots[0]));
+        slots[1] = schedule.buffer;
+        assert(slots[0] != slots[1]);
+        assert(!hdmi_schedule_line(&schedule, 481, doubled, slots[0]));
+        assert(schedule.buffer == slots[1]);
 
-        unsigned previous = second;
-        unsigned line = 481;
+        // Each step the DMA starts the other slot; the IRQ fills the slot
+        // after it. Every 100th IRQ is a line late, and the DMA has moved on.
+        unsigned on_air = 0, line = 481;
         for (unsigned step = 0; step < 525 * 3; ++step) {
+            on_air ^= 1u;
+            if (step % 100 == 99) continue;
             line = (line + 1) % 525;
-            const bool writes = hdmi_schedule_line(&schedule, line, doubled);
+            const unsigned previous = schedule.buffer;
+            const bool writes = hdmi_schedule_line(&schedule, line, doubled, slots[on_air]);
             if (doubled && line < 480 && (line & 1)) {
                 assert(!writes);
                 assert(schedule.buffer == previous);
             } else {
-                // DMA is reading the previous buffer. New rows must always
-                // use the other buffer, including the odd-sized frame wrap.
+                // New rows never go into the buffer on air, also after a
+                // late IRQ and at the odd-sized frame wrap.
                 assert(writes);
-                assert(schedule.buffer != previous);
+                assert(schedule.buffer != slots[on_air]);
             }
-            previous = schedule.buffer;
+            slots[on_air ^ 1u] = schedule.buffer;
         }
     }
 }

@@ -554,12 +554,17 @@ static __force_inline void hdmi_render_text(unsigned line, uint8_t *output) {
     }
 }
 
-static void __time_critical_func(hdmi_prepare_line)(unsigned line, unsigned slot) {
-    const bool needs_pixels = hdmi_schedule_line(&line_schedule, line,
-                                                 !text_mode && !wide_mode);
-    const unsigned buffer = line_schedule.buffer;
-    uint8_t *dest = text_mode ? workspace.text.lines[buffer] :
+static __force_inline uint8_t *hdmi_line_buffer(unsigned buffer) {
+    return text_mode ? workspace.text.lines[buffer] :
             (wide_mode ? workspace.wide.lines[buffer] : workspace.graphics.lines[buffer]);
+}
+
+static void __time_critical_func(hdmi_prepare_line)(unsigned line, unsigned slot) {
+    // The other ring slot is the one on air.
+    const unsigned sending = dma_buffer_addresses[slot ^ 1u] == (uint32_t)(uintptr_t)hdmi_line_buffer(1) ? 1u : 0u;
+    const bool needs_pixels = hdmi_schedule_line(&line_schedule, line,
+                                                 !text_mode && !wide_mode, sending);
+    uint8_t *dest = hdmi_line_buffer(line_schedule.buffer);
     dma_buffer_addresses[slot] = (uint32_t)(uintptr_t)dest;
     // Both ring slots may point at the same immutable row. The next new
     // row goes into the other buffer while DMA sends the repeated row.
