@@ -8,7 +8,11 @@
 
 #if PICO_ON_DEVICE
 #include "hardware/interp.h"
+#if PICO_RP2350
+#define SLOT_RENDER_DATA __attribute__((section(".data.slot_render_cpp"), aligned(4)))
+#else
 #define SLOT_RENDER_DATA __scratch_y("slot_render_cpp")
+#endif
 #else
 #define SLOT_RENDER_DATA
 #endif

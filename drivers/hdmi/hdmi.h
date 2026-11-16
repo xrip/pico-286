@@ -33,6 +33,13 @@ extern "C" {
 
 void hdmi_graphics_init(void);
 
+#if defined(PC_USB_CONSOLE)
+typedef struct {
+    uint32_t irq_entries, irq_exits, frames, line;
+    unsigned channel[4];
+} hdmi_debug_state_t;
+void hdmi_debug_snapshot(hdmi_debug_state_t *state);
+#endif
 
 #ifdef __cplusplus
 }

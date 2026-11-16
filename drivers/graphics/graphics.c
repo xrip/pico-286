@@ -41,8 +41,8 @@ enum {
 #define GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ 315000u
 #endif
 _Static_assert(GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 315000u ||
-               GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 504000u,
-               "HSTX supports the 315 MHz and 504 MHz clock profiles");
+               GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 500000u,
+               "HSTX supports the 315 MHz and 500 MHz clock profiles");
 #if defined(NTSC_TV)
 _Static_assert(GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 315000u, "NTSC requires 315 MHz");
 #endif
@@ -87,47 +87,23 @@ static void graphics_validate_hstx_clocks(void) {
         panic("HDMI_HSTX needs direct PLL_SYS at the configured CPU frequency");
     }
 
-    const bool hstx_from_sys = GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 504000u;
     const uint32_t hstx_ctrl = clocks_hw->clk[clk_hstx].ctrl;
-    const uint32_t hstx_source = (hstx_from_sys ?
-        CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLKSRC_PLL_SYS :
-        CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB) <<
+    const uint32_t hstx_source = CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB <<
         CLOCKS_CLK_HSTX_CTRL_AUXSRC_LSB;
-    const uint32_t hstx_divider = hstx_from_sys ? 4u : 1u;
-    // HSTX has a two-bit integer field: zero encodes its maximum divisor, 4.
-    const uint32_t hstx_divider_register =
-        (hstx_divider << CLOCKS_CLK_HSTX_DIV_INT_LSB) & CLOCKS_CLK_HSTX_DIV_INT_BITS;
     if ((hstx_ctrl & CLOCKS_CLK_HSTX_CTRL_AUXSRC_BITS) != hstx_source ||
         (hstx_ctrl & (CLOCKS_CLK_HSTX_CTRL_ENABLE_BITS |
                       CLOCKS_CLK_HSTX_CTRL_ENABLED_BITS)) !=
             (CLOCKS_CLK_HSTX_CTRL_ENABLE_BITS |
              CLOCKS_CLK_HSTX_CTRL_ENABLED_BITS) ||
         (hstx_ctrl & CLOCKS_CLK_HSTX_CTRL_KILL_BITS) ||
-        clocks_hw->clk[clk_hstx].div != hstx_divider_register ||
-        !graphics_pll_is_frequency(hstx_from_sys ? pll_sys : pll_usb,
-                hstx_from_sys ? system_hz : GRAPHICS_HSTX_CLOCK_HZ) ||
+        clocks_hw->clk[clk_hstx].div != (1u << CLOCKS_CLK_HSTX_DIV_INT_LSB) ||
+        !graphics_pll_is_frequency(pll_usb, GRAPHICS_HSTX_CLOCK_HZ) ||
         clock_get_hz(clk_hstx) != GRAPHICS_HSTX_CLOCK_HZ ||
         (resets_hw->reset & RESETS_RESET_HSTX_BITS)) {
-        panic("HDMI_HSTX needs 126 MHz from the selected PLL and integer divider");
+        panic("HDMI_HSTX needs undivided PLL_USB at 126 MHz");
     }
 
-    if (hstx_from_sys) {
-        const uint32_t usb_ctrl = clocks_hw->clk[clk_usb].ctrl;
-        const uint32_t usb_source =
-            CLOCKS_CLK_USB_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB <<
-            CLOCKS_CLK_USB_CTRL_AUXSRC_LSB;
-        if (!graphics_pll_is_frequency(pll_usb, 48000000u) ||
-            clock_get_hz(clk_usb) != 48000000u ||
-            (usb_ctrl & (CLOCKS_CLK_USB_CTRL_AUXSRC_BITS |
-                         CLOCKS_CLK_USB_CTRL_ENABLE_BITS |
-                         CLOCKS_CLK_USB_CTRL_ENABLED_BITS |
-                         CLOCKS_CLK_USB_CTRL_KILL_BITS)) !=
-                (usb_source | CLOCKS_CLK_USB_CTRL_ENABLE_BITS |
-                 CLOCKS_CLK_USB_CTRL_ENABLED_BITS) ||
-            clocks_hw->clk[clk_usb].div != (1u << CLOCKS_CLK_USB_DIV_INT_LSB)) {
-            panic("504 MHz HSTX profile keeps USB on PLL_USB at 48 MHz");
-        }
-    } else if ((clocks_hw->clk[clk_usb].ctrl &
+    if ((clocks_hw->clk[clk_usb].ctrl &
          (CLOCKS_CLK_USB_CTRL_ENABLE_BITS | CLOCKS_CLK_USB_CTRL_ENABLED_BITS)) ||
         (clocks_hw->clk[clk_adc].ctrl &
          (CLOCKS_CLK_ADC_CTRL_ENABLE_BITS | CLOCKS_CLK_ADC_CTRL_ENABLED_BITS))) {
@@ -166,7 +142,7 @@ void graphics_prepare_clock(void) {
     reset_block_mask(RESETS_RESET_HSTX_BITS);
     graphics_stop_peripheral_clock(clk_hstx);
 
-    if (GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 504000u) {
+    if (GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 500000u) {
         vreg_disable_voltage_limit();
         vreg_set_voltage(VREG_VOLTAGE_1_60);
     } else {
@@ -177,31 +153,22 @@ void graphics_prepare_clock(void) {
 
     // The SDK normally leaves PERI on PLL_USB after changing SYS. Move it to
     // an integer division of SYS. Initialise application UART/SPI after this
-    // call (105 MHz at 315, 126 MHz at 504).
+    // call (105 MHz at 315, 125 MHz at 500).
     graphics_stop_peripheral_clock(clk_peri);
     clock_configure_int_divider(
         clk_peri, 0, CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS,
         GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ * 1000u,
-        GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 504000u ? 4u : 3u);
+        GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 500000u ? 4u : 3u);
 
-    if (GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 504000u) {
-        // 504 / 4 is exact. USB and ADC keep their SDK clocks and PLL_USB
-        // stays at 48 MHz; this profile can use USB stdio and software BOOTSEL.
-        clock_configure_int_divider(
-            clk_hstx, 0, CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLKSRC_PLL_SYS,
-            GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ * 1000u, 4u);
-    } else {
-        reset_block_mask(RESETS_RESET_USBCTRL_BITS | RESETS_RESET_ADC_BITS);
-        graphics_stop_peripheral_clock(clk_usb);
-        graphics_stop_peripheral_clock(clk_adc);
+    reset_block_mask(RESETS_RESET_USBCTRL_BITS | RESETS_RESET_ADC_BITS);
+    graphics_stop_peripheral_clock(clk_usb);
+    graphics_stop_peripheral_clock(clk_adc);
 
-        // HSTX has no fractional divider: 315 / 126 is not an integer.
-        // Dedicate PLL_USB to 12 MHz * 105 / 5 / 2 = 126 MHz for this profile.
-        pll_init(pll_usb, 1u, 1260000000u, 5u, 2u);
-        clock_configure_undivided(
-            clk_hstx, 0, CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
-            GRAPHICS_HSTX_CLOCK_HZ);
-    }
+    // Keep scanout independent of SYS: 12 MHz * 105 / 5 / 2 = 126 MHz.
+    pll_init(pll_usb, 1u, 1260000000u, 5u, 2u);
+    clock_configure_undivided(
+        clk_hstx, 0, CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
+        GRAPHICS_HSTX_CLOCK_HZ);
     while (!(clocks_hw->clk[clk_hstx].ctrl &
              CLOCKS_CLK_HSTX_CTRL_ENABLED_BITS)) {
         tight_loop_contents();

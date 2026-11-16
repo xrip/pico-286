@@ -26,7 +26,7 @@ typedef struct fault_trace_record {
     uint32_t sfar;
     uint32_t icsr;
     uint32_t vtor;
-    uint32_t dma1_vector;
+    uint32_t video_dma_vector;
 } fault_trace_record_t;
 
 extern volatile fault_trace_record_t fault_trace[2];

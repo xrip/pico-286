@@ -18,6 +18,8 @@ The benchmark excludes video DMA, second-core load, and lock contention.
 | Shared-bus isolation, stock SDK reference, and startup correction | [Interrupt isolation](irq-entry-isolation.md) |
 | SDK-derived flash profile at 504 MHz: Dune II/Monkey Island and 602-second observation pass | [Board results](irq-entry-isolation.md), [game log](hstx-sdk-profile-run.txt) |
 | 50.4 MHz flash trial: user confirms stable game runs | [Trial settings and hashes](flash-50m4-trial.md) |
+| Later Dave 2 faults, scratch migration, and 378 MHz control | [Stack and SRAM checks](dave2-sram-check.md) |
+| 500 MHz, separate HSTX PLL, HDMI audio: Dave 2 exit/relaunch passes user test | [Build and board result](hstx-500-audio.md) |
 
 Earlier slower runs are retained as `first-board-run`, `second-board-run`,
 `third-diagnostic-run`, `fourth-board-run`, `fifth-board-run`, and

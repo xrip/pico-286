@@ -22,7 +22,11 @@
 #define PAGE_CHANGE_FLAG 0x8000
 #define PAGE_ID_MASK 0x7FFF
 
+#if PICO_RP2350
+uint16_t ALIGN(4, SWAP_PAGES[SWAP_BLOCKS]) = {0};
+#else
 uint16_t __scratch_y("swap_pages") ALIGN(4, SWAP_PAGES[SWAP_BLOCKS]) = {0};
+#endif
 #define SWAP_PAGES_CACHE SRAM
 
 static INLINE uint32_t get_swap_page_for(uint32_t address);

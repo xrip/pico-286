@@ -95,6 +95,21 @@ static int dma_channel_data;
 static int dma_channel_palette_control;
 static int dma_channel_palette_data;
 
+#if defined(PC_USB_CONSOLE)
+static volatile uint32_t hdmi_irq_entries, hdmi_irq_exits, hdmi_frames;
+
+void hdmi_debug_snapshot(hdmi_debug_state_t *state) {
+    state->irq_entries = hdmi_irq_entries;
+    state->irq_exits = hdmi_irq_exits;
+    state->frames = hdmi_frames;
+    state->line = hdmi_current_scanline;
+    state->channel[0] = dma_channel_control;
+    state->channel[1] = dma_channel_data;
+    state->channel[2] = dma_channel_palette_control;
+    state->channel[3] = dma_channel_palette_data;
+}
+#endif
+
 // The control channel advances through this ring itself. The IRQ fills the
 // next buffer, never the buffer whose pointer has just been consumed by DMA.
 static alignas(8) volatile uint32_t dma_buffer_addresses[2];
@@ -615,6 +630,9 @@ static void __time_critical_func(hdmi_prepare_line)(unsigned line, unsigned slot
 }
 
 static void __time_critical_func(hdmi_scanline_interrupt_handler)(void) {
+#if defined(PC_USB_CONSOLE)
+    ++hdmi_irq_entries;
+#endif
 #if HDMI_PROFILE_GPIO >= 0
     gpio_put(HDMI_PROFILE_GPIO, true);
 #endif
@@ -623,6 +641,9 @@ static void __time_critical_func(hdmi_scanline_interrupt_handler)(void) {
     const uint32_t irq_state = hdmi_enter();
     if (!(dma_hw->ints0 & (1u << dma_channel_control))) {
         hdmi_leave(irq_state);
+#if defined(PC_USB_CONSOLE)
+        ++hdmi_irq_exits;
+#endif
 #if HDMI_PROFILE_GPIO >= 0
         gpio_put(HDMI_PROFILE_GPIO, false);
 #endif
@@ -639,6 +660,9 @@ static void __time_critical_func(hdmi_scanline_interrupt_handler)(void) {
     unsigned next_line = line + 1u;
     if (next_line == HDMI_TOTAL_SCANLINES) next_line = 0;
     if (next_line == 0) {
+#if defined(PC_USB_CONSOLE)
+        ++hdmi_frames;
+#endif
         graphics_text_frame_tick();
         if (pending_framebuffer != NULL) {
             __mem_fence_acquire();
@@ -655,6 +679,9 @@ static void __time_critical_func(hdmi_scanline_interrupt_handler)(void) {
     port3DA = graphics_pc_raster_status(mode, line, true);
 #endif
     hdmi_leave(irq_state);
+#if defined(PC_USB_CONSOLE)
+    ++hdmi_irq_exits;
+#endif
 #if HDMI_PROFILE_GPIO >= 0
     gpio_put(HDMI_PROFILE_GPIO, false);
 #endif

@@ -14,6 +14,7 @@
         "ONBOARD_PSRAM": "ON",
         "ENABLE_PWM_SOUND": "ON",
         "ENABLE_HDMI": "OFF",
+        "M2P2_PIO_HDMI_TEST": "OFF",
         "ENABLE_VGA": "OFF",
         "ENABLE_TFT": "OFF",
         "ENABLE_NTSC-TV": "OFF",
@@ -21,6 +22,7 @@
       }
     },
     { "name": "m2p2-hdmi", "inherits": "m2p2-base", "cacheVariables": { "ENABLE_HDMI": "ON" } },
+    { "name": "m2p2-hdmi-pio", "inherits": "m2p2-base", "cacheVariables": { "ENABLE_HDMI": "ON", "M2P2_PIO_HDMI_TEST": "ON", "ENABLE_I2S_SOUND": "OFF", "ENABLE_HARDWARE_SOUND": "OFF" } },
     { "name": "m2p2-hdmi-ntsc", "inherits": "m2p2-hdmi", "cacheVariables": { "ENABLE_NTSC-TV": "ON" } },
     { "name": "m2p2-vga", "inherits": "m2p2-base", "cacheVariables": { "ENABLE_VGA": "ON" } },
     { "name": "m2p2-vga-ntsc", "inherits": "m2p2-vga", "cacheVariables": { "ENABLE_NTSC-TV": "ON" } },
@@ -30,6 +32,7 @@
   ],
   "buildPresets": [
     { "name": "m2p2-hdmi", "configurePreset": "m2p2-hdmi" },
+    { "name": "m2p2-hdmi-pio", "configurePreset": "m2p2-hdmi-pio" },
     { "name": "m2p2-hdmi-ntsc", "configurePreset": "m2p2-hdmi-ntsc" },
     { "name": "m2p2-vga", "configurePreset": "m2p2-vga" },
     { "name": "m2p2-vga-ntsc", "configurePreset": "m2p2-vga-ntsc" },

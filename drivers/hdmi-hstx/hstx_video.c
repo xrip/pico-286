@@ -411,32 +411,3 @@ void hstx_video_deinit(void) {
 bool hstx_video_is_running(void) {
     return running;
 }
-
-void hstx_video_debug_snapshot(hstx_video_debug_t *snapshot) {
-    *snapshot = (hstx_video_debug_t){0};
-    __compiler_memory_barrier();
-    snapshot->owner_core = owner_core;
-    snapshot->expected_slot = expected_completed_slot;
-    snapshot->next_line = next_vline;
-    snapshot->running = running;
-    snapshot->frames = hstx_video_frame_count;
-    snapshot->restarts = hstx_video_restart_count;
-    snapshot->recovery_phase = hstx_video_recovery_phase;
-    for (unsigned slot = 0; slot < 2; ++slot) {
-        const int channel = dma_channels[slot];
-        snapshot->channel[slot] = channel;
-        if (channel < 0) continue;
-        const dma_channel_hw_t *hw = &dma_hw->ch[channel];
-        snapshot->ctrl[slot] = hw->ctrl_trig;
-        snapshot->count[slot] = hw->transfer_count;
-        snapshot->read_addr[slot] = hw->read_addr;
-        snapshot->write_addr[slot] = hw->write_addr;
-        snapshot->dreq_credits[slot] = dma_debug_hw->ch[channel].dbg_ctdreq;
-    }
-    snapshot->intr = dma_hw->intr;
-    snapshot->ints1 = dma_hw->ints1;
-    snapshot->inte1 = dma_hw->inte1;
-    snapshot->abort = dma_hw->abort;
-    snapshot->fifo_stat = hstx_fifo_hw->stat;
-    snapshot->hstx_csr = hstx_ctrl_hw->csr;
-}

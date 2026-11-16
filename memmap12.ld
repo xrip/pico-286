@@ -257,6 +257,9 @@ SECTIONS
     } > SCRATCH_Y AT > FLASH
     __scratch_y_source__ = LOADADDR(.scratch_y);
 
+    ASSERT(SIZEOF(.scratch_x) == 0, "RP2350 scratch X is reserved for the core 1 stack")
+    ASSERT(SIZEOF(.scratch_y) == 0, "RP2350 scratch Y is reserved for the core 0 stack")
+
     /* .stack*_dummy section doesn't contains any symbols. It is only
      * used for linker to calculate size of stack sections, and assign
      * values to stack symbols later

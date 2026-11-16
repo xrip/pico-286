@@ -5,7 +5,11 @@
 #include <pico/multicore.h>
 #if defined(PC_USB_CONSOLE)
 #include <pico/stdio_usb.h>
-#include "hstx_video.h"
+#include <pico/stdio/driver.h>
+#include "hdmi.h"
+#include <hardware/dma.h>
+#endif
+#if defined(HDMI_HSTX) || defined(PC_USB_CONSOLE)
 #include "fault_trace.h"
 #endif
 #include <hardware/clocks.h>
@@ -72,22 +76,22 @@ static volatile bool boot_console = true;
 
 #if defined(PC_USB_CONSOLE)
 static volatile uint32_t core1_frames;
+static volatile uint32_t core0_batches;
 
-static void usb_video_status(void) {
+static void usb_video_status(void *unused) {
+    (void)unused;
     if (!stdio_usb_connected()) return;
+    char detail[128];
+    int n;
     const int command = getchar_timeout_us(0);
     if (command == 'p') {
-        char detail[128];
-        const int n = snprintf(detail, sizeof detail,
+        n = snprintf(detail, sizeof detail,
                 "pads=%08lx/%08lx/%08lx/%08lx/%08lx/%08lx rfmt=%08lx rcmd=%08lx\r\n",
                 (unsigned long)pads_qspi_hw->io[0], (unsigned long)pads_qspi_hw->io[1],
                 (unsigned long)pads_qspi_hw->io[2], (unsigned long)pads_qspi_hw->io[3],
                 (unsigned long)pads_qspi_hw->io[4], (unsigned long)pads_qspi_hw->io[5],
                 (unsigned long)qmi_hw->m[0].rfmt, (unsigned long)qmi_hw->m[0].rcmd);
-        if (n > 0) stdio_put_string(detail, n < sizeof detail ? n : sizeof detail - 1, false, false);
-        return;
-    }
-    if (command == 'm') {
+    } else if (command == 'm') {
         extern uint32_t __ram_code_start__[], __ram_code_end__[], __data_start__[], __etext[];
         const uintptr_t start = (uintptr_t)__ram_code_start__;
         const uintptr_t end = (uintptr_t)__ram_code_end__;
@@ -105,44 +109,30 @@ static void usb_video_status(void) {
                 expected = b;
             }
         }
-        char detail[128];
-        const int n = snprintf(detail, sizeof detail,
+        n = snprintf(detail, sizeof detail,
                 "ramcode bytes=%lu bad=%u first=%08lx ram=%08lx flash=%08lx\r\n",
                 (unsigned long)(end - start), mismatches, (unsigned long)first,
                 (unsigned long)actual, (unsigned long)expected);
-        if (n > 0) stdio_put_string(detail, n < sizeof detail ? n : sizeof detail - 1, false, false);
-        return;
-    }
-    if (command == 'c') {
-        char detail[128];
-        const int n = snprintf(detail, sizeof detail,
+    } else if (command == 'c') {
+        n = snprintf(detail, sizeof detail,
                 "clocks sys=%lu hstx=%lu usb=%lu vreg=%u flash=%08lx psram=%08lx\r\n",
                 (unsigned long)clock_get_hz(clk_sys),
                 (unsigned long)clock_get_hz(clk_hstx),
                 (unsigned long)clock_get_hz(clk_usb), (unsigned)vreg_get_voltage(),
                 (unsigned long)qmi_hw->m[0].timing, (unsigned long)qmi_hw->m[1].timing);
-        if (n > 0) stdio_put_string(detail, n < sizeof detail ? n : sizeof detail - 1, false, false);
-        return;
-    }
-    if (command == 'r' || command == 't') {
+    } else if (command == 'r' || command == 't') {
         const volatile fault_trace_record_t *fault = &fault_trace[1];
         const unsigned frame_bytes = (fault->exc_return & 0x10u) ? 32u : 104u;
         const unsigned padding = (fault->xpsr & (1u << 9)) ? 4u : 0u;
         const uintptr_t address = fault->sp + (command == 't' ? frame_bytes + padding : 0u);
         if (!fault->frame_valid || address < 0x20000000u || address > 0x20082000u - 32u) return;
         const volatile uint32_t *words = (const volatile uint32_t *)address;
-        char detail[128];
-        const int n = snprintf(detail, sizeof detail, "stack %08lx: %08lx %08lx %08lx %08lx %08lx %08lx %08lx %08lx\r\n",
+        n = snprintf(detail, sizeof detail, "stack %08lx: %08lx %08lx %08lx %08lx %08lx %08lx %08lx %08lx\r\n",
                 (unsigned long)address, (unsigned long)words[0], (unsigned long)words[1],
                 (unsigned long)words[2], (unsigned long)words[3], (unsigned long)words[4],
                 (unsigned long)words[5], (unsigned long)words[6], (unsigned long)words[7]);
-        if (n > 0) stdio_put_string(detail, n < sizeof detail ? n : sizeof detail - 1, false, false);
-        return;
-    }
-    if (command == 'f' || command == 'g' || command == 'h') {
+    } else if (command == 'f' || command == 'g' || command == 'h') {
         const volatile fault_trace_record_t *fault = &fault_trace[1];
-        char detail[256];
-        int n;
         if (command == 'f') n = snprintf(detail, sizeof detail,
                 "fault core=%lu valid=%lu pc=%08lx lr=%08lx sp=%08lx cfsr=%08lx hfsr=%08lx\r\n",
                 (unsigned long)fault->core_seen, (unsigned long)fault->frame_valid,
@@ -150,53 +140,44 @@ static void usb_video_status(void) {
                 (unsigned long)fault->sp, (unsigned long)fault->cfsr, (unsigned long)fault->hfsr);
         else if (command == 'h') n = snprintf(detail, sizeof detail,
                 "faultirq vtor=%08lx vector=%08lx\r\n",
-                (unsigned long)fault->vtor, (unsigned long)fault->dma1_vector);
+                (unsigned long)fault->vtor, (unsigned long)fault->video_dma_vector);
         else n = snprintf(detail, sizeof detail,
                 "fault2 limit=%08lx bfar=%08lx xpsr=%08lx exc=%08lx masks=%lx/%lx/%lx\r\n",
                 (unsigned long)fault->original_msplim,
                 (unsigned long)fault->bfar, (unsigned long)fault->xpsr,
                 (unsigned long)fault->exc_return, (unsigned long)fault->primask,
                 (unsigned long)fault->basepri, (unsigned long)fault->faultmask);
-        if (n > 0) stdio_put_string(detail, n < sizeof detail ? n : sizeof detail - 1, false, false);
-        return;
-    }
-    if (command == 'd' || command == 's' || command == '0' || command == '1') {
-        hstx_video_debug_t state;
-        hstx_video_debug_snapshot(&state);
-        char detail[256];
-        int n;
-        if (command == 'd') {
-            n = snprintf(detail, sizeof detail,
-                "dma ints=%08lx inte=%08lx intr=%08lx abort=%08lx fifo=%08lx csr=%08lx\r\n",
-                (unsigned long)state.ints1, (unsigned long)state.inte1, (unsigned long)state.intr,
-                (unsigned long)state.abort, (unsigned long)state.fifo_stat, (unsigned long)state.hstx_csr);
-        } else if (command == 's') {
-            n = snprintf(detail, sizeof detail, "service slot=%lu line=%lu tick=%lu page=%04lx cpu=%04x:%04x\r\n",
-                (unsigned long)state.expected_slot, (unsigned long)state.next_line,
-                (unsigned long)core1_frames,
-                (unsigned long)vram_offset, (unsigned)CPU_CS, (unsigned)ip);
-        } else {
-            const unsigned slot = command - '0';
-            n = snprintf(detail, sizeof detail, "channel=%ld ctrl=%08lx count=%08lx read=%08lx write=%08lx dreq=%lu\r\n",
-                    (long)state.channel[slot], (unsigned long)state.ctrl[slot], (unsigned long)state.count[slot],
-                    (unsigned long)state.read_addr[slot], (unsigned long)state.write_addr[slot],
-                    (unsigned long)state.dreq_credits[slot]);
-        }
-        if (n > 0) stdio_put_string(detail, n < sizeof detail ? n : sizeof detail - 1, false, false);
-        return;
-    }
-    if (command != 'v') return;
-    unsigned colors = 0, pixels = 0;
-    for (unsigned i = 0; i < 256; ++i) colors += vga_palette[i] != 0;
-    for (unsigned i = 0; i < VIDEORAM_SIZE; i += 257) pixels += VIDEORAM[i] != 0;
-    char line[256];
-    const int length = snprintf(line, sizeof line,
-            "video mode=%02x output=%02x planar=%u 3DA=%02x frames=%lu restarts=%lu run=%u phase=%lu colors=%u pixels=%u\r\n",
-            (unsigned)videomode, (unsigned)graphics_source_mode(), vga_planar_mode,
-            port3DA, (unsigned long)hstx_video_frame_count,
-            (unsigned long)hstx_video_restart_count, hstx_video_is_running(),
-            (unsigned long)hstx_video_recovery_phase, colors, pixels);
-    if (length > 0) stdio_put_string(line, length < sizeof line ? length : sizeof line - 1, false, false);
+    } else if (command == 'v') {
+        hdmi_debug_state_t state;
+        hdmi_debug_snapshot(&state);
+        n = snprintf(detail, sizeof detail,
+                "pio mode=%02x 3da=%02x frames=%lu line=%lu irq=%lu/%lu\r\n",
+                (unsigned)videomode, port3DA, (unsigned long)state.frames,
+                (unsigned long)state.line, (unsigned long)state.irq_entries,
+                (unsigned long)state.irq_exits);
+    } else if (command == 's') {
+        n = snprintf(detail, sizeof detail,
+                "service cpu=%lu audio=%lu guest=%04x:%04x pic=%02x/%02x/%02x\r\n",
+                (unsigned long)core0_batches, (unsigned long)core1_frames,
+                (unsigned)CPU_CS, (unsigned)ip,
+                i8259.interrupt_request_register, i8259.in_service_register,
+                i8259.interrupt_mask_register);
+    } else if (command == 'd') {
+        n = snprintf(detail, sizeof detail, "dma ints=%08lx inte=%08lx pio=%08lx/%08lx\r\n",
+                (unsigned long)dma_hw->ints0, (unsigned long)dma_hw->inte0,
+                (unsigned long)PIO_VIDEO->fstat, (unsigned long)PIO_VIDEO->fdebug);
+    } else if (command >= '0' && command <= '3') {
+        hdmi_debug_state_t state;
+        hdmi_debug_snapshot(&state);
+        const unsigned channel = state.channel[command - '0'];
+        n = snprintf(detail, sizeof detail,
+                "channel=%u ctrl=%08lx count=%08lx read=%08lx write=%08lx\r\n", channel,
+                (unsigned long)dma_hw->ch[channel].ctrl_trig,
+                (unsigned long)dma_hw->ch[channel].transfer_count,
+                (unsigned long)dma_hw->ch[channel].read_addr,
+                (unsigned long)dma_hw->ch[channel].write_addr);
+    } else return;
+    if (n > 0) stdio_usb.out_chars(detail, n < sizeof detail ? n : sizeof detail - 1);
 }
 #endif
 
@@ -887,15 +868,20 @@ int main(void) {
         panic("Flash Quad Enable setup failed; CPU clock was not raised");
     }
 #endif
-#if defined(HDMI_HSTX)
 #if defined(PC_USB_CONSOLE)
     stdio_usb_init();
+    // The SDK calls this from its USB worker IRQ after releasing the USB mutex.
+    stdio_set_chars_available_callback(usb_video_status, NULL);
 #endif
+#if defined(HDMI_HSTX)
     flash_timings();
     graphics_prepare_clock();
     vreg = vreg_get_voltage();
     new_vreg = vreg;
 #else
+#if defined(HDMI)
+    clock_stop(clk_hstx);
+#endif
     vreg_disable_voltage_limit();
     vreg_set_voltage(vreg);
     flash_timings();
@@ -912,7 +898,7 @@ int main(void) {
 #endif
 
     // Set exception handler
-#if defined(PC_USB_CONSOLE)
+#if defined(HDMI_HSTX) || defined(PC_USB_CONSOLE)
     exception_set_exclusive_handler(HARDFAULT_EXCEPTION, fault_trace_handler);
 #else
     exception_set_exclusive_handler(HARDFAULT_EXCEPTION, sigbus);
@@ -1066,7 +1052,7 @@ int main(void) {
     while (true) {
         exec86(tormoz);
 #if defined(PC_USB_CONSOLE)
-        usb_video_status();
+        ++core0_batches;
 #endif
 #if !PICO_RP2040
         if (delay) sleep_us(delay);

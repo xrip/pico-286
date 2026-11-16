@@ -96,7 +96,7 @@ static uint8_t ntsc_staging[NTSC_FRAME_WIDTH] __attribute__ ((aligned (4)));
 // NTSC color palette lookup table
 // Each color has 4 entries for the 4 phases of NTSC color subcarrier (0°, 90°, 180°, 270°)
 // This allows proper color encoding at 3.579545 MHz
-#if defined(NTSC_USE_SCRATCH_Y) && NTSC_USE_SCRATCH_Y
+#if !PICO_RP2350 && defined(NTSC_USE_SCRATCH_Y) && NTSC_USE_SCRATCH_Y
 #define NTSC_PALETTE_PLACEMENT(name) __scratch_y(name)
 #else
 #define NTSC_PALETTE_PLACEMENT(name)

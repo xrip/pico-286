@@ -68,33 +68,6 @@ extern volatile uint32_t hstx_video_restart_count;
  * 3=prime FIFO, 4=prime failed. Useful if a failed output stops making IRQs. */
 extern volatile uint32_t hstx_video_recovery_phase;
 
-typedef struct {
-    int32_t channel[2];
-    uint32_t ctrl[2];
-    uint32_t count[2];
-    uint32_t read_addr[2];
-    uint32_t write_addr[2];
-    uint32_t dreq_credits[2];
-    uint32_t intr;
-    uint32_t ints1;
-    uint32_t inte1;
-    uint32_t abort;
-    uint32_t fifo_stat;
-    uint32_t hstx_csr;
-    uint32_t expected_slot;
-    uint32_t next_line;
-    uint32_t owner_core;
-    uint32_t running;
-    uint32_t frames;
-    uint32_t restarts;
-    uint32_t recovery_phase;
-} hstx_video_debug_t;
-
-/* On-demand reads only: no IRQ masking, output changes, or scanout logging.
- * Values may span a DMA handoff while output runs; a frozen engine is stable.
- * CPU-local NVIC state is deliberately excluded when called from the other core. */
-void hstx_video_debug_snapshot(hstx_video_debug_t *snapshot);
-
 #ifdef __cplusplus
 }
 #endif

@@ -129,8 +129,24 @@ One of HDMI, VGA, or TFT may run with `ENABLE_NTSC-TV=ON`. NTSC may also run
 alone. M2P2 HDMI selects HSTX; RP2040 HDMI keeps the PIO driver. HDMI+NTSC
 requires M2P2 HSTX.
 
-M2P2 HDMI always uses HSTX. An M2P2 HDMI build for a platform other than
+M2P2 HDMI uses HSTX by default. An M2P2 HDMI build for a platform other than
 `rp2350-arm-s` is rejected; it cannot silently select PIO. RP2040 keeps PIO HDMI.
+For the explicit PIO/PWM comparison test, use `m2p2-hdmi-pio`. It runs at
+504 MHz so the PIO serializer gets exactly 252 MHz; NTSC is not paired with it.
+
+```sh
+cmake --preset m2p2-hdmi-pio
+cmake --build --preset m2p2-hdmi-pio
+```
+
+Its output ends in `-504MHz-HDMI-PIO-PWM.uf2`. Normal M2P2 presets remain HSTX.
+The PIO test includes USB diagnostics and the 1200-baud BOOTSEL reset.
+Send one command at a time: `c` for clocks and memory timing, `s` for emulation
+and audio progress plus guest CS:IP/PIC state, `v` for PIO frame/IRQ progress,
+`d` for DMA/PIO status, `0` through `3` for DMA channels, and `f`/`g` for
+the core 1 fault record. Commands run from the USB worker IRQ, so they can
+work while the core 0 main loop is stuck. A core 0 HardFault or disabled
+interrupts will also stop USB. Counters and register reads are live samples.
 
 For M2P2 with at least 8 MB onboard QMI PSRAM, use the presets:
 
@@ -146,9 +162,14 @@ available. A compiler outside PATH may be given with
 `-DPICO_TOOLCHAIN_PATH=/path/to/arm-toolchain` at configure time.
 
 These presets set `ONBOARD_PSRAM=ON` and omit the SRAM fallback cache.
-`m2p2-hdmi` builds HSTX-only at 504 MHz (1.60 V). HSTX+NTSC stays at 315 MHz
-(1.30 V). HDMI-only takes its 126 MHz HSTX clock from PLL_SYS / 4 and keeps
-PLL_USB at 48 MHz for USB. HSTX+NTSC reserves PLL_USB at 126 MHz and stops USB/ADC.
+RP2350 code, lookup tables, palettes, and swap metadata use normal SRAM.
+Scratch X and Y are reserved for separate 4 KB core stacks, with hardware
+stack-limit checks. The linker rejects non-stack scratch allocations.
+RP2040 keeps its existing placement.
+`m2p2-hdmi` builds HSTX-only at 500 MHz (1.60 V). HSTX+NTSC stays at 315 MHz
+(1.30 V). Both take the 126 MHz HSTX clock from a separate PLL_USB and stop
+USB/ADC. USB debugging and USB-triggered BOOTSEL are unavailable in these
+profiles; use the board's BOOTSEL button for the next flash.
 
 On RP2350, the OPL2 assembly runs from normal SRAM (2 KB), with its logic
 unchanged. Both flash and SRAM versions have faulted during HDMI interrupts
@@ -162,7 +183,7 @@ the initial flash read mode, then startup selects quad reads before
 PSRAM or core 1 starts. See [flash setup](drivers/flash-config/README.md).
 The flash timing now preserves the ROM boot profile's physical intervals
 and maximum rate when SYS changes. On the tested board, 50 MHz stock flash
-becomes 45.82 MHz at 504 MHz SYS. This also retains the ROM QSPI pad settings.
+becomes about 45.45 MHz at 500 MHz SYS. This also retains the ROM QSPI pad settings.
 
 For the HDMI-only file:
 
@@ -171,13 +192,21 @@ cmake --preset m2p2-hdmi
 cmake --build --preset m2p2-hdmi
 ```
 
-Output: `bin/rp2350-arm-s/Release/m2p2-286-F100-P166-504MHz-HDMI-HSTX-PWM.uf2`.
-The 504 MHz build passed a boot and display check on the user's Frank/M2P2
-board; see the [board record](tests/graphics-perf/results/hstx-504-board.md).
-This does not establish long-term stability on every RP2350 module.
+Output: `bin/rp2350-arm-s/Release/m2p2-286-F100-P166-500MHz-HDMI-HSTX-PWM.uf2`.
+For HDMI audio, turn off the other sound outputs:
+
+```sh
+cmake --preset m2p2-hdmi -DENABLE_PWM_SOUND=OFF -DENABLE_I2S_SOUND=OFF -DENABLE_HARDWARE_SOUND=OFF
+cmake --build --preset m2p2-hdmi
+```
+
+That output ends in `-500MHz-HDMI-HSTX-HDMIAUDIO.uf2`. The independent-PLL
+500 MHz profile is under board testing; earlier 504 MHz checks are recorded
+in the [historical board record](tests/graphics-perf/results/hstx-504-board.md).
 See [VIDEO_MODES.md](VIDEO_MODES.md) for layouts and the board timing test.
 
 ### Audio Options (mutually exclusive)
+- With HSTX and all three options below off, audio goes over HDMI at 44.1 kHz, 16-bit stereo.
 - `ENABLE_I2S_SOUND=ON`: Use I2S for audio.
 - `ENABLE_PWM_SOUND=ON`: Use PWM for audio.
 - `ENABLE_HARDWARE_SOUND=ON`: Use a hardware sound chip.

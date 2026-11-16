@@ -62,7 +62,8 @@ HSTX has all 256 palette entries. PIO HDMI has 252 color entries and four
 control codes. Its fast Mode X path keeps the old valid range 0..251; indices
 252..255 remain reserved. Linear mode 13 maps those four values to black.
 PIO 640-wide modes use the 16-color
-path. HSTX is the M2P2 HDMI path; PIO is kept for RP2040.
+path. HSTX is the default M2P2 HDMI path; PIO is kept for RP2040 and is
+available on M2P2 through the explicit `m2p2-hdmi-pio` comparison preset.
 
 ## Dual output and board resources
 
@@ -74,10 +75,10 @@ emulated raster status.
 M2P2 uses HDMI/VGA GPIO12..19, NTSC GPIO22, and QMI PSRAM CS GPIO8 on RP2350A
 (GPIO47 on RP2350B). `ONBOARD_PSRAM=ON` requires at least 8 MB and omits the
 176 KB SRAM fallback cache. SPI PSRAM on GPIO18/19 cannot share the video pins.
-HSTX-only uses a 504 MHz system clock; builds with NTSC use 315 MHz.
-HSTX-only takes PLL_SYS / 4 at 126 MHz and keeps PLL_USB at 48 MHz for USB
-diagnostics and software BOOTSEL. HSTX+NTSC takes PLL_USB at 126 MHz and stops
-USB and ADC clocks. Saved CPU settings cannot change this clock plan.
+HSTX-only uses a 500 MHz system clock; builds with NTSC use 315 MHz.
+HSTX takes PLL_USB at 126 MHz independently of the CPU in both profiles.
+USB and ADC clocks are stopped, so USB diagnostics and USB-triggered BOOTSEL are
+unavailable. Saved CPU settings cannot change this clock plan.
 Hardware sound on GPIO22 needs a
 different NTSC pin.
 
