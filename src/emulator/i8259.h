@@ -30,18 +30,17 @@ static inline uint8_t i8259_read(const uint16_t port_number) {
 static inline void i8259_write(const uint16_t port_number, const uint8_t data) {
     switch (port_number) {
         case 0x20:
-            if (data & 0x10) {
+            if (data & 0x10) { // ICW1: initialization clears pending and in-service IRQs
                 i8259.interrupt_mask_register = 0x00;
+                __atomic_store_n(&i8259.interrupt_request_register, 0, __ATOMIC_RELAXED);
+                i8259.in_service_register = 0;
                 i8259.initialization_command_words_1 = data;
                 i8259.initialization_command_word_step = 2;
                 i8259.register_read_mode = 0;
             } else if ((data & 0x08) == 0) {
                 switch (data & 0xE0) {
-                    case 0x20:
-                        if (i8259.in_service_register) {
-                            const uint8_t irq = (uint8_t)__builtin_ctz(i8259.in_service_register);
-                            i8259.in_service_register &= (uint8_t)~(1u << irq);
-                        }
+                    case 0x20: // non-specific EOI: clear the highest-priority in-service IRQ
+                        i8259.in_service_register &= i8259.in_service_register - 1;
                         break;
                     case 0x60:
                         i8259.in_service_register &= (uint8_t)~(1u << (data & 0x07));
@@ -80,12 +79,17 @@ static inline void i8259_write(const uint16_t port_number, const uint8_t data) {
     }
 }
 
+// IRR is set from other threads/cores (timer, sound), so its read-modify-writes are atomic.
+// Called for every instruction: plain reads and no __builtin_ctz (a library call on Cortex-M0+).
 static inline uint8_t i8259_get_pending_irqs(void) {
-    return i8259.interrupt_request_register & (uint8_t)~i8259.interrupt_mask_register;
+    const uint8_t isr = i8259.in_service_register;
+    // fully nested mode: only IRQs with higher priority than the highest one in service
+    const uint8_t higher_priority = (uint8_t)((isr & -isr) - 1);
+    return i8259.interrupt_request_register & (uint8_t)~i8259.interrupt_mask_register & higher_priority;
 }
 
 static inline void i8259_interrupt(const uint8_t irq) {
-    i8259.interrupt_request_register |= (uint8_t)(1u << irq);
+    __atomic_fetch_or(&i8259.interrupt_request_register, (uint8_t)(1u << irq), __ATOMIC_RELAXED);
 }
 
 static inline uint8_t i8259_nextirq(void) {
@@ -95,7 +99,7 @@ static inline uint8_t i8259_nextirq(void) {
     }
 
     const uint8_t irq = (uint8_t)__builtin_ctz(pending);
-    i8259.interrupt_request_register &= (uint8_t)~(1u << irq);
+    __atomic_fetch_and(&i8259.interrupt_request_register, (uint8_t)~(1u << irq), __ATOMIC_RELAXED);
     i8259.in_service_register |= (uint8_t)(1u << irq);
     return i8259.interrupt_vector_offset + irq;
 }

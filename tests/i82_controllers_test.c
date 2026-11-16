@@ -44,6 +44,27 @@ static void test_i8259(void) {
 
     i8259_write(0x20, 0x20);
     assert(i8259.in_service_register == 0);
+
+    // fully nested mode: an IRQ waits while the same or a higher-priority IRQ is in service
+    i8259_interrupt(3);
+    assert(i8259_nextirq() == 0x0B);
+    i8259_interrupt(3);
+    i8259_interrupt(5);
+    assert(i8259_get_pending_irqs() == 0);
+    i8259_interrupt(1);
+    assert(i8259_get_pending_irqs() == (1u << 1));
+    assert(i8259_nextirq() == 0x09);
+    i8259_write(0x20, 0x20); // EOI ends IRQ 1; IRQ 3 is still in service
+    assert(i8259.in_service_register == (1u << 3));
+    assert(i8259_get_pending_irqs() == 0);
+    i8259_write(0x20, 0x20);
+    assert(i8259_get_pending_irqs() == ((1u << 3) | (1u << 5)));
+
+    // ICW1 clears pending and in-service IRQs
+    assert(i8259_nextirq() == 0x0B);
+    i8259_write(0x20, 0x11);
+    assert(i8259.interrupt_request_register == 0);
+    assert(i8259.in_service_register == 0);
 }
 
 static void test_i8253(void) {

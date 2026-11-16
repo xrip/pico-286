@@ -106,7 +106,7 @@ static inline void i8253_write(const uint16_t port_number, const uint8_t data) {
 
         if (channel_index == 0) {
             const uint32_t divisor = i8253_divisor(channel);
-            i8259.interrupt_request_register &= (uint8_t)~1u;
+            __atomic_fetch_and(&i8259.interrupt_request_register, (uint8_t)~1u, __ATOMIC_RELAXED);
 #if PICO_ON_DEVICE
             timer_period = (int)(((uint64_t)divisor * 1000000ULL) / PIT_FREQUENCY);
             if (timer_period < 1) {
