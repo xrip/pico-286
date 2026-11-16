@@ -51,6 +51,9 @@ static unsigned packet_slot = 3;
 static uint8_t staging[GRAPHICS_FRAME_WIDTH] __attribute__((aligned(4)));
 static enum graphics_mode_t repeated_mode;
 static hstx_video_packet_t *repeated_packet;
+#if defined(HDMI_SOUND)
+static uint copy_channel;
+#endif
 
 static hstx_video_packet_t *__time_critical_func(hstx_graphics_line)(
         uint32_t output_line) {
@@ -63,11 +66,14 @@ static hstx_video_packet_t *__time_critical_func(hstx_graphics_line)(
         if (width == GRAPHICS_FRAME_WIDTH && (output_line & 1u) &&
                 repeated_packet != NULL && repeated_mode == mode) {
 #if defined(HDMI_SOUND)
-            // The line carries its own data island: copy the pixels to a packet of its own.
+            // The line carries its own data island, so it needs a packet of its own.
+            // DMA copies the pixels: the HSTX reads them only after the current
+            // line and this line's header, long after the copy ends.
             packet_slot = hstx_packet_next_slot(packet_slot);
             hstx_video_packet_t *packet = &packets[packet_slot];
-            for (unsigned i = 0; i < HSTX_PACKET_PIXEL_WORDS; ++i)
-                packet->payload.pairs[i] = repeated_packet->payload.pairs[i];
+            dma_channel_set_write_addr(copy_channel, packet->payload.pairs, false);
+            dma_channel_transfer_from_buffer_now(copy_channel, repeated_packet->payload.pairs,
+                                                 HSTX_PACKET_PIXEL_WORDS);
             return packet;
 #else
             return repeated_packet;
@@ -131,6 +137,13 @@ void hdmi_hstx_graphics_init(void) {
     for (unsigned i = 0; i < 4; ++i) {
         hstx_packet_init(&packets[i], true, false);
     }
+#if defined(HDMI_SOUND)
+    copy_channel = (uint)dma_claim_unused_channel(true);
+    dma_channel_config copy = dma_channel_get_default_config(copy_channel);
+    channel_config_set_write_increment(&copy, true);
+    channel_config_set_irq_quiet(&copy, true);
+    dma_channel_set_config(copy_channel, &copy, false);
+#endif
     hstx_video_set_line_callback(hstx_graphics_line);
     hstx_video_set_vsync_callback(hstx_graphics_vsync);
     if (!hstx_video_init()) {
