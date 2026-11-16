@@ -22,6 +22,11 @@ static inline uint32_t four_nibbles(uint32_t pixels) {
     return __builtin_bswap32(pixels);
 }
 
+// 252..255 are this driver's sync codes: a picture shows them as colour 0.
+static inline uint32_t picture_color(uint32_t color) {
+    return color >= 252u ? 0u : color;
+}
+
 bool __time_critical_func(graphics_pc_hdmi_render)(
         enum graphics_mode_t mode, const uint32_t *restrict vram,
         unsigned row, uint8_t *restrict output) {
@@ -98,10 +103,13 @@ bool __time_critical_func(graphics_pc_hdmi_render)(
         }
         case VGA_320x200x256x4: {
             const uint32_t *source = vram + row * 80u;
-            // Preserve the old packed Mode X path: four indices per word.
-            // It retains the PIO driver's 252..255 reserved-control limit.
+            // Four indices per word.
 #pragma GCC unroll 4
-            for (unsigned x = 0; x < 80; ++x) words[x] = source[x];
+            for (unsigned x = 0; x < 80; ++x) {
+                const uint32_t pixels = source[x];
+                words[x] = picture_color(pixels & 255u) | picture_color((pixels >> 8) & 255u) << 8 |
+                           picture_color((pixels >> 16) & 255u) << 16 | picture_color(pixels >> 24) << 24;
+            }
             return true;
         }
         case VGA_320x200x256: {
@@ -109,7 +117,7 @@ bool __time_critical_func(graphics_pc_hdmi_render)(
 #pragma GCC unroll 4
             for (unsigned x = 0; x < 320; ++x) {
                 const uint8_t color = *source++;
-                *output++ = color >= 252u ? 0u : color;
+                *output++ = (uint8_t)picture_color(color);
             }
             return true;
         }

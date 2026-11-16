@@ -26,7 +26,10 @@ int main(void) {
             rng ^= rng << 13;
             rng ^= rng >> 17;
             rng ^= rng << 5;
+            // Bytes below 252: the old Mode X loop sent the sync codes 252..255 as pixels.
             bench_vram[i] = rng;
+            for (unsigned shift = 0; shift < 32u; shift += 8u)
+                if (((rng >> shift) & 255u) >= 252u) bench_vram[i] -= 252u << shift;
         }
         bench_state.tga_offset = seed * 0x4000;
         for (unsigned m = 0; m < sizeof modes / sizeof modes[0]; ++m) {
@@ -60,5 +63,10 @@ int main(void) {
                                    (uint8_t *)(new_output + 1)));
     for (unsigned i = 1; i < 81; ++i) assert(new_output[i] == 0);
     assert(new_output[0] == 0xa5a5a5a5u && new_output[81] == 0xa5a5a5a5u);
+    // Colours 252..255 are sync codes in this driver: Mode X shows them as 0.
+    for (unsigned i = 0; i < 80; ++i) bench_vram[i] = i & 1u ? 0xfbfaf9f8u : 0xfffefdfcu;
+    assert(graphics_pc_hdmi_render(VGA_320x200x256x4, bench_vram, 0,
+                                   (uint8_t *)(new_output + 1)));
+    for (unsigned i = 0; i < 80; ++i) assert(new_output[1 + i] == (i & 1u ? 0xfbfaf9f8u : 0u));
     printf("PIO fast renderer: %u full-row comparisons to old driver passed\n", comparisons);
 }
