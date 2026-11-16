@@ -11,7 +11,9 @@ uint32_t __attribute__((aligned (4)))  VIDEORAM[VIDEORAM_SIZE] = {0};
 uint8_t __attribute__((aligned (4), section(".psram"))) RAM[RAM_SIZE] = {0};
 uint8_t __attribute__((aligned (4), section(".psram"))) UMB[UMB_END - UMB_START] = {0};
 uint8_t __attribute__((aligned (4), section(".psram"))) HMA[HMA_END - HMA_START] = {0};
+#if !defined(ONBOARD_PSRAM)
 uint8_t __attribute__((aligned (4))) SRAM[SRAM_BLOCK_SIZE] = {0};
+#endif
 
 #define VIDEORAM_MASK 0xFFFF
 read86_t read86;
@@ -207,7 +209,7 @@ uint32_t readdw86_ob(const uint32_t address) {
     return 0xFFFFFFFF;
 }
 
-#if PICO_ON_DEVICE
+#if PICO_ON_DEVICE && !defined(ONBOARD_PSRAM)
 // using UMB as low-RAM, and psram start space as UMB instead
 #define LO_MEM (SRAM_BLOCK_SIZE)
 #define RAM (DO_NOT_USE_IN_THIS_BLOCK)

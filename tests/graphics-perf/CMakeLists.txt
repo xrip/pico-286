@@ -1,0 +1,56 @@
+cmake_minimum_required(VERSION 3.21)
+set(PICO_BOARD pico2 CACHE STRING "Benchmark board")
+set(PICO_PLATFORM rp2350-arm-s CACHE STRING "Benchmark platform")
+include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
+project(graphics_perf C CXX ASM)
+set(CMAKE_C_STANDARD 17)
+pico_sdk_init()
+if(NOT PICO_PLATFORM STREQUAL "rp2350-arm-s")
+    message(FATAL_ERROR "This benchmark needs RP2350 ARM")
+endif()
+option(BENCH_UART "Print results on UART0 after tests" OFF)
+option(BENCH_USB "Print results on USB CDC after tests" ON)
+option(BENCH_HSTX_SOURCE "Use real HSTX source locks and add mapped16 row budgets" OFF)
+option(BENCH_APP_FLAGS "Use the application's extra compiler flags on both kernels" OFF)
+set(BENCH_TEXT_STRESS 0 CACHE STRING "VGA text: 0=normal, 1=hidden blink, 2=block cursor")
+set_property(CACHE BENCH_TEXT_STRESS PROPERTY STRINGS 0 1 2)
+if(NOT BENCH_TEXT_STRESS MATCHES "^[012]$")
+    message(FATAL_ERROR "BENCH_TEXT_STRESS must be 0, 1, or 2")
+endif()
+set(BENCH_UART_TX_PIN 0 CACHE STRING "UART0 TX pin")
+set(BENCH_UART_RX_PIN 1 CACHE STRING "UART0 RX pin")
+get_filename_component(PC_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+add_executable(graphics_perf main.c old_vga.c old_text.c old_hdmi.c old_ntsc.c old_ntsc_text.c
+    "${PC_ROOT}/drivers/graphics/graphics_modes.c"
+    "${PC_ROOT}/drivers/graphics/graphics_pc_hdmi.c")
+target_include_directories(graphics_perf PRIVATE
+    "${PC_ROOT}/drivers/graphics" "${PC_ROOT}/drivers/vga")
+target_compile_definitions(graphics_perf PRIVATE GRAPHICS_PC_EMULATOR=1
+    PICO_PANIC_FUNCTION= PICO_PRINTF_ALWAYS_INCLUDED=0
+    GRAPHICS_NO_BUILTIN_FRAMEBUFFER=1 BENCH_UART=$<BOOL:${BENCH_UART}>
+    BENCH_USB=$<BOOL:${BENCH_USB}> PICO_EMBED_XIP_SETUP=1
+    BENCH_HSTX_SOURCE=$<BOOL:${BENCH_HSTX_SOURCE}>
+    BENCH_TEXT_STRESS=${BENCH_TEXT_STRESS}
+    BENCH_UART_TX_PIN=${BENCH_UART_TX_PIN} BENCH_UART_RX_PIN=${BENCH_UART_RX_PIN})
+if(BENCH_HSTX_SOURCE)
+    target_compile_definitions(graphics_perf PRIVATE HDMI_HSTX=1)
+    target_include_directories(graphics_perf PRIVATE "${PC_ROOT}/drivers/hdmi-hstx")
+    target_sources(graphics_perf PRIVATE "${PC_ROOT}/drivers/graphics/graphics_text.c")
+else()
+    target_compile_definitions(graphics_perf PRIVATE VGA=1)
+endif()
+target_compile_options(graphics_perf PRIVATE -O3 -g3 -flto -fno-tree-loop-distribute-patterns)
+if(BENCH_APP_FLAGS)
+    target_compile_options(graphics_perf PRIVATE -frename-registers -fomit-frame-pointer
+        -ffast-math -ffunction-sections -fdata-sections -fms-extensions)
+    target_compile_definitions(graphics_perf PRIVATE BENCH_APP_FLAGS=1)
+endif()
+target_link_options(graphics_perf PRIVATE -flto -Wl,-u,__wrap_snprintf)
+target_link_libraries(graphics_perf PRIVATE pico_stdlib hardware_clocks hardware_vreg hardware_sync)
+pico_define_boot_stage2(bench_boot2 ${PICO_DEFAULT_BOOT_STAGE2_FILE})
+target_compile_definitions(bench_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=4 PICO_FLASH_SPI_RXDELAY=4)
+pico_set_boot_stage2(graphics_perf bench_boot2)
+pico_enable_stdio_usb(graphics_perf ${BENCH_USB})
+pico_enable_stdio_uart(graphics_perf 0)
+pico_set_printf_implementation(graphics_perf pico)
+pico_add_extra_outputs(graphics_perf)

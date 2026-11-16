@@ -62,7 +62,11 @@ decay_rate_def_table:
     .byte ST_NORMAL, ST_NORMAL, ST_NORMAL, ST_NORMAL
     .byte ST_NORMAL, ST_FAST, ST_FAST2, ST_FOUR
 
+#if PICO_RP2350
+.section .time_critical.slot_render_asm, "ax"
+#else
 .section .text.slot_render_asm
+#endif
 #include "pico/asm_helper.S"
 #include "hardware/regs/sio.h"
 

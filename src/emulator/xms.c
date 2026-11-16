@@ -164,7 +164,7 @@ umb_t *get_free_umb_block(const uint16_t size) {
     }
     return best;
 }
-#if PICO_ON_DEVICE
+#if PICO_ON_DEVICE && !defined(ONBOARD_PSRAM)
 #include "swap.h"
 #include "psram_spi.h"
 extern uint32_t butter_psram_size;
@@ -173,7 +173,7 @@ static INLINE uint16_t xms_readw(const uint32_t offset) {
     if (butter_psram_size) {
         return *(uint16_t *) &XMS[offset];
     }
-#if PICO_ON_DEVICE
+#if PICO_ON_DEVICE && !defined(ONBOARD_PSRAM)
     const uint32_t address = XMS_PSRAM_OFFSET + offset;
     return PSRAM_AVAILABLE ? read16psram(address) : swap_read16(address);
 #else
@@ -186,7 +186,7 @@ static INLINE void xms_writew(const uint32_t offset, const uint16_t value) {
         *(uint16_t *) &XMS[offset] = value;
         return;
     }
-#if PICO_ON_DEVICE
+#if PICO_ON_DEVICE && !defined(ONBOARD_PSRAM)
     const uint32_t address = XMS_PSRAM_OFFSET + offset;
     if (PSRAM_AVAILABLE) {
         write16psram(address, value);

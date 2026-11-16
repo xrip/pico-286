@@ -529,10 +529,13 @@ void vga_portout(uint16_t portnum, uint16_t value) {
 
             RGB[rgb_index++] = value << 2;
             if (rgb_index == 3) {
-                vga_palette[color_index++] = rgb(RGB[0], RGB[1], RGB[2]);
+                const uint8_t index = color_index;
+                const uint32_t color = rgb(RGB[0], RGB[1], RGB[2]);
+                vga_palette[index] = color;
 #if PICO_ON_DEVICE
-                graphics_set_palette(color_index - 1, vga_palette[color_index - 1]);
+                graphics_set_palette(index, color);
 #endif
+                color_index = (uint8_t)(index + 1u);
                 rgb_index = 0;
             }
             break;

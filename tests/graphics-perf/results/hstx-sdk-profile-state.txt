@@ -1,0 +1,6 @@
+clocks sys=504000000 hstx=126000000 usb=48000000 vreg=19 flash=6381970b psram=607e8504
+pads=00000056/00000056/00000056/0000005a/0000005a/0000005a rfmt=000492a8 rcmd=000000eb
+ramcode bytes=63128 bad=0 first=00000000 ram=00000000 flash=00000000
+video mode=02 output=02 planar=0 3DA=01 frames=45897 restarts=0 run=1 phase=0 colors=251 pixels=64
+service slot=1 line=348 core1=1 tick=45901 mask=0 irq=1 page=0000 cpu=00f5:108e
+fault core=0 valid=0 pc=00000000 lr=00000000 sp=00000000 cfsr=00000000 hfsr=00000000

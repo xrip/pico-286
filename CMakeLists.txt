@@ -37,9 +37,8 @@ set(PSRAM_FREQ_MHZ "166")
 # OUTPUT DIRECTORIES
 # =========================
 set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin/${PICO_PLATFORM}/${CMAKE_BUILD_TYPE}")
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
+# SDK helper files stay in each build tree. Only final firmware goes to bin,
+# so separate video builds cannot overwrite each other's boot-stage files.
 
 # =========================
 # SOURCE FILES
@@ -68,6 +67,7 @@ if (PICO_PLATFORM STREQUAL "host")
         target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf findfirst/)
     endif ()
 
+    set_target_properties(${PROJECT_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
     target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)
 else ()
     #set(CMAKE_BUILD_TYPE "MinSizeRel") /// outside!
@@ -81,11 +81,19 @@ else ()
     # BUILD OPTIONS
     # =========================
 
-    # Display Options (mutually exclusive)
+    # One primary output, optionally with NTSC composite.
     option(ENABLE_TFT "Enable TFT display output" OFF)
     option(ENABLE_VGA "Enable VGA display output" OFF)
     option(ENABLE_HDMI "Enable HDMI display output" OFF)
     option(ENABLE_NTSC-TV "Enable NTSC TV output" OFF)
+    set(M2P2 OFF)
+    if (MURM20 AND PICO_PLATFORM STREQUAL "rp2350-arm-s")
+        set(M2P2 ON)
+    endif ()
+    option(ONBOARD_PSRAM "Require onboard QMI PSRAM; omit SRAM swap cache" ${M2P2})
+    if (ONBOARD_PSRAM AND NOT PICO_PLATFORM STREQUAL "rp2350-arm-s")
+        message(FATAL_ERROR "ONBOARD_PSRAM requires RP2350 ARM")
+    endif ()
 
     # Audio Options (mutually exclusive)
     option(ENABLE_I2S_SOUND "Enable I2S audio output" OFF)
@@ -96,7 +104,25 @@ else ()
     # VALIDATION
     # =========================
 
-    # Validate display options
+    # M2P2 has HDMI on the RP2350 HSTX pins. RP2040 keeps PIO HDMI.
+    set(HDMI_HSTX OFF)
+    set(HDMI OFF)
+    set(VGA ${ENABLE_VGA})
+    set(TFT ${ENABLE_TFT})
+    set(NTSC_TV ${ENABLE_NTSC-TV})
+    if (ENABLE_HDMI)
+        if (MURM20 AND NOT PICO_PLATFORM STREQUAL "rp2040")
+            if (NOT PICO_PLATFORM STREQUAL "rp2350-arm-s")
+                message(FATAL_ERROR "M2P2 HDMI requires RP2350 ARM HSTX (PICO_PLATFORM=rp2350-arm-s)")
+            endif ()
+            set(HDMI_HSTX ON)
+            message(STATUS "M2P2 HDMI backend: HSTX")
+        else ()
+            set(HDMI ON)
+        endif ()
+    endif ()
+
+    # Validate primary display options; NTSC can also run alone.
     set(DISPLAY_COUNT 0)
     if (ENABLE_TFT)
         message(STATUS "TFT Enabled")
@@ -107,26 +133,26 @@ else ()
         math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
     endif ()
     if (ENABLE_HDMI)
-        IF(PICO_BOARD EQUAL "pico2")
-            set(CPU_FREQ_MHZ "504")
-            message(STATUS "HDMI enabled - CPU frequency locked to 504 MHz")
-        else ()
-            set(CPU_FREQ_MHZ "504")
-            message(STATUS "HDMI enabled - CPU frequency locked to 378 MHz")
-        endif ()
-
+        # Both HDMI transports run at 504 MHz when NTSC is absent.
+        set(CPU_FREQ_MHZ "504")
         math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
     endif ()
     if (ENABLE_NTSC-TV)
         set(CPU_FREQ_MHZ "315")
-        message(STATUS "NTSC TV out enabled - CPU frequency locked to 315 MHz")
-        math(EXPR DISPLAY_COUNT "${DISPLAY_COUNT} + 1")
+        message(STATUS "NTSC clock: 315 MHz")
     endif ()
 
-    if (DISPLAY_COUNT EQUAL 0)
+    if (DISPLAY_COUNT EQUAL 0 AND NOT ENABLE_NTSC-TV)
         message(FATAL_ERROR "At least one display option must be enabled")
     elseif (DISPLAY_COUNT GREATER 1)
-        message(FATAL_ERROR "Only one display option can be enabled at a time")
+        message(FATAL_ERROR "Select one of HDMI, VGA, or TFT; NTSC can be added")
+    endif ()
+    if (HDMI AND ENABLE_NTSC-TV)
+        message(FATAL_ERROR "HDMI+NTSC needs M2P2 HSTX (MURM20=ON, PICO_BOARD=pico2)")
+    endif ()
+    set(NTSC_PIN_OUTPUT 22 CACHE STRING "NTSC composite GPIO")
+    if (ENABLE_NTSC-TV AND ENABLE_HARDWARE_SOUND AND NTSC_PIN_OUTPUT EQUAL 22)
+        message(FATAL_ERROR "NTSC GPIO22 conflicts with hardware sound PCM; select another NTSC_PIN_OUTPUT")
     endif ()
 
     # Validate audio options
@@ -173,12 +199,15 @@ else ()
     # Add display type
     if (ENABLE_TFT)
         set(BUILD_NAME "${BUILD_NAME}-TFT")
-    elseif (ENABLE_NTSC-TV)
-        set(BUILD_NAME "${BUILD_NAME}-TV")
     elseif (ENABLE_VGA)
         set(BUILD_NAME "${BUILD_NAME}-VGA")
+    elseif (HDMI_HSTX)
+        set(BUILD_NAME "${BUILD_NAME}-HDMI-HSTX")
     elseif (ENABLE_HDMI)
         set(BUILD_NAME "${BUILD_NAME}-HDMI")
+    endif ()
+    if (ENABLE_NTSC-TV)
+        string(APPEND BUILD_NAME "-NTSC")
     endif ()
 
     # Add audio type
@@ -193,13 +222,12 @@ else ()
     # =========================
     # EXECUTABLE SETUP
     # =========================
-    add_link_options(-flto -fwhole-program)
+    add_link_options(-flto)
     # -frename-registers -fno-tree-vectorize
     add_compile_options(
             -flto=auto
             -frename-registers
             -fomit-frame-pointer
-            -fwhole-program
             #        -ffreestanding // build issues with std::malloc/std::free in SDK 2.1+
             -ffast-math
             -ffunction-sections
@@ -216,6 +244,16 @@ else ()
     # BOOT STAGE 2 CONFIGURATION
     # =========================
     pico_define_boot_stage2(slower_boot2 ${PICO_DEFAULT_BOOT_STAGE2_FILE})
+    if (M2P2)
+        # The RP2350 ROM finds a working read mode. main() then enables QE
+        # and sets quad-read timing from RAM before raising the system clock.
+        target_compile_definitions(${PROJECT_NAME} PRIVATE PICO_EMBED_XIP_SETUP=0)
+    endif ()
+    if (ENABLE_HDMI AND NOT M2P2 AND PICO_PLATFORM STREQUAL "rp2350-arm-s")
+        target_compile_definitions(slower_boot2 PRIVATE
+                PICO_FLASH_SPI_CLKDIV=4 PICO_FLASH_SPI_RXDELAY=4)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE PICO_EMBED_XIP_SETUP=1)
+    endif ()
 
     if (PICO_PLATFORM STREQUAL "rp2040")
         add_subdirectory(memops_opt)
@@ -234,7 +272,9 @@ else ()
         endif ()
     endif ()
 
-    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${BUILD_NAME}")
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+            OUTPUT_NAME "${BUILD_NAME}" RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}"
+            ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
     target_link_options(${PROJECT_NAME} PRIVATE -Xlinker --print-memory-usage --data-sections --function-sections)
 
     pico_set_program_name(286 "PC 8086/8088/186/286 emulator")
@@ -250,26 +290,47 @@ else ()
     add_subdirectory(drivers/audio)
     add_subdirectory(drivers/psram)
     add_subdirectory(drivers/nespad)
+    if (M2P2)
+        add_subdirectory(drivers/flash-config)
+        target_link_libraries(${PROJECT_NAME} PRIVATE flash-config)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE M2P2_FLASH_CONFIG=1)
+    endif ()
 
-    # Display drivers
+    # The emulator owns VRAM and fixes clocks before launching core 1.
+    set(GRAPHICS_BUILTIN_FRAMEBUFFER OFF)
+    if (HDMI_HSTX)
+        set(GRAPHICS_NO_CLOCK_SETUP OFF)
+        if (ENABLE_NTSC-TV)
+            pico_enable_stdio_usb(${PROJECT_NAME} 0)
+        else ()
+            pico_enable_stdio_usb(${PROJECT_NAME} 1)
+            pico_enable_stdio_uart(${PROJECT_NAME} 0)
+            target_compile_definitions(${PROJECT_NAME} PRIVATE
+                    PC_USB_CONSOLE=1 PICO_STDIO_USB_STDOUT_TIMEOUT_US=0)
+            target_sources(${PROJECT_NAME} PRIVATE src/fault_trace.c)
+        endif ()
+    else ()
+        set(GRAPHICS_NO_CLOCK_SETUP ON)
+    endif ()
+    add_subdirectory(drivers/graphics)
     if (ENABLE_TFT)
-        add_subdirectory(drivers/graphics)
         add_subdirectory(drivers/st7789)
         target_link_libraries(${PROJECT_NAME} PRIVATE st7789)
-        message(STATUS "TFT display enabled")
-    elseif (ENABLE_NTSC-TV)
-        add_subdirectory(drivers/ntsc-tv)
-        message(STATUS "NTSC TV out enabled")
-    elseif (ENABLE_VGA)
-        add_subdirectory(drivers/graphics)
-        add_subdirectory(drivers/vga-nextgen)
-        target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
-        message(STATUS "VGA display enabled")
-    elseif (ENABLE_HDMI)
-        add_subdirectory(drivers/graphics)
+    endif ()
+    if (ENABLE_VGA)
+        add_subdirectory(drivers/vga)
+        target_link_libraries(${PROJECT_NAME} PRIVATE vga)
+    endif ()
+    if (ENABLE_NTSC-TV)
+        add_subdirectory(drivers/ntsc-composite)
+        target_link_libraries(${PROJECT_NAME} PRIVATE ntsc-composite)
+    endif ()
+    if (HDMI_HSTX)
+        add_subdirectory(drivers/hdmi-hstx)
+        target_link_libraries(${PROJECT_NAME} PRIVATE hdmi-hstx)
+    elseif (HDMI)
         add_subdirectory(drivers/hdmi)
         target_link_libraries(${PROJECT_NAME} PRIVATE hdmi)
-        message(STATUS "HDMI display enabled")
     endif ()
 
     # =========================
@@ -280,7 +341,7 @@ else ()
             pico_runtime pico_stdlib pico_multicore
             hardware_dma hardware_pio hardware_i2c hardware_exception
             hardware_interp hardware_timer hardware_clocks hardware_pwm hardware_flash
-            -Wl,--wrap=atexit,--wrap=abort,--strip-all,--gc-sections # size optimizations
+            -Wl,--wrap=atexit,--wrap=abort,--gc-sections
     )
     pico_set_printf_implementation(${PROJECT_NAME} none)
 
@@ -296,11 +357,9 @@ else ()
             PSRAM_FREQ_MHZ=${PSRAM_FREQ_MHZ}
             PICO_FLASH_SIZE_BYTES=16777216
 
-            # Display type
-            $<$<BOOL:${ENABLE_TFT}>:TFT>
-            $<$<BOOL:${ENABLE_VGA}>:VGA>
-            $<$<BOOL:${ENABLE_HDMI}>:HDMI>
-            $<$<BOOL:${ENABLE_NTSC-TV}>:NTSC>
+            # Display macros come from the selected driver targets.
+            GRAPHICS_PC_EMULATOR=1
+            $<$<BOOL:${ONBOARD_PSRAM}>:ONBOARD_PSRAM=1>
 
             # Audio type
             $<$<BOOL:${ENABLE_I2S_SOUND}>:I2S_SOUND>

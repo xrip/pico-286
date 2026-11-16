@@ -14,7 +14,7 @@ extern "C" {
 #define VIDEO_DMA_IRQ (DMA_IRQ_0)
 
 #ifndef HDMI_BASE_PIN
-#define HDMI_BASE_PIN (6)
+#define HDMI_BASE_PIN (12)
 #endif
 
 #define HDMI_PIN_invert_diffpairs (1)
@@ -26,20 +26,12 @@ extern "C" {
 #define SCREEN_WIDTH (320)
 #define SCREEN_HEIGHT (240)
 
-#define TEXTMODE_COLS (SCREEN_WIDTH/4)
-#define TEXTMODE_ROWS (SCREEN_HEIGHT/6)
+#define TEXTMODE_COLS 80
+#define TEXTMODE_ROWS 30
 
 #define RGB888(r, g, b) ((r<<16) | (g << 8 ) | b )
 
-// TODO: Сделать настраиваемо
-static const uint8_t textmode_palette[16] = {
-    00, 01, 02, 03, 04, 05, 06, 07, 8, 9, 10, 11, 12, 13, 14, 15
-};
-
-
-static void graphics_set_flashmode(bool flash_line, bool flash_frame) {
-    // dummy
-}
+void hdmi_graphics_init(void);
 
 
 #ifdef __cplusplus

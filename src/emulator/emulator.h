@@ -81,7 +81,11 @@ extern uint8_t HMA[HMA_END - HMA_START];
 // for non-butter-psram modes
 #define SRAM_BLOCK_SIZE 0x2C000
 extern uint8_t SRAM[SRAM_BLOCK_SIZE];
+#if defined(ONBOARD_PSRAM)
+#define FIRST_RAM_PAGE RAM
+#else
 #define FIRST_RAM_PAGE (butter_psram_size ? RAM : SRAM)
+#endif
 
 extern uint32_t dwordregs[8];
 #define byteregs ((uint8_t*)dwordregs)

@@ -1,0 +1,40 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "m2p2-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PICO_BOARD": "pico2",
+        "PICO_PLATFORM": "rp2350-arm-s",
+        "MURM20": "ON",
+        "ONBOARD_PSRAM": "ON",
+        "ENABLE_PWM_SOUND": "ON",
+        "ENABLE_HDMI": "OFF",
+        "ENABLE_VGA": "OFF",
+        "ENABLE_TFT": "OFF",
+        "ENABLE_NTSC-TV": "OFF",
+        "NTSC_PIN_OUTPUT": "22"
+      }
+    },
+    { "name": "m2p2-hdmi", "inherits": "m2p2-base", "cacheVariables": { "ENABLE_HDMI": "ON" } },
+    { "name": "m2p2-hdmi-ntsc", "inherits": "m2p2-hdmi", "cacheVariables": { "ENABLE_NTSC-TV": "ON" } },
+    { "name": "m2p2-vga", "inherits": "m2p2-base", "cacheVariables": { "ENABLE_VGA": "ON" } },
+    { "name": "m2p2-vga-ntsc", "inherits": "m2p2-vga", "cacheVariables": { "ENABLE_NTSC-TV": "ON" } },
+    { "name": "m2p2-tft", "inherits": "m2p2-base", "cacheVariables": { "ENABLE_TFT": "ON" } },
+    { "name": "m2p2-tft-ntsc", "inherits": "m2p2-tft", "cacheVariables": { "ENABLE_NTSC-TV": "ON" } },
+    { "name": "m2p2-ntsc", "inherits": "m2p2-base", "cacheVariables": { "ENABLE_NTSC-TV": "ON" } }
+  ],
+  "buildPresets": [
+    { "name": "m2p2-hdmi", "configurePreset": "m2p2-hdmi" },
+    { "name": "m2p2-hdmi-ntsc", "configurePreset": "m2p2-hdmi-ntsc" },
+    { "name": "m2p2-vga", "configurePreset": "m2p2-vga" },
+    { "name": "m2p2-vga-ntsc", "configurePreset": "m2p2-vga-ntsc" },
+    { "name": "m2p2-tft", "configurePreset": "m2p2-tft" },
+    { "name": "m2p2-tft-ntsc", "configurePreset": "m2p2-tft-ntsc" },
+    { "name": "m2p2-ntsc", "configurePreset": "m2p2-ntsc" }
+  ]
+}

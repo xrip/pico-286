@@ -12,6 +12,9 @@
 #include "disks-rp2350.c.inl"
 #include "network-redirector-rp2350.c.inl"
 #include "graphics.h"
+#if defined(VGA)
+#include "vga_crtc.h"
+#endif
 #include "psram_spi.h"
 #include "swap.h"
 #else
@@ -497,6 +500,9 @@ void intcall86(uint8_t intnum) {
                     // http://www.techhelpmanual.com/89-video_memory_layouts.html
 
                     videomode = CPU_AL & 0x7F;
+#if PICO_ON_DEVICE && defined(VGA)
+                    vga_crtc_reset(videomode);
+#endif
 
                     FIRST_RAM_PAGE[0x449] = CPU_AL;
                     FIRST_RAM_PAGE[0x44A] = videomode <= 2 || (videomode >= 0x8 && videomode <= 0xa) ? 40 : 80;
@@ -1369,7 +1375,7 @@ void reset86() {
         memset(UMB, 0, sizeof(UMB));
         memset(HMA, 0, sizeof(HMA));
     }
-#if PICO_ON_DEVICE
+#if PICO_ON_DEVICE && !defined(ONBOARD_PSRAM)
     else {
         memset(SRAM, 0, sizeof(SRAM));
         if (PSRAM_AVAILABLE) {

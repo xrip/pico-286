@@ -61,7 +61,7 @@ SECTIONS
          * FLASH ... we will include any thing excluded here in .data below by default */
         *(.init)
         *libgcc.a:cmse_nonsecure_call.o
-        *(EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libm.a:) .text*)
+        *(EXCLUDE_FILE(*libgcc.a: *lib[cg].a:*lib*_a-mem*.o *libm.a:) .text*)
         *(.fini)
         /* Pull all c'tors into .text */
         *crtbegin.o(.ctors)
@@ -123,7 +123,7 @@ SECTIONS
         "ERROR: Pico second stage bootloader must be no more than 256 bytes in size")
 
     .rodata : {
-        *(EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libm.a:) .rodata*)
+        *(EXCLUDE_FILE(*libgcc.a: *lib[cg].a:*lib*_a-mem*.o *libm.a:) .rodata*)
         *(.srodata*)
         . = ALIGN(4);
         *(SORT_BY_ALIGNMENT(SORT_BY_NAME(.flashdata*)))
@@ -171,11 +171,13 @@ SECTIONS
         __data_start__ = .;
         *(vtable)
 
+        __ram_code_start__ = .;
         *(.time_critical*)
 
         /* remaining .text and .rodata; i.e. stuff we exclude above because we want it in RAM */
         *(.text*)
         . = ALIGN(4);
+        __ram_code_end__ = .;
         *(.rodata*)
         . = ALIGN(4);
 

@@ -119,11 +119,63 @@ These builds target the Raspberry Pi Pico boards. The following instructions cre
 
 You can customize the build by enabling different options in the CMake command.
 
-### Display Options (mutually exclusive)
+### Display Options
 - `ENABLE_NTSC-TV=ON`: Use NTSC TV output.
 - `ENABLE_VGA=ON`: Use VGA output.
 - `ENABLE_HDMI=ON`: Use HDMI output.
 - `ENABLE_TFT=ON`: Use TFT display output.
+
+One of HDMI, VGA, or TFT may run with `ENABLE_NTSC-TV=ON`. NTSC may also run
+alone. M2P2 HDMI selects HSTX; RP2040 HDMI keeps the PIO driver. HDMI+NTSC
+requires M2P2 HSTX.
+
+M2P2 HDMI always uses HSTX. An M2P2 HDMI build for a platform other than
+`rp2350-arm-s` is rejected; it cannot silently select PIO. RP2040 keeps PIO HDMI.
+
+For M2P2 with at least 8 MB onboard QMI PSRAM, use the presets:
+
+```sh
+cmake --preset m2p2-hdmi-ntsc
+cmake --build --preset m2p2-hdmi-ntsc
+```
+
+Other presets: `m2p2-hdmi`, `m2p2-vga`, `m2p2-vga-ntsc`, `m2p2-tft`,
+`m2p2-tft-ntsc`, and `m2p2-ntsc`. They use PWM sound and NTSC GPIO22.
+Set `PICO_SDK_PATH` and make the ARM compiler, Ninja, and a host C++ compiler
+available. A compiler outside PATH may be given with
+`-DPICO_TOOLCHAIN_PATH=/path/to/arm-toolchain` at configure time.
+
+These presets set `ONBOARD_PSRAM=ON` and omit the SRAM fallback cache.
+`m2p2-hdmi` builds HSTX-only at 504 MHz (1.60 V). HSTX+NTSC stays at 315 MHz
+(1.30 V). HDMI-only takes its 126 MHz HSTX clock from PLL_SYS / 4 and keeps
+PLL_USB at 48 MHz for USB. HSTX+NTSC reserves PLL_USB at 126 MHz and stops USB/ADC.
+
+On RP2350, the OPL2 assembly runs from normal SRAM (2 KB), with its logic
+unchanged. Both flash and SRAM versions have faulted during HDMI interrupts
+at 504 MHz; the SRAM change is not a complete fix. See the
+[OPL2 board record](tests/graphics-perf/results/hstx-opl-sram.md).
+
+Every M2P2 build checks the flash Quad Enable bit before overclocking. If the
+bit is clear, the startup code sets and verifies it while running from RAM;
+if it is already set, no status-register write is made. The RP2350 ROM selects
+the initial flash read mode, then startup selects quad reads before
+PSRAM or core 1 starts. See [flash setup](drivers/flash-config/README.md).
+The flash timing now preserves the ROM boot profile's physical intervals
+and maximum rate when SYS changes. On the tested board, 50 MHz stock flash
+becomes 45.82 MHz at 504 MHz SYS. This also retains the ROM QSPI pad settings.
+
+For the HDMI-only file:
+
+```sh
+cmake --preset m2p2-hdmi
+cmake --build --preset m2p2-hdmi
+```
+
+Output: `bin/rp2350-arm-s/Release/m2p2-286-F100-P166-504MHz-HDMI-HSTX-PWM.uf2`.
+The 504 MHz build passed a boot and display check on the user's Frank/M2P2
+board; see the [board record](tests/graphics-perf/results/hstx-504-board.md).
+This does not establish long-term stability on every RP2350 module.
+See [VIDEO_MODES.md](VIDEO_MODES.md) for layouts and the board timing test.
 
 ### Audio Options (mutually exclusive)
 - `ENABLE_I2S_SOUND=ON`: Use I2S for audio.
@@ -141,4 +193,5 @@ cmake .. -DPICO_PLATFORM=rp2040 -DENABLE_HDMI=ON -DENABLE_I2S_SOUND=ON
 The project uses a custom boot stage 2 (`slower_boot2`) for Pico builds. This configuration slows down the flash clock divider, which can improve system stability, especially on startup.
 
 ### `PICO_BOARD` Variable
-The build system sets a `PICO_BOARD` variable to `pico2` internally. This is a low-level setting for the Pico SDK and is not intended to be changed by the user. The primary way to select the target hardware is via the `PICO_PLATFORM` variable (`rp2040` or `rp2350`).
+Set `PICO_BOARD=pico` for RP2040 or `PICO_BOARD=pico2` for RP2350 before the SDK
+is loaded. The M2P2 presets set `pico2` and `PICO_PLATFORM=rp2350-arm-s`.

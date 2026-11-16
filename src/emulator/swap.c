@@ -1,4 +1,4 @@
-#if PICO_ON_DEVICE
+#if PICO_ON_DEVICE && !defined(ONBOARD_PSRAM)
 
 #include "emulator.h"
 #include "swap.h"

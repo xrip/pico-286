@@ -6,6 +6,9 @@
 #include <hardware/pwm.h>
 extern int16_t keyboard_send(uint8_t data);
 #include "nespad.h"
+#if defined(VGA)
+#include "vga_crtc.h"
+#endif
 #endif
 
 #include <emu8950.h>
@@ -334,11 +337,11 @@ if (sound_chips_clock) {
 
 // Screen offset
                 case 0x0C: // Start address (MSB)
-                    vram_offset = (value & 0xff) << 8;
+                    vram_offset = (vram_offset & 0xffu) | ((value & 0xffu) << 8);
                     // printf("vram offset %04X\n", vram_offset);
                     break;
                 case 0x0D: // Start address (LSB)
-                    vram_offset |= (value & 0xff);
+                    vram_offset = (vram_offset & 0xff00u) | (value & 0xffu);
                     // printf("vram offset %04X\n", vram_offset);
                     break;
             }
@@ -347,6 +350,9 @@ if (sound_chips_clock) {
 //                printf("CRT %x %x\n", crt_controller_idx, value);
 
             crt_controller[crt_controller_idx] = value;
+#if PICO_ON_DEVICE && defined(VGA)
+            vga_crtc_write(crt_controller_idx, value);
+#endif
 
             break;
         case 0x3B8:

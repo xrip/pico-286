@@ -1,64 +1,103 @@
-# Supported Video Modes
+# PC video modes
 
-This document describes the video modes supported by the emulator, along with their restrictions.
+The output drivers come from `rp2040-ntsc-tv` commit `611c4f8`. PC mode readers
+keep the old layouts from `519a857001220a54ed0c9224be1d741a84b362a1`.
 
-## Text Modes
+PC VRAM is 65,536 **32-bit words**. CGA, Tandy, text, and linear VGA bytes live
+in the low byte of each word. EGA planes and Mode X use all four bytes. Mode
+changes do not clear VRAM. Page, bank, cursor, and blink state are read per line.
 
-* **TEXTMODE_40x25_COLOR**: 40x25 text mode with 16 colors.
-* **TEXTMODE_40x25_BW**: 40x25 text mode with 2 colors (black and white).
-* **TEXTMODE_80x25_COLOR**: 80x25 text mode with 16 colors.
-* **TEXTMODE_80x25_BW**: 80x25 text mode with 2 colors (black and white).
+| Mode | Size and colors | Source layout |
+|---|---|---|
+| 00, 01 | 40x25 BW/color text | Character and attribute in two words |
+| 02, 03 | 80x25 BW/color text | Character and attribute in two words |
+| 04, 05 | CGA 320x200, 4 colors | 2 bits/pixel; two 8 KB banks |
+| 06 | CGA 640x200, 2 colors | 1 bit/pixel; two 8 KB banks |
+| 07 | Hercules 640x480 | Four banks, 90-word pitch, first 640 of 720 pixels |
+| 1E | Hercules 640x348 | Same banks; five-word crop from 720 pixels |
+| 08 | Tandy 160x200, 16 colors | Two nibbles/word; two banks |
+| 09 | Tandy 320x200, 16 colors | Two nibbles/word; four banks |
+| 0A | Tandy 640x200, 16 colors | Two nibbles/word; 320-word pitch |
+| 0D | EGA 320x200, 16 colors | Four plane bytes/word; 40-word pitch |
+| 0E | EGA 640x200, 16 colors | Four plane bytes/word; 80-word pitch |
+| 10 | EGA 640x350, 16 colors | Four plane bytes/word; 80-word pitch |
+| 11 | VGA 640x480, 2 colors | 1 bit/pixel; 80-word pitch |
+| 12 | VGA 640x480, 16 colors | Four plane bytes/word; 80-word pitch |
+| 13 | VGA 320x200, 256 colors | One low-byte pixel/word |
+| FF | VGA Mode X 320x200, 256 colors | Four adjacent pixels/word |
+| 74, 76 | CGA composite color | RGB: 160-pixel nibble colors; NTSC: raw CGA 2-bit signal |
 
-**Restrictions:**
+## Output size and text
 
-* The font is fixed to an 8x16 font for 80-column modes and an 8x8 font for 40-column modes.
-* Blinking text is supported, but the blink rate is fixed.
-* The cursor is supported, but its blink rate is fixed.
+HSTX HDMI and VGA give a 640x480 canvas. The 200-row modes double each row;
+348/350/480-row modes keep their source rows. Low-resolution pixels double in
+hardware where possible. Unused rows are black. All 480 rows are usable: the
+old debug display no longer covers the bottom 80 rows.
 
-## Graphics Modes
+VGA keeps the old active CRTC profiles: EGA 640x350 uses 449 total lines and
+VSync at 387..388; other PC modes use 525 total lines and VSync at 490..491.
+Both have 800 samples per line and a 25.175 MHz pixel clock. Changes take
+effect at frame start. NTSC keeps its own timing. The old disabled 400-line
+profile is not enabled.
 
-* **CGA_320x200x4**: 320x200 with 4 colors. The palette is one of the standard CGA palettes.
-* **CGA_320x200x4_BW**: 320x200 with 2 colors (black and white).
-* **CGA_640x200x2**: 640x200 with 2 colors (black and a configurable foreground color).
-* **HERC_640x480x2**: 640x480 with 2 colors (black and white). This is a Hercules-compatible mode.
-* **HERC_640x480x2_90**: 640x348 with 2 colors (black and white). This is a Hercules-compatible mode with a 90-column text mode layout.
-* **TGA_160x200x16**: 160x200 with 16 colors. This is a Tandy Graphics Adapter (TGA) mode.
-* **TGA_320x200x16**: 320x200 with 16 colors. This is a TGA mode.
-* **TGA_640x200x16**: 640x200 with 16 colors. This is a TGA mode.
-* **VGA_320x200x256**: 320x200 with 256 colors. This is a standard VGA mode (Mode 13h).
-* **VGA_320x200x256x4**: 320x200 with 256 colors, using a planar memory layout. This is a VGA "Mode X" style mode.
-* **VGA_640x480x2**: 640x480 with 2 colors. This is a standard VGA mode.
-* **EGA_320x200x16x4**: 320x200 with 16 colors, using a planar memory layout. This is an EGA-compatible mode.
-* **COMPOSITE_160x200x16**: 160x200 with 16 colors, emulating the color composite output of a CGA card.
-* **COMPOSITE_160x200x16_force**: 160x200 with 16 colors, forcing the composite color mode even if the BIOS does not request it.
+VGA also uses the existing `src/emulator/video/mc6845.h` model for CRTC text
+layout, following the approach in RP8086. R1 sets pitch, R6/R9 set text height,
+R12/13 set the display start, and R14/15 set the hardware cursor. Layout is
+cached on register writes. Standard text keeps the measured fast path;
+custom layouts use a bounded renderer. This is CGA/MC6845 behavior, not a full
+EGA/VGA CRTC model. The RP8086 R8 interlace shortcut is not used.
 
-**Implementation Details & Restrictions**
+HDMI and VGA text use an 8x16 font, with doubled cell width for 40 columns.
+All four PC text modes have colors, blink, paging, and a cursor. CGA cursor
+rows 0..7 are doubled; rows 8..15 use the native 16-line cell. The emulator's
+default cursor at rows 12/13 is visible.
 
-The video signal generation is handled by `dma_handler_VGA` and has the following characteristics and limitations:
+NTSC gives 640 samples across 240 active rows. High-resolution modes sample
+every other source row. Forty-column text keeps color; 80-column text uses
+luminance for clear fine detail. TFT gives 320x240: wide graphics sample every
+other pixel, and 80-column text combines glyph-bit pairs so thin strokes stay
+visible.
 
-*   **Hardware Dependency:** The implementation is specific to the Raspberry Pi Pico and its PIO/DMA capabilities. It is not thread-safe and assumes a specific system clock frequency.
-*   **Resolution Limits:**
-    *   Maximum visible resolution is 640x480. Video modes with a higher vertical resolution will be cropped.
-    *   Maximum horizontal resolution is 640 pixels. Video modes with a higher horizontal resolution will be cropped.
-*   **Refresh Rate:** Fixed at 60Hz.
-*   **Memory Layout:** Each video mode has a fixed, non-configurable video memory layout.
-*   **Palette:** The color palette is fixed for most modes. Only TGA and VGA modes allow for a programmable palette.
-*   **Special Modes:**
-    *   `HERC_640x480x2_90`: Uses a non-standard 90-column text mode memory layout.
-    *   Composite modes: An approximation of real CGA hardware; colors may not be an exact match.
-    *   VGA "Mode X": This is a custom mode, not a standard VGA mode, that uses a planar memory layout.
-*   **Debug Console:** A debug console may be displayed at the bottom of the screen, which is not part of the emulated video output.
+HSTX has all 256 palette entries. PIO HDMI has 252 color entries and four
+control codes. Its fast Mode X path keeps the old valid range 0..251; indices
+252..255 remain reserved. Linear mode 13 maps those four values to black.
+PIO 640-wide modes use the 16-color
+path. HSTX is the M2P2 HDMI path; PIO is kept for RP2040.
 
-## NTSC TV Output
+## Dual output and board resources
 
-The NTSC TV output mode generates a composite video signal.
+HDMI+NTSC, VGA+NTSC, and TFT+NTSC read the same PC VRAM. There is no full-screen
+copy or second framebuffer. Palette changes reach both outputs. NTSC raw CGA
+and RGB artifact colors have separate mapping. The primary output owns the
+emulated raster status.
 
-*   **Resolution**: 320x200 pixels.
-*   **Color**: 256-color programmable palette.
-*   **Signal**: Composite video signal generated via PWM on GPIO 22.
-*   **Text Mode**: 40x25 text mode is supported.
+M2P2 uses HDMI/VGA GPIO12..19, NTSC GPIO22, and QMI PSRAM CS GPIO8 on RP2350A
+(GPIO47 on RP2350B). `ONBOARD_PSRAM=ON` requires at least 8 MB and omits the
+176 KB SRAM fallback cache. SPI PSRAM on GPIO18/19 cannot share the video pins.
+HSTX-only uses a 504 MHz system clock; builds with NTSC use 315 MHz.
+HSTX-only takes PLL_SYS / 4 at 126 MHz and keeps PLL_USB at 48 MHz for USB
+diagnostics and software BOOTSEL. HSTX+NTSC takes PLL_USB at 126 MHz and stops
+USB and ADC clocks. Saved CPU settings cannot change this clock plan.
+Hardware sound on GPIO22 needs a
+different NTSC pin.
 
-**Implementation Details & Restrictions**
+## Checks and speed
 
-*   The NTSC signal generation is highly dependent on the RP2040's PIO, DMA, and a specific system clock frequency (315MHz).
-*   The refresh rate is ~60Hz (NTSC standard).
+`tests/graphics_modes_test.c` checks all modes, packing, planes, banks, text,
+blink, cursor, bounds, offsets, and fused output formats.
+`tests/hdmi_codec_test.c` checks palette storage and repeated-row DMA lifetime.
+`tests/graphics-build` checks that the RP2040 PIO driver builds in isolation.
+
+`tests/graphics-perf` builds a board test with old and new driver loops at
+315 MHz. Its README gives the test scope and limits. Host tests check pixel
+output, not target speed. Kernel cycle counts alone do not prove dual-output
+deadlines under emulator and DMA load.
+
+The new paths write palette values straight into DMA line buffers. VGA text
+keeps its pair lookup. Doubled VGA/HDMI rows reuse the prior line. TFT uses two
+small RGB565 line buffers and DMA. The optional compact NTSC palette uses a
+slower staging path; M2P2 presets use the full palette path.
+
+Board results and HDMI capture images are in
+[the test results](tests/graphics-perf/results/README.md). These include the
+initial slow version, the corrected version, and the exact firmware hashes.
