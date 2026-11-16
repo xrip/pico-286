@@ -168,7 +168,7 @@ bool __time_critical_func(graphics_source_render_ntsc_fast)(
             }
             return true;
         case EGA_320x200x16x4:
-            base = pc_ega_line(&state, row) & 65535u;
+            base = graphics_pc_ega_line(row) & 65535u;
             if (base + 40u > 65536u) return false;
             source = view.vram + base;
 #pragma GCC unroll 2

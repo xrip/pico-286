@@ -151,8 +151,12 @@ static inline __attribute__((always_inline)) void PC_FN(render_line)(
                 bytes = 320;
                 repeat = 1;
             }
-            for (unsigned byte = 0; byte < bytes; ++byte) {
-                const uint8_t pixels = (uint8_t)pc_word(vram, bank + ((offset + byte) & 0x1fffu));
+            // A line that crosses the end of its 8K bank goes on at the bank start: two runs.
+            unsigned address = bank + offset;
+            unsigned run = offset + bytes > 0x2000u ? 0x2000u - offset : bytes;
+            for (unsigned rest = bytes; rest; rest -= run, run = rest, address = bank)
+            for (const unsigned end = address + run; address < end; ++address) {
+                const uint8_t pixels = (uint8_t)pc_word(vram, address);
                 uint8_t left = pixels >> 4;
                 uint8_t right = pixels & 15u;
                 if (mode == TGA_160x200x16) {
@@ -170,7 +174,7 @@ static inline __attribute__((always_inline)) void PC_FN(render_line)(
             const bool narrow = mode == EGA_320x200x16x4;
             const unsigned words = narrow ? 40u : 80u;
             const unsigned source_y = mode == EGA_640x350x16x4 || mode == VGA_640x480x16 ? y : low_y;
-            const unsigned base = pc_ega_line(state, source_y);
+            const unsigned base = graphics_pc_ega_line(source_y);
             const unsigned step = !narrow && width == 320 ? 2u : 1u;
             const unsigned repeat = narrow && width == 640 ? 2u : 1u;
             for (unsigned word = 0; word < words; ++word) {

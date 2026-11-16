@@ -11,6 +11,7 @@ static uint32_t old_output[82], new_output[82];
 void graphics_pc_snapshot(graphics_pc_state_t *state) {
     *state = bench_state;
 }
+uint32_t graphics_pc_ega_line(unsigned line) { return line * 40u; } // EGA 0Dh at the standard width, start 0
 
 int main(void) {
     const enum graphics_mode_t modes[] = {
@@ -27,9 +28,12 @@ int main(void) {
             rng ^= rng << 5;
             bench_vram[i] = rng;
         }
-        bench_state.vram_offset = seed * 0x117;
         bench_state.tga_offset = seed * 0x4000;
         for (unsigned m = 0; m < sizeof modes / sizeof modes[0]; ++m) {
+            // The old loop ignores the CRTC start address in Tandy modes.
+            const bool tandy = modes[m] == TGA_160x200x16 || modes[m] == TGA_320x200x16 ||
+                               modes[m] == COMPOSITE_160x200x16 || modes[m] == COMPOSITE_160x200x16_force;
+            bench_state.vram_offset = tandy ? 0 : seed * 0x117;
             for (unsigned row = 0; row < 200; ++row) {
                 memset(old_output, 0xa5, sizeof old_output);
                 memset(new_output, 0xa5, sizeof new_output);

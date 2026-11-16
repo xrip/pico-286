@@ -10,6 +10,10 @@ static uint8_t guarded[644];
 #define pixels (guarded + 2)
 
 void graphics_pc_snapshot(graphics_pc_state_t *out) { *out = state; }
+// EGA lines at the standard width (CRTC 13h after the BIOS mode set), from the start address
+uint32_t graphics_pc_ega_line(unsigned line) {
+    return state.vram_offset + line * (graphics_source_mode() == EGA_320x200x16x4 ? 40u : 80u);
+}
 
 static void reset(enum graphics_mode_t mode) {
     memset(vram, 0, sizeof(vram));
@@ -121,6 +125,25 @@ static void test_tandy_and_composite(void) {
     vram[320] = 0x29;
     line(2, 640, 480); assert(pixels[0] == 2 && pixels[1] == 9);
     line(1, 320, 240); assert(pixels[0] == 2);
+}
+
+// The CRTC start address moves the picture: EGA lines step by the line width,
+// Tandy lines wrap inside their 8K bank.
+static void test_start_address(void) {
+    reset(EGA_320x200x16x4);
+    state.vram_offset = 5;
+    vram[5] = vram[5 + 40] = 0xffffffffu;
+    line(0, 320, 240); assert(pixels[0] == 15 && pixels[7] == 15 && pixels[8] == 0);
+    line(1, 320, 240); assert(pixels[0] == 15 && pixels[8] == 0);
+    reset(TGA_320x200x16);
+    state.tga_offset = 0;
+    state.vram_offset = 80; // 160 bytes: one group of 4 lines
+    vram[160] = 0xab;
+    line(0, 320, 240); assert(pixels[0] == 10 && pixels[1] == 11);
+    state.vram_offset = 0x1ffe / 2;
+    vram[0x1ffe] = 0x12; vram[0x1fff] = 0x34; vram[0] = 0x56;
+    line(0, 320, 240);
+    for (unsigned x = 0; x < 6; ++x) assert(pixels[x] == x + 1);
 }
 
 static void test_planar_and_indexed(void) {
@@ -395,6 +418,7 @@ int main(void) {
     test_hercules_and_mono();
     test_tandy_and_composite();
     test_planar_and_indexed();
+    test_start_address();
     test_text();
     test_rebind_offsets_and_modes();
     test_fused_mapping();

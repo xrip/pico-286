@@ -156,7 +156,7 @@ uint16_t cga_portin(uint16_t portnum);
 
 // EGA/VGA
 #define vga_plane_size (16000)
-extern uint32_t vga_plane_offset;
+void vga_set_cpu_page_offset(uint32_t offset);
 extern uint8_t vga_planar_mode;
 
 #if PICO_ON_DEVICE

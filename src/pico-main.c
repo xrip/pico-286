@@ -357,7 +357,10 @@ void __time_critical_func(graphics_pc_snapshot)(graphics_pc_state_t *state) {
     state->cursor_start = cursor_start;
     state->cursor_end = cursor_end;
     state->cursor_phase = cursor_blink_state != 0;
-    state->ega_line_words = crt_controller[0x13];
+}
+
+uint32_t __time_critical_func(graphics_pc_ega_line)(const unsigned line) {
+    return ega_line_start(line);
 }
 
 uint32_t graphics_pc_palette_color(uint8_t index, uint32_t color, bool composite_output) {

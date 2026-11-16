@@ -85,9 +85,7 @@ bool __time_critical_func(graphics_pc_hdmi_render)(
             return true;
         }
         case EGA_320x200x16x4: {
-            graphics_pc_state_t state;
-            graphics_pc_snapshot(&state);
-            const unsigned base = pc_ega_line(&state, row) & 0xffffu;
+            const unsigned base = graphics_pc_ega_line(row) & 0xffffu;
             if (base > 65536u - 40u) return false;
             const uint32_t *source = vram + base;
 #pragma GCC unroll 2

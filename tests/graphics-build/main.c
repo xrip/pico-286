@@ -88,6 +88,10 @@ void __time_critical_func(graphics_pc_snapshot)(graphics_pc_state_t *state) {
 #endif
 }
 
+uint32_t __time_critical_func(graphics_pc_ega_line)(unsigned line) {
+    return line * (graphics_source_mode() == EGA_320x200x16x4 ? 40u : 80u);
+}
+
 uint32_t graphics_pc_palette_color(uint8_t index, uint32_t color, bool composite_output) {
     (void)index;
     (void)composite_output;

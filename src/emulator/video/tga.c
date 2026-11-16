@@ -120,16 +120,12 @@ void tga_portout(uint16_t portnum, uint16_t value) {
                 tga_offset = (value & 0x07) << 14;
                 tga_offset -= 0x8000;
                 tga_offset &= 0xc000;
-                vga_plane_offset = (value & 0x38) << 11;
-//                vga_plane_offset -= 0x8000;
-                vga_plane_offset &= 0xc000;
+                vga_set_cpu_page_offset(((value & 0x38) << 11) & 0xc000);
             } else {
                 tga_offset = (value & 0x06) << 14;
                 tga_offset -= 0x18000;
                 tga_offset &= 0x8000;
-                vga_plane_offset = (value & 0x30) << 11;
-                vga_plane_offset -= 0x10000;
-                vga_plane_offset &= 0x8000;
+                vga_set_cpu_page_offset((((value & 0x30) << 11) - 0x10000) & 0x8000);
 
             }
 //                printf("%x tga_offset %x vga_plane_offset %x\n",value, tga_offset, vga_plane_offset);
