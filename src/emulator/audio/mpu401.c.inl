@@ -31,13 +31,12 @@ static int midi_insysex;
 #endif
 #else
 
-static int midi_id = 0;
 static HMIDIOUT midi_out_device = NULL;
 
 static INLINE void midi_init_once() {
     if (midi_out_device != NULL) return;
 
-    MMRESULT hr = midiOutOpen(&midi_out_device, midi_id, 0, 0, CALLBACK_NULL);
+    MMRESULT hr = midiOutOpen(&midi_out_device, MIDI_MAPPER, 0, 0, CALLBACK_NULL);
     if (hr != MMSYSERR_NOERROR) {
 #ifdef DEBUG_MPU401
         printf("midiOutOpen error - %08X\n", hr);
@@ -57,6 +56,7 @@ static INLINE void midi_close() {
 
 static uint8_t midi_sysex_data[4096 + 2];
 static INLINE void midi_send_sysex() {
+    midi_init_once();
     MIDIHDR hdr = {
         .lpData = (LPSTR) midi_sysex_data,
         .dwBufferLength = midi_pos,
@@ -98,9 +98,16 @@ static INLINE void midi_send_sysex() {
     midi_insysex = 0;
 }
 int16_t midi_sample() { return 0; }
-
-
 #endif
+
+static INLINE void midi_send(uint32_t message) {
+#if defined(EMULATED_MIDI)
+    parse_midi((const midi_command_t *) &message);
+#else
+    midi_init_once();
+    midiOutShortMsg(midi_out_device, message);
+#endif
+}
 
 
 static INLINE uint8_t mpu401_read(uint16_t portnum) {
@@ -117,14 +124,11 @@ static INLINE void mpu401_write(uint16_t portnum, uint8_t value) {
         switch (value) {
             case 0xDF:
                 mpu_rx_data = 0xFE; // Ack
-#if !defined(EMULATED_MIDI)
-                midi_send_sysex();
-#endif
                 break;
             case 0xD0: // Enter UART Mode
                 mpu_rx_data = 0xFF; // ???
                 break;
-            case 0x3F: // Enter Intellegent UART mode
+            case 0x3F: // Enter UART mode
                 mpu_rx_data = 0xFE; // Ack
                 break;
             default:
@@ -134,12 +138,9 @@ static INLINE void mpu401_write(uint16_t portnum, uint8_t value) {
             case 0xFF: // Reset
 #if defined(MIDI_GM_DLS)
                 parse_midi(&(const midi_command_t){.command = 0xff});
+#endif
                 midi_pos = midi_len = midi_insysex = 0;
                 midi_command = 0;
-#endif
-#if !defined(EMULATED_MIDI)
-                midi_init_once();
-#endif
                 mpu_rx_data = 0xFE; // Ack
                 break;
         }
@@ -148,12 +149,20 @@ static INLINE void mpu401_write(uint16_t portnum, uint8_t value) {
         return;
     }
 
+    if (value >= 0xF8) { // real-time: one byte, keeps the message in progress
+        midi_send(value);
+        return;
+    }
+
     if (value & 0x80 && !(value == 0xF7 && midi_insysex)) {
         midi_pos = 0;
         midi_len = midi_lengths[value >> 4 & 7];
         midi_command = 0;
 
-        if (value == 0xF0) midi_insysex = 1;
+        if (value == 0xF0) {
+            midi_insysex = 1;
+            midi_len = 0;
+        }
     }
 
     if (midi_insysex) {
@@ -173,11 +182,13 @@ static INLINE void mpu401_write(uint16_t portnum, uint8_t value) {
     if (midi_len) {
         midi_command |= value << midi_pos * 8;
         if (++midi_pos == midi_len) {
-#if defined(EMULATED_MIDI)
-            parse_midi((void *)&midi_command);
-#else
-            midiOutShortMsg(midi_out_device, midi_command);
-#endif
+            midi_send(midi_command);
+            if ((uint8_t) midi_command < 0xF0) { // a channel message: next data bytes reuse its status
+                midi_pos = 1;
+                midi_command &= 0xFF;
+            } else {
+                midi_len = 0;
+            }
         }
     }
 }
