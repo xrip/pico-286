@@ -6,7 +6,9 @@
 #include <math.h>
 #include <emulator/emulator.h>
 
+#if !defined(MIDI_WINMM)
 #define EMULATED_MIDI
+#endif
 
 // #define DEBUG_MPU401 1
 

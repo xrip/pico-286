@@ -214,17 +214,18 @@ See [VIDEO_MODES.md](VIDEO_MODES.md) for layouts and the board timing test.
 - `ENABLE_PWM_SOUND=ON`: Use PWM for audio.
 - `ENABLE_HARDWARE_SOUND=ON`: Use a hardware sound chip.
 
-### Optional GM.DLS MIDI on RP2350
+### Optional GM.DLS MIDI on RP2350 and Win32
 
-`MIDI_GM_DLS=ON` selects the wavetable engine from the `midi` branch.
-The default remains the sine/noise MIDI engine. HDMI audio stays at 44,100 Hz.
-The packed bank must use that same rate; a 22,050 Hz bank is rejected.
+`MIDI_GM_DLS=ON` selects the GM.DLS wavetable engine.
+The default remains the sine/noise MIDI engine. GM.DLS waves are 22,050 Hz,
+so MIDI is made at 22,050 Hz and each sample is sent twice to the 44,100 Hz output.
+The packed bank must use 22,050 Hz; any other bank is rejected.
 
 Pack your local `gm.dls` with a host C compiler:
 
 ```sh
 cc -std=c11 -O2 tools/dls_pack.c -lm -o dls_pack
-./dls_pack gm.dls src/emulator/audio/gm_bank_44100.bin 44100
+./dls_pack gm.dls src/emulator/audio/gm_bank_22050.bin 22050
 ```
 
 Then build M2P2 HSTX video and HDMI audio with GM.DLS:
@@ -235,14 +236,25 @@ cmake --build --preset m2p2-hdmi
 ```
 
 Output: `bin/rp2350-arm-s/Release/m2p2-286-P166-C500MHz-HDMI-HSTX-HDMIAUDIO-GMDLS.uf2`.
-`MIDI_GM_BANK` can point to another packed v4 bank at 44,100 Hz.
+`MIDI_GM_BANK` can point to another packed v4 bank at 22,050 Hz.
 The bank stays in flash; the engine has 32 voices and preserves stereo pan.
 MIDI commands go through a queue to the audio core. MPU-401 reset clears its voices.
 
 RP2350 Arm builds use 16 MB flash in both SDK settings and linker scripts.
 The last 4 KB is reserved for CMOS; the launcher layout also reserves the
 first 64 KB. This requires a board with 16 MB physical flash.
-The GM.DLS option currently targets RP2350 Arm.
+
+### MIDI on Win32
+
+The Win32 build (`-DPICO_PLATFORM=host`) has three MIDI choices:
+
+| Options          | MIDI                                   | Output          |
+|------------------|----------------------------------------|-----------------|
+| (none)           | sine/noise engine                      | `286.exe`       |
+| `MIDI_GM_DLS=ON` | GM.DLS wavetable from the packed bank  | `286-GMDLS.exe` |
+| `MIDI_WINMM=ON`  | the Windows default MIDI output device | `286-WINMM.exe` |
+
+The files go to `bin/host/<build type>/`. `MIDI_WINMM` and `MIDI_GM_DLS` cannot both be on.
 
 Example of a different configuration (HDMI for rp2040):
 ```sh

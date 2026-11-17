@@ -1,35 +1,46 @@
 #pragma once
-#include <pico/util/queue.h>
+#include <stdatomic.h>
 #include "gm_bank.h"
 #include "wavetable.c.inl"
 
-// Voices belong to the audio core; the emulator core only queues commands.
-#define MIDI_QUEUE_LENGTH 128
-
-extern const uint8_t gm_bank_blob[];
-static queue_t midi_queue;
+extern const uint8_t gm_bank_blob[]; // CMake checks it is a GMWB v4 bank for 22050 Hz
 
 void midi_dls_init(void) {
-    if (!gm_bank_view(gm_bank_blob, &g_bank) ||
-            g_bank.header->output_rate != SOUND_FREQUENCY)
-        panic("GM.DLS bank format or sample rate mismatch");
+    gm_bank_view(gm_bank_blob, &g_bank);
     wt_engine_reset();
-    if (!queue_init(&midi_queue, sizeof(midi_command_t), MIDI_QUEUE_LENGTH))
-        panic("Cannot allocate MIDI command queue");
 }
+
+// Voices belong to the audio thread; the emulator thread only queues commands.
+// One writer moves midi_queue_head, one reader moves midi_queue_tail.
+#define MIDI_QUEUE_LENGTH 128 // a power of two
+static midi_command_t midi_queue[MIDI_QUEUE_LENGTH];
+static atomic_uint midi_queue_head, midi_queue_tail;
 
 static INLINE void parse_midi(const midi_command_t *command) {
-    queue_add_blocking(&midi_queue, command);
+    const unsigned head = atomic_load_explicit(&midi_queue_head, memory_order_relaxed);
+    while (head - atomic_load_explicit(&midi_queue_tail, memory_order_acquire) == MIDI_QUEUE_LENGTH) {} // full
+    midi_queue[head % MIDI_QUEUE_LENGTH] = *command;
+    atomic_store_explicit(&midi_queue_head, head + 1, memory_order_release);
 }
 
+// GM.DLS waves are 22050 Hz: make a new MIDI sample every second output sample and send it twice.
 static INLINE void midi_dls_sample(int16_t midi[2]) {
-    midi_command_t command;
-    // At most one full queue of commands per sample.
-    for (unsigned i = 0; i < MIDI_QUEUE_LENGTH && queue_try_remove(&midi_queue, &command); ++i) {
-        if (command.command == 0xff) wt_engine_reset();
-        else wt_parse_midi(&command);
+    static int16_t held[2];
+    static bool repeat_next;
+    if (!repeat_next) {
+        const unsigned head = atomic_load_explicit(&midi_queue_head, memory_order_acquire);
+        unsigned tail = atomic_load_explicit(&midi_queue_tail, memory_order_relaxed);
+        for (; tail != head; ++tail) {
+            const midi_command_t *command = &midi_queue[tail % MIDI_QUEUE_LENGTH];
+            if (command->command == 0xff) wt_engine_reset();
+            else wt_parse_midi(command);
+        }
+        atomic_store_explicit(&midi_queue_tail, tail, memory_order_release);
+        midi_sample_stereo(&held[0], &held[1]);
     }
-    midi_sample_stereo(&midi[0], &midi[1]);
+    repeat_next = !repeat_next;
+    midi[0] = held[0];
+    midi[1] = held[1];
 }
 
 // For the mono HARDWARE_SOUND mix.

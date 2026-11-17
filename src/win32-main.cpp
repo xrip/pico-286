@@ -1206,6 +1206,9 @@ int main(int argc, char **argv) {
     emu8950_opl = OPL_new(3579552, SOUND_FREQUENCY);
     blaster_reset();
     sn76489_reset();
+#if defined(MIDI_GM_DLS)
+    midi_dls_init();
+#endif
     reset86();
 
     CreateThread(NULL, 0, SoundThread, NULL, 0, NULL);

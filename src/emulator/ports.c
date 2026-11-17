@@ -1,5 +1,8 @@
 #pragma GCC optimize("Ofast")
 #include <time.h>
+#if defined(MIDI_WINMM)
+#include <windows.h> // before emulator.h: the cpu.h flag macros (cf, pf, af) break it
+#endif
 #include "emulator.h"
 #if PICO_ON_DEVICE
 #include <74hc595.h>

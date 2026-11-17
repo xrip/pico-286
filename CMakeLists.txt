@@ -52,6 +52,34 @@ endforeach ()
 message(STATUS "")
 
 # =========================
+# MIDI OPTIONS (default: the sine/noise engine)
+# =========================
+option(MIDI_GM_DLS "Use the GM.DLS wavetable MIDI engine" OFF)
+option(MIDI_WINMM "Win32: send MIDI to the Windows MIDI output (winmm)" OFF)
+if (MIDI_WINMM)
+    if (NOT (PICO_PLATFORM STREQUAL "host" AND WIN32))
+        message(FATAL_ERROR "MIDI_WINMM requires the Win32 build")
+    endif ()
+    if (MIDI_GM_DLS)
+        message(FATAL_ERROR "MIDI_WINMM and MIDI_GM_DLS cannot both be ON")
+    endif ()
+endif ()
+if (MIDI_GM_DLS)
+    if (NOT (PICO_PLATFORM STREQUAL "rp2350-arm-s" OR (PICO_PLATFORM STREQUAL "host" AND WIN32)))
+        message(FATAL_ERROR "MIDI_GM_DLS requires the RP2350 Arm build with 16 MB flash or the Win32 build")
+    endif ()
+    set(MIDI_GM_BANK "${CMAKE_SOURCE_DIR}/src/emulator/audio/gm_bank_22050.bin"
+            CACHE FILEPATH "Packed GM.DLS v4 bank for 22050 Hz")
+    if (NOT EXISTS "${MIDI_GM_BANK}")
+        message(FATAL_ERROR "GM.DLS bank missing: ${MIDI_GM_BANK}. See BUILDING.md.")
+    endif ()
+    file(READ "${MIDI_GM_BANK}" MIDI_GM_HEADER LIMIT 12 HEX)
+    if (NOT MIDI_GM_HEADER STREQUAL "474d57420400000022560000")
+        message(FATAL_ERROR "MIDI_GM_BANK must be a GMWB v4 bank packed for 22050 Hz")
+    endif ()
+endif ()
+
+# =========================
 # HOST BUILD (Windows/Linux)
 # =========================
 if (PICO_PLATFORM STREQUAL "host")
@@ -67,7 +95,12 @@ if (PICO_PLATFORM STREQUAL "host")
         target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf findfirst/)
     endif ()
 
-    set_target_properties(${PROJECT_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
+    if (MIDI_GM_DLS)
+        string(APPEND BUILD_NAME "-GMDLS")
+    elseif (MIDI_WINMM)
+        string(APPEND BUILD_NAME "-WINMM")
+    endif ()
+    set_target_properties(${PROJECT_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}" OUTPUT_NAME "${BUILD_NAME}")
     target_include_directories(${PROJECT_NAME} PRIVATE src src/emu8950 src/printf)
 else ()
     #set(CMAKE_BUILD_TYPE "MinSizeRel") /// outside!
@@ -106,21 +139,6 @@ else ()
     option(ENABLE_I2S_SOUND "Enable I2S audio output" OFF)
     option(ENABLE_PWM_SOUND "Enable PWM audio output" OFF)
     option(ENABLE_HARDWARE_SOUND "Enable hardware audio output" OFF)
-    option(MIDI_GM_DLS "Use the GM.DLS wavetable MIDI engine" OFF)
-    if (MIDI_GM_DLS)
-        if (NOT PICO_PLATFORM STREQUAL "rp2350-arm-s")
-            message(FATAL_ERROR "MIDI_GM_DLS requires the RP2350 Arm build with 16 MB flash")
-        endif ()
-        set(MIDI_GM_BANK "${CMAKE_SOURCE_DIR}/src/emulator/audio/gm_bank_44100.bin"
-                CACHE FILEPATH "Packed GM.DLS v4 bank for 44100 Hz")
-        if (NOT EXISTS "${MIDI_GM_BANK}")
-            message(FATAL_ERROR "GM.DLS bank missing: ${MIDI_GM_BANK}. See BUILDING.md.")
-        endif ()
-        file(READ "${MIDI_GM_BANK}" MIDI_GM_HEADER LIMIT 12 HEX)
-        if (NOT MIDI_GM_HEADER STREQUAL "474d57420400000044ac0000")
-            message(FATAL_ERROR "MIDI_GM_BANK must be a GMWB v4 bank packed for 44100 Hz")
-        endif ()
-    endif ()
 
     # =========================
     # VALIDATION
@@ -282,13 +300,6 @@ else ()
     add_executable(${PROJECT_NAME} ${SRC} src/pico-main.c src/printf/printf.c src/74hc595/74hc595.c)
     target_include_directories(${PROJECT_NAME} PRIVATE src/74hc595 src src/emu8950 src/printf)
     target_sources(${PROJECT_NAME} PRIVATE src/emu8950/slot_render_pico.S)
-    if (MIDI_GM_DLS)
-        target_compile_definitions(${PROJECT_NAME} PRIVATE MIDI_GM_DLS=1)
-        configure_file(src/emulator/audio/gm_dls_bank.S.in gm_dls_bank.S @ONLY)
-        target_sources(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gm_dls_bank.S")
-        set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/gm_dls_bank.S"
-                PROPERTIES OBJECT_DEPENDS "${MIDI_GM_BANK}")
-    endif ()
 
     # =========================
     # BOOT STAGE 2 CONFIGURATION
@@ -468,6 +479,17 @@ endif ()
 # =========================
 # COMMON DEFINITIONS (HOST + PICO)
 # =========================
+if (MIDI_WINMM)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE MIDI_WINMM=1)
+endif ()
+if (MIDI_GM_DLS)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE MIDI_GM_DLS=1)
+    configure_file(src/emulator/audio/gm_dls_bank.S.in gm_dls_bank.S @ONLY)
+    target_sources(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gm_dls_bank.S")
+    set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/gm_dls_bank.S"
+            PROPERTIES OBJECT_DEPENDS "${MIDI_GM_BANK}")
+endif ()
+
 target_compile_definitions(${PROJECT_NAME} PRIVATE
         USE_EMU8950_OPL
         EMU8950_SLOT_RENDER=1
