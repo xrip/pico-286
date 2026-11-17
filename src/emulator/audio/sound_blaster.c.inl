@@ -39,29 +39,27 @@
 // Sound Blaster DSP commands.
 #define DSP_DMA_HS_SINGLE       0x91
 #define DSP_DMA_HS_AUTO         0x90
-#define DSP_DMA_ADPCM           0x7F    //creative ADPCM 8bit to 3bit
 #define DSP_DMA_SINGLE          0x14    //follosed by length
 #define DSP_DMA_AUTO            0X1C    //length based on 48h
+#define DSP_DMA_ADC_SINGLE      0x24
+#define DSP_DMA_ADC_AUTO        0x2C
 #define DSP_DMA_BLOCK_SIZE      0x48    //block size for highspeed/dma
-//#define DSP_DMA_DAC 0x14
 #define DSP_DIRECT_DAC          0x10
 #define DSP_DIRECT_ADC          0x20
-#define DSP_MIDI_READ_POLL      0x30
-#define DSP_MIDI_WRITE_POLL     0x38
 #define DSP_SET_TIME_CONSTANT   0x40
 #define DSP_DMA_PAUSE           0xD0
-#define DSP_DMA_PAUSE_DURATION  0x80    //Used by Tryrian
+#define DSP_DMA_SILENCE         0x80    //Used by Tryrian
 #define DSP_ENABLE_SPEAKER      0xD1
 #define DSP_DISABLE_SPEAKER     0xD3
 #define DSP_DMA_RESUME          0xD4
-#define DSP_SPEAKER_STATUS      0xD8
+#define DSP_DMA_EXIT_AUTO       0xDA
 #define DSP_IDENTIFICATION      0xE0
 #define DSP_VERSION             0xE1
+#define DSP_DMA_IDENTIFICATION  0xE2
 #define DSP_WRITETEST           0xE4
 #define DSP_READTEST            0xE8
-#define DSP_SINE                0xF0
 #define DSP_IRQ                 0xF2
-#define DSP_CHECKSUM            0xF4
+#define DSP_UNDOCUMENTED_F8     0xF8
 
 typedef  struct sound_blaster_s {
     int16_t current_audio_sample;
@@ -70,6 +68,7 @@ typedef  struct sound_blaster_s {
 
     uint8_t read_buffer_length;
     uint32_t dma_transfer_length;
+    uint32_t dma_block_size;
     uint8_t current_dsp_command;
     uint8_t parameter_byte_index;    // tracks whether we're reading low or high byte
     uint32_t dma_bytes_processed;
@@ -83,7 +82,6 @@ typedef  struct sound_blaster_s {
 
 static sound_blaster_s sound_blaster = { 0 };
 
-//#define DEBUG_BLASTER
 uint16_t timeconst = 22;
 uint64_t sb_samplerate = 22050;
 
@@ -120,54 +118,53 @@ INLINE void blaster_reset() {
 
 // TODO: Consider renaming to process_dsp_command for clarity
 static INLINE void blaster_command(const uint8_t command_byte) {
-    //    printf("SB command %x : %x        %d\r\n", sb.lastcmd, value, i++);
+    //    printf("SB command %x : %x\r\n", sound_blaster.current_dsp_command, command_byte);
     switch (sound_blaster.current_dsp_command) {
         case DSP_DIRECT_DAC: //direct DAC, 8-bit
             sound_blaster.current_audio_sample = (command_byte - 128) << 6;
             sound_blaster.current_dsp_command = 0;
             return;
         case DSP_DMA_SINGLE: //DMA DAC, 8-bit
-        case 0x24:
-        case DSP_DMA_HS_SINGLE:
+        case DSP_DMA_ADC_SINGLE:
             if (sound_blaster.parameter_byte_index == 0) {
                 sound_blaster.dma_transfer_length = command_byte;
                 sound_blaster.parameter_byte_index = 1;
             } else {
                 sound_blaster.dma_transfer_length |= (uint32_t) command_byte << 8;
                 sound_blaster.dma_transfer_length++;
+                sound_blaster.recording_mode_active = (sound_blaster.current_dsp_command == DSP_DMA_ADC_SINGLE);
                 sound_blaster.current_dsp_command = 0;
                 sound_blaster.dma_bytes_processed = 0;
                 sound_blaster.silence_mode_active = 0;
                 sound_blaster.auto_init_mode_enabled = 0;
-                sound_blaster.recording_mode_active = (sound_blaster.current_dsp_command == 0x24) ? 1 : 0;
                 sound_blaster.dma_transfer_enabled = 1;
 #ifdef DEBUG_BLASTER
-                printf("[BLASTER] Begin DMA transfer mode with 0x%04X  byte blocks\r\n", sb.dmalen);
+                printf("[BLASTER] Begin DMA transfer mode with %u byte blocks\r\n", (unsigned) sound_blaster.dma_transfer_length);
 #endif
             }
             return;
-        case DSP_SET_TIME_CONSTANT: //set time constant
+        case DSP_SET_TIME_CONSTANT:
             timeconst = 256 - command_byte;
             sb_samplerate = 1000000 / timeconst;
             sound_blaster.current_dsp_command = 0;
 #ifdef DEBUG_BLASTER
-            printf("[BLASTER] Set time constant: %u (Sample rate: %lu Hz)\r\n", value, 1000000 / (256 - value));
+            printf("[BLASTER] Set time constant: %u (Sample rate: %u Hz)\r\n", command_byte, (unsigned) sb_samplerate);
 #endif
             return;
-        case DSP_DMA_BLOCK_SIZE: //set DMA block size
+        case DSP_DMA_BLOCK_SIZE:
             if (sound_blaster.parameter_byte_index == 0) {
-                sound_blaster.dma_transfer_length = command_byte;
+                sound_blaster.dma_block_size = command_byte;
                 sound_blaster.parameter_byte_index = 1;
             } else {
-                sound_blaster.dma_transfer_length |= (uint32_t) command_byte << 8;
-                sound_blaster.dma_transfer_length++;
+                sound_blaster.dma_block_size |= (uint32_t) command_byte << 8;
+                sound_blaster.dma_block_size++;
                 sound_blaster.current_dsp_command = 0;
-            }
 #ifdef DEBUG_BLASTER
-            printf("[NOTICE] Sound Blaster DSP block transfer size set to %u\n", sb.dmalen);
+                printf("[NOTICE] Sound Blaster DSP block transfer size set to %u\n", (unsigned) sound_blaster.dma_block_size);
 #endif
+            }
             return;
-        case DSP_DMA_PAUSE_DURATION: //silence DAC
+        case DSP_DMA_SILENCE:
             if (sound_blaster.parameter_byte_index == 0) {
                 sound_blaster.dma_transfer_length = command_byte;
                 sound_blaster.parameter_byte_index = 1;
@@ -184,7 +181,7 @@ static INLINE void blaster_command(const uint8_t command_byte) {
             blaster_write_buffer(~command_byte);
             sound_blaster.current_dsp_command = 0;
             return;
-        case 0xE2: //DMA identification write
+        case DSP_DMA_IDENTIFICATION:
         {
             int16_t calculated_value = 0xAA;
             for (uint8_t bit_index = 0; bit_index < 8; bit_index++) {
@@ -197,40 +194,42 @@ static INLINE void blaster_command(const uint8_t command_byte) {
             sound_blaster.current_dsp_command = 0;
             return;
         }
-        case DSP_WRITETEST: //write test register
+        case DSP_WRITETEST:
             sound_blaster.dsp_test_register = command_byte;
             sound_blaster.current_dsp_command = 0;
             return;
     }
 
     switch (command_byte) {
-        case 0x10: //direct DAC, 8-bit
+        case DSP_DIRECT_DAC: //direct DAC, 8-bit
             break;
-        case 0x14: //DMA DAC, 8-bit
-        case 0x24:
+        case DSP_DMA_SINGLE: //DMA DAC, 8-bit
+        case DSP_DMA_ADC_SINGLE:
             sound_blaster.parameter_byte_index = 0;
             break;
         case DSP_DMA_AUTO: //auto-initialize DMA DAC, 8-bit
-        case 0x2C:
+        case DSP_DMA_HS_AUTO: //high-speed auto-initialize DMA DAC, 8-bit
+        case DSP_DMA_ADC_AUTO:
+        case DSP_DMA_HS_SINGLE: //high-speed single-cycle DMA DAC, 8-bit
+            sound_blaster.dma_transfer_length = sound_blaster.dma_block_size;
             sound_blaster.dma_bytes_processed = 0;
             sound_blaster.silence_mode_active = 0;
-            sound_blaster.auto_init_mode_enabled = 1;
-            sound_blaster.recording_mode_active = (command_byte == 0x2C) ? 1 : 0;
+            sound_blaster.auto_init_mode_enabled = (command_byte != DSP_DMA_HS_SINGLE);
+            sound_blaster.recording_mode_active = (command_byte == DSP_DMA_ADC_AUTO);
             sound_blaster.dma_transfer_enabled = 1;
 #ifdef DEBUG_BLASTER
-            printf("[BLASTER] Begin auto-init DMA transfer mode with %d byte blocks\r\n", sb.dmacount);
+            printf("[BLASTER] Begin DMA command 0x%02X with %u byte blocks\r\n", command_byte, (unsigned) sound_blaster.dma_transfer_length);
 #endif
             break;
         case DSP_DIRECT_ADC: //direct ADC, 8-bit record
             blaster_write_buffer(128); //Silence, though I might add actual recording support later.
             break;
-        case 0x40: //set time constant
+        case DSP_SET_TIME_CONSTANT:
             break;
-        case 0x91:
-        case 0x48: //set DMA block size
+        case DSP_DMA_BLOCK_SIZE:
             sound_blaster.parameter_byte_index = 0;
             break;
-        case 0x80: //silence DAC
+        case DSP_DMA_SILENCE:
             sound_blaster.parameter_byte_index = 0;
             break;
         case DSP_DMA_PAUSE: //halt DMA operation, 8-bit
@@ -245,19 +244,19 @@ static INLINE void blaster_command(const uint8_t command_byte) {
         case DSP_DMA_RESUME: //continue DMA operation, 8-bit
             sound_blaster.dma_transfer_enabled = 1;
             break;
-        case 0xDA: //exit auto-initialize DMA operation, 8-bit
+        case DSP_DMA_EXIT_AUTO: //exit auto-initialize DMA operation, 8-bit
             sound_blaster.dma_transfer_enabled = 0;
             sound_blaster.auto_init_mode_enabled = 0;
             break;
-        case 0xE0: //DSP identification (returns bitwise NOT of data byte)
+        case DSP_IDENTIFICATION: //DSP identification (returns bitwise NOT of data byte)
             break;
         case DSP_VERSION: //DSP version (SB 2.0 is DSP 2.01)
             blaster_write_buffer(2);
             blaster_write_buffer(1);
             break;
-        case 0xE2: //DMA identification write
+        case DSP_DMA_IDENTIFICATION:
             break;
-        case 0xE4: //write test register
+        case DSP_WRITETEST:
             break;
         case DSP_READTEST: //read test register
             sound_blaster.read_buffer_length = 0;
@@ -266,13 +265,13 @@ static INLINE void blaster_command(const uint8_t command_byte) {
         case DSP_IRQ: //trigger 8-bit IRQ
             doirq(SB_IRQ);
             break;
-        case 0xF8: //Undocumented
+        case DSP_UNDOCUMENTED_F8:
             sound_blaster.read_buffer_length = 0;
             blaster_write_buffer(0);
             break;
         default:
             break;
-//            printf("[BLASTER] Unrecognized command: 0x%02X\r\n", value);
+//            printf("[BLASTER] Unrecognized command: 0x%02X\r\n", command_byte);
     }
 
     sound_blaster.current_dsp_command = command_byte;
@@ -280,7 +279,7 @@ static INLINE void blaster_command(const uint8_t command_byte) {
 
 static INLINE void blaster_write(const uint16_t port, const uint8_t value) {
 #ifdef DEBUG_BLASTER
-    printf("[BLASTER] Write %03X: %02X\r\n", portnum, value);
+    printf("[BLASTER] Write %03X: %02X\r\n", port, value);
 #endif
     switch (port & 0xF) {
         case DSP_RESET:
@@ -295,7 +294,7 @@ static INLINE void blaster_write(const uint16_t port, const uint8_t value) {
 // TODO: Consider renaming to handle_dsp_port_read for clarity
 static INLINE uint8_t blaster_read(const uint16_t port) {
 #ifdef DEBUG_BLASTER
-    printf("[BLASTER] Read %03X\r\n", portnum);
+    printf("[BLASTER] Read %03X\r\n", port);
 #endif
 
     switch (port & 0xF) {
