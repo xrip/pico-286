@@ -134,16 +134,7 @@ static INLINE uint8_t rtc_read(uint16_t addr) {
     return ret;
 }
 
-// The Sound Blaster has the AdLib OPL also at base+8/base+9.
-static INLINE uint16_t sb_fm_to_adlib_port(const uint16_t portnum) {
-#if !PICO_RP2040
-    if (portnum == 0x228 || portnum == 0x229) return portnum + (0x388 - 0x228);
-#endif
-    return portnum;
-}
-
 void portout(uint16_t portnum, uint16_t value) {
-    portnum = sb_fm_to_adlib_port(portnum);
     switch (portnum) {
         case 0x00:
         case 0x01:
@@ -280,10 +271,16 @@ if (sound_chips_clock) {
         case 0x37A:
 // Disney Sound Source
             return dss_out(portnum, value);
-// AdLib / OPL2
+// AdLib / OPL2; a Sound Blaster has the same OPL also at base+8/base+9
+#if !PICO_RP2040
+        case 0x228:
+#endif
         case 0x388:
             adlib_register = value;
             break;
+#if !PICO_RP2040
+        case 0x229:
+#endif
         case 0x389:
             if (adlib_register <= 4) {
                 adlibregmem[adlib_register] = value;
@@ -415,7 +412,6 @@ if (sound_chips_clock) {
 }
 
 uint16_t portin(uint16_t portnum) {
-    portnum = sb_fm_to_adlib_port(portnum);
     switch (portnum) {
         case 0x00:
         case 0x01:
@@ -523,7 +519,11 @@ uint16_t portin(uint16_t portnum) {
             return dss_in(portnum);
         case 0x37A:
             return 0;
-// AdLib
+// AdLib, and its copy on the Sound Blaster
+#if !PICO_RP2040
+        case 0x228:
+        case 0x229:
+#endif
         case 0x388:
         case 0x389:
             if (!adlibregmem[4])
