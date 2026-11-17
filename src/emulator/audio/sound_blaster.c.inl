@@ -41,7 +41,7 @@
 // Sound Blaster DSP commands.
 #define DSP_DMA_HS_SINGLE       0x91
 #define DSP_DMA_HS_AUTO         0x90
-#define DSP_DMA_SINGLE          0x14    //follosed by length
+#define DSP_DMA_SINGLE          0x14    //followed by length
 #define DSP_DMA_AUTO            0X1C    //length based on 48h
 #define DSP_DMA_ADC_SINGLE      0x24
 #define DSP_DMA_ADC_AUTO        0x2C
@@ -127,7 +127,6 @@ static INLINE uint8_t blaster_read_buffer() {
 
 INLINE void blaster_reset() {
     memset(&sound_blaster, 0, sizeof(sound_blaster_s));
-    sound_blaster.current_audio_sample = 0;
     blaster_write_buffer(0xAA);
 }
 
@@ -155,7 +154,6 @@ static INLINE void start_dma(const bool auto_init, const dma_mode_e mode) {
 #endif
 }
 
-// TODO: Consider renaming to process_dsp_command for clarity
 static INLINE void blaster_command(const uint8_t command_byte) {
     //    printf("SB command %x : %x\r\n", sound_blaster.current_dsp_command, command_byte);
     switch (sound_blaster.current_dsp_command) {
@@ -296,7 +294,6 @@ static INLINE void blaster_write(const uint16_t port, const uint8_t value) {
     }
 }
 
-// TODO: Consider renaming to handle_dsp_port_read for clarity
 static INLINE uint8_t blaster_read(const uint16_t port) {
 #ifdef DEBUG_BLASTER
     printf("[BLASTER] Read %03X\r\n", port);
