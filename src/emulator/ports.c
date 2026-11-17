@@ -134,7 +134,16 @@ static INLINE uint8_t rtc_read(uint16_t addr) {
     return ret;
 }
 
+// The Sound Blaster has the AdLib OPL also at base+8/base+9.
+static INLINE uint16_t sb_fm_to_adlib_port(const uint16_t portnum) {
+#if !PICO_RP2040
+    if (portnum == 0x228 || portnum == 0x229) return portnum + (0x388 - 0x228);
+#endif
+    return portnum;
+}
+
 void portout(uint16_t portnum, uint16_t value) {
+    portnum = sb_fm_to_adlib_port(portnum);
     switch (portnum) {
         case 0x00:
         case 0x01:
@@ -241,8 +250,6 @@ if (sound_chips_clock) {
         case 0x225:
         case 0x226:
         case 0x227:
-        case 0x228:
-        case 0x229:
         case 0x22a:
         case 0x22b:
         case 0x22c:
@@ -408,6 +415,7 @@ if (sound_chips_clock) {
 }
 
 uint16_t portin(uint16_t portnum) {
+    portnum = sb_fm_to_adlib_port(portnum);
     switch (portnum) {
         case 0x00:
         case 0x01:
@@ -465,8 +473,6 @@ uint16_t portin(uint16_t portnum) {
         case 0x225:
         case 0x226:
         case 0x227:
-        case 0x228:
-        case 0x229:
         case 0x22a:
         case 0x22b:
         case 0x22c:
