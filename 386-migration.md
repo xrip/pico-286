@@ -130,6 +130,7 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
    - INT 15h 88h gives 0 KB, as with HIMEM.SYS: our XMS driver owns that memory, so a program using 88h cannot write over XMS blocks;
    - `xms_handler` moved to flash: SRAM 363,236 B, 680 B less than after step 2;
    - gate: `tests/xms_test.c` passes (address space, A20 wrap, every function and error, INT 15h 87h copy); both SingleStepTests counts are the same as after step 2.
+   - board: CheckIt v3 3,400 Dhrystones (same as step 2) and CPU type 386; The Lost Vikings (needs a 386) runs; `MEM` shows 64K HMA, 0K extended (INT 15h 88h) and 4,096K via XMS.
 4. **Protected mode.**
    - CR0 PE/MP/EM/TS/ET; GDT, LDT, IDT; segment loads in protected mode.
    - Far JMP/CALL/RET/IRET with privilege change and call gates.
