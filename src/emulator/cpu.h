@@ -45,10 +45,10 @@ void xms_reset();
 #define StepIP(x)  ip += x
 
 // Memory at a linear segment base plus an offset
-#define getmem8(base, offset)  read86((base) + (offset))
-#define getmem16(base, offset) readw86((base) + (offset))
-#define putmem8(base, offset, value)  write86((base) + (offset), value)
-#define putmem16(base, offset, value) writew86((base) + (offset), value)
+#define getmem8(base, offset)  mem_read8((base) + (offset))
+#define getmem16(base, offset) mem_read16((base) + (offset))
+#define putmem8(base, offset, value)  mem_write8((base) + (offset), value)
+#define putmem16(base, offset, value) mem_write16((base) + (offset), value)
 #define signext(value)  (int16_t)(int8_t)(value)
 #define getreg16(regid) wordregs[(regid) << 1]
 #define getreg8(regid)  byteregs[byteregtable[regid]]

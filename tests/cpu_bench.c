@@ -39,6 +39,8 @@ enum { STEPS_PER_CALL = 10000, CALLS = 10000 }; // 100 million exec86 steps per 
 
 int main(void) {
     memcpy(memory + 0x10000, loop_code, sizeof loop_code);
+    fast_memory = memory; // as in the emulator: RAM without the read86/write86 call
+    fast_memory_size = RAM_SIZE;
     double best = 1e9;
     for (int run = 0; run < 10; run++) {
         load_segment(regcs, 0x1000);

@@ -17,6 +17,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "usage: %s <test386.bin> (a 64 or 128 KB ROM)\n", argv[0]);
         return 2;
     }
+    fast_memory = memory; // the low 640 KB without the read86/write86 call, as in the emulator
+    fast_memory_size = RAM_SIZE;
     load_segment(regcs, 0xF000);
     CPU_IP = 0xFFF0;
 

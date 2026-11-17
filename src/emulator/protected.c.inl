@@ -108,13 +108,17 @@ static void paged_write32(uint32_t a, uint32_t v) {
 }
 
 static void set_paging(bool on) {
+    static uint32_t fast_size; // the direct RAM path is only right without paging
     if (on == (read86 == paged_read8)) return;
     if (on) {
+        fast_size = fast_memory_size;
+        fast_memory_size = 0;
         physical_read8 = read86, physical_read16 = readw86, physical_read32 = readdw86;
         physical_write8 = write86, physical_write16 = writew86, physical_write32 = writedw86;
         read86 = paged_read8, readw86 = paged_read16, readdw86 = paged_read32;
         write86 = paged_write8, writew86 = paged_write16, writedw86 = paged_write32;
     } else {
+        fast_memory_size = fast_size;
         read86 = physical_read8, readw86 = physical_read16, readdw86 = physical_read32;
         write86 = physical_write8, writew86 = physical_write16, writedw86 = physical_write32;
     }

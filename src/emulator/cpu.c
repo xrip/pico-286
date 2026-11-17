@@ -24,6 +24,37 @@ static uint8_t opsize32, addrsize32; // operand and address size of the current 
 static uint8_t code32, stack32; // D bit of CS (default size) and B bit of SS (the stack uses ESP)
 static uint8_t cpl; // current privilege level: 0 in real mode, 3 in V86 mode
 uint8_t protected_mode;
+// The hot memory accesses of the CPU. Below fast_memory_size the linear address is an index into
+// fast_memory (conventional RAM, while paging is off): no call through read86/write86.
+// Size 0 turns this off (the CPU test tools have their own memory).
+uint8_t *fast_memory;
+uint32_t fast_memory_size;
+
+static inline uint8_t mem_read8(uint32_t address) {
+    return address < fast_memory_size ? fast_memory[address] : read86(address);
+}
+
+static inline uint16_t mem_read16(uint32_t address) {
+    if (address < fast_memory_size && address + 1 < fast_memory_size) {
+        return fast_memory[address] | fast_memory[address + 1] << 8;
+    }
+    return readw86(address);
+}
+
+static inline void mem_write8(uint32_t address, uint8_t value) {
+    if (address < fast_memory_size) fast_memory[address] = value;
+    else write86(address, value);
+}
+
+static inline void mem_write16(uint32_t address, uint16_t value) {
+    if (address < fast_memory_size && address + 1 < fast_memory_size) {
+        fast_memory[address] = (uint8_t) value;
+        fast_memory[address + 1] = value >> 8;
+    } else {
+        writew86(address, value);
+    }
+}
+
 #define CR0_PE 0x00000001u
 #define CR0_ET 0x00000010u // a 387 is present
 #define CR0_PG 0x80000000u
@@ -210,11 +241,11 @@ static INLINE void stack_to_frame(void) {
 
 static INLINE void push(uint16_t pushval) {
     stack_add(-2);
-    writew86(SS_BASE + stack_top(), pushval);
+    mem_write16(SS_BASE + stack_top(), pushval);
 }
 
 static INLINE uint16_t pop() {
-    const uint16_t value = readw86(SS_BASE + stack_top());
+    const uint16_t value = mem_read16(SS_BASE + stack_top());
     stack_add(2);
     return value;
 }
@@ -228,7 +259,7 @@ static INLINE void jump_relative(int32_t displacement) {
 static INLINE uint16_t readrm16(uint8_t rmval) {
     if (mode < 3) {
         getea(rmval);
-        return readw86(ea);
+        return mem_read16(ea);
     }
     return getreg16(rmval);
 }
@@ -236,7 +267,7 @@ static INLINE uint16_t readrm16(uint8_t rmval) {
 static INLINE uint8_t readrm8(uint8_t rmval) {
     if (mode < 3) {
         getea(rmval);
-        return read86(ea);
+        return mem_read8(ea);
     }
     return getreg8(rmval);
 }
@@ -244,7 +275,7 @@ static INLINE uint8_t readrm8(uint8_t rmval) {
 static INLINE void writerm16(uint8_t rmval, uint16_t value) {
     if (mode < 3) {
         getea(rmval);
-        writew86(ea, value);
+        mem_write16(ea, value);
     } else {
         putreg16(rmval, value);
     }
@@ -253,7 +284,7 @@ static INLINE void writerm16(uint8_t rmval, uint16_t value) {
 static INLINE void writerm8(uint8_t rmval, uint8_t value) {
     if (mode < 3) {
         getea(rmval);
-        write86(ea, value);
+        mem_write8(ea, value);
     } else {
         putreg8(rmval, value);
     }

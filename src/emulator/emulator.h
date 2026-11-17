@@ -151,6 +151,9 @@ extern read86dw_t readdw86;
 extern write86_t write86;
 extern write86w_t writew86;
 extern write86dw_t writedw86;
+// Conventional RAM that the CPU reads and writes directly (cpu.c); size 0: always read86/write86
+extern uint8_t *fast_memory;
+extern uint32_t fast_memory_size;
 // on-board (butter) psram
 void write86_ob(const uint32_t address, const uint8_t value);
 void writew86_ob(uint32_t address, uint16_t value);
