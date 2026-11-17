@@ -18,6 +18,8 @@ void init_umb();
 #define regcs 1
 #define regss 2
 #define regds 3
+#define regfs 4
+#define reggs 5
 
 // eax
 #define regal 0
@@ -48,7 +50,6 @@ void init_umb();
 #define putmem8(base, offset, value)  write86((base) + (offset), value)
 #define putmem16(base, offset, value) writew86((base) + (offset), value)
 #define signext(value)  (int16_t)(int8_t)(value)
-#define signext32(value)  (int32_t)(int16_t)(value)
 #define getreg16(regid) wordregs[(regid) << 1]
 #define getreg8(regid)  byteregs[byteregtable[regid]]
 #define putreg16(regid, writeval) wordregs[(regid) << 1] = writeval
@@ -82,12 +83,16 @@ void init_umb();
 #define CPU_DS    segregs[regds]
 #define CPU_ES    segregs[reges]
 #define CPU_SS    segregs[regss]
+#define CPU_FS    segregs[regfs]
+#define CPU_GS    segregs[reggs]
 
 // The base address the CPU keeps for each segment register (real mode: selector * 16)
 #define CS_BASE   segment_base[regcs]
 #define DS_BASE   segment_base[regds]
 #define ES_BASE   segment_base[reges]
 #define SS_BASE   segment_base[regss]
+#define FS_BASE   segment_base[regfs]
+#define GS_BASE   segment_base[reggs]
 
 #define CPU_AX    wordregs[regax << 1]
 #define CPU_BX    wordregs[regbx << 1]

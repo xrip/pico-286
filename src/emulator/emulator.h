@@ -70,8 +70,8 @@ typedef union {
 } x86_flags_t;
 
 extern x86_flags_t x86_flags;
-extern uint16_t segregs[4];
-extern uint32_t segment_base[4];
+extern uint16_t segregs[6];
+extern uint32_t segment_base[6];
 
 // Every segment register load goes through here, so the base stays in step with the selector.
 static inline void load_segment(const uint8_t reg, const uint16_t selector) {

@@ -117,12 +117,12 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
    - nothing from the old 32-bit attempts is kept: the `CPU_386_EXTENDED_OPS` stub, the unused 32-bit helpers and macros, the AC/VIF/VIP/ID flag fields, FS/GS and the 64h/65h prefixes are gone;
    - `MOV Sreg` with reg 4–7, and `MOV CS`, raise #UD;
    - gate: 80286 tests 1,370,634 → 1,372,115 (only 8C/8E changed, both up); host speed equal or better (see the base line note); `exec86` 24.6 → 23.6 KB of SRAM. DOS and games on the board: to be checked with CheckIt.
-2. **32-bit instruction set in real mode.**
-   - 66h/67h prefixes, FS/GS, SIB addressing.
-   - New 0F instructions: Jcc near, SETcc, MOVZX/MOVSX, BT/BTS/BTR/BTC, BSF/BSR, SHLD/SHRD, IMUL r,rm, LFS/LGS/LSS, MOV CRx/DRx.
-   - 32-bit forms of PUSHA, PUSHF, IRET, string ops (ECX/ESI/EDI), LOOP/JECXZ, CWDE/CDQ, ENTER/LEAVE, and IN/OUT/INS/OUTS with dwords.
-   - 386SX ID in DX at reset; the AC flag cannot be set (so programs detect a 386).
-   - Gate: SingleStepTests/80386 real mode ≥ 99%, not counting 386EX quirks and undefined flags. A CPU detection program reports a 386.
+2. **32-bit instruction set in real mode.** Done:
+   - 66h and 67h set `opsize32`/`addrsize32`; after the prefixes one branch sends the instruction to `exec386()` (`src/emulator/cpu386.c.inl`, flash), which handles only the opcodes whose meaning depends on the size and otherwise returns to the 16-bit switch. `modregrm`/`getea` have one branch for 32-bit addressing (SIB, `modregrm32`/`getea32` in flash);
+   - FS/GS (prefixes, MOV Sreg, PUSH/POP, LFS/LGS/LSS); new 0F instructions: Jcc near, SETcc, MOVZX/MOVSX, BT/BTS/BTR/BTC, BSF/BSR, SHLD/SHRD, IMUL r,rm. MOV CRx/DRx come with step 4;
+   - 386 behaviour found with the test data: shift counts masked to 5 bits, OF from the last one-bit step, DAA/DAS test the old AL and CF, a SIB byte with no index scales the base, 16-bit SHLD/SHRD with counts over 16 fill from the source again, POPAD keeps the high half of the ESP slot, FLAGS keep IOPL/NT, SMSW gives the 386 CR0 low word (ET), DX = 2308h at reset;
+   - also fixed for both CPUs: XCHG with memory, XLAT wrap, #UD for register LEA/LES/LDS/BOUND and C6/C7/8F with reg ≠ 0, BOUND returns to the instruction;
+   - gate: SingleStepTests 80386 real mode 91.93% overall; **99.98%** without the cases left for later on purpose (109k limit faults → step 4, 31.6k LOCK #UD, 1.1k EIP past FFFFh). 80286 suite 98.85% (was 92.84%). Host speed: within noise of step 1 (−9% to +8% depending on compiler settings); the board (CheckIt) decides. RP2350 SRAM +484 B over step 1.
 3. **Memory above 1 MB and a real XMS driver** (from `docs/specs/xms30.txt`).
    - Add XMS to the address space.
    - In `xms.c`:
@@ -174,6 +174,8 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
 - **SingleStepTests/80286, real mode** (`tests/sst_test.exe <folder>`): 1,367,098 passed, 110,792 failed, 110 skipped (92.50%); 196 of 326 files with no failures. The same every run. Most failures are undefined flags (shifts, IMUL, AAD, DAS), missing #UD (`MOV CS`, `BOUND`/`LEA`/`LES` with a register), ESC, and far JMP/CALL through memory. Per-file numbers: run the tool again on master.
 - **Host speed** (`tests/cpu_bench.exe`, MinGW gcc 15.2 -O2): 205–218 M steps/s. One run can be ~6% off, and code layout alone moves it by ±5%, so compare old and new in turns, built with `-falign-functions=64 -falign-jumps=32 -falign-loops=32 -falign-labels=16`. With these flags step 1 gives 250 M steps/s against 222–235 for step 0.
 - **Since step 1 the runners link the real `fpu.c`** (the stub let failed ESC tests run into random bytes). The step 0 count with `fpu.c` is 1,370,634 passed.
+- **The 80386 suite** (SingleStepTests/80386 v1, real mode, 386EX): the runner masks EFLAGS bits 18-31 (set by the 386EX test board) and the flags `80386.csv` marks undefined (`f_umask`), and skips `revocation_list.txt`. Step 1 passes 13.77% before the 386 work.
+- **Board after step 1** (CheckIt v3): 3,489 Dhrystones against 3,545 for step 0 measured the same day (−1.6%).
 - **M2P2 board, CheckIt v3 Main System Benchmark** (the board gate for real-mode speed): CPU 3,584 Dhrystones = 10.42 times IBM PC-XT, shown as "80286, 46.25 MHz"; math 1,785.5K Whetstones = 270.52 times PC-XT (80287). Measured by the user on the firmware before the one-configuration clean-up.
 - **M2P2 firmware after the clean-up** (`286-P166-C500MHz`): SRAM 364,424 B of 512 KB (69.51%), PSRAM 7,192,560 B (85.74%).
 

@@ -3,7 +3,6 @@
 #include "emulator.h"
 
 //#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
-//#define CPU_LIMIT_SHIFT_COUNT
 //#define CPU_NO_SALC
 //#define CPU_SET_HIGH_FLAGS
 #define CPU_286_STYLE_PUSH_SP
@@ -22,8 +21,9 @@
 
 int videomode = 3;
 uint8_t segoverride, reptype;
-uint16_t segregs[4];
-uint32_t segment_base[4];
+static uint8_t opsize32, addrsize32; // 66h and 67h prefixes of the current instruction
+uint16_t segregs[6];
+uint32_t segment_base[6];
 uint32_t useseg; // base of the segment used for memory operands
 uint16_t oldsp;
 uint32_t ip32;
@@ -52,12 +52,56 @@ static const bool __not_in_flash("cpu.pf") parity[0x100] = {
     0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1
 };
 
+// 32-bit addressing (67h): an optional SIB byte, then an 8- or 32-bit displacement.
+// EBP or ESP as the base selects SS when there is no segment override.
+static uint8_t sib;
+static uint32_t disp32;
+
+static __attribute__((noinline)) void modregrm32(void) { // cold: stays in flash
+    if (mode == 3) return;
+    uint8_t base = rm;
+    if (rm == 4) {
+        sib = getmem8(CS_BASE, CPU_IP);
+        StepIP(1);
+        base = sib & 7;
+    }
+    if (mode == 2 || (mode == 0 && base == 5)) {
+        disp32 = readdw86(CS_BASE + CPU_IP);
+        StepIP(4);
+    } else if (mode == 1) {
+        disp32 = (uint32_t) (int8_t) getmem8(CS_BASE, CPU_IP);
+        StepIP(1);
+    } else {
+        disp32 = 0;
+    }
+    if (!segoverride && (base == 4 || (base == 5 && mode != 0))) {
+        useseg = SS_BASE;
+    }
+}
+
+static __attribute__((noinline)) void getea32(uint8_t rmval) {
+    uint32_t offset = disp32;
+    if (rmval == 4) {
+        const uint8_t base = sib & 7, index = (sib >> 3) & 7, scale = sib >> 6;
+        const uint32_t base_value = base != 5 || mode != 0 ? dwordregs[base] : 0;
+        if (index != 4) offset += base_value + (dwordregs[index] << scale);
+        else offset += base_value << scale; // no index: the 386 scales the base
+    } else if (rmval != 5 || mode != 0) {
+        offset += dwordregs[rmval];
+    }
+    ea = useseg + offset;
+}
+
 __not_in_flash() void modregrm() {
     register uint8_t addrbyte = getmem8(CS_BASE, CPU_IP);
     StepIP(1);
     mode = addrbyte >> 6;
     reg = (addrbyte >> 3) & 7;
     rm = addrbyte & 7;
+    if (unlikely(addrsize32)) {
+        modregrm32();
+        return;
+    }
     switch (mode) {
         case 0:
             if (rm == 6) {
@@ -90,6 +134,10 @@ __not_in_flash() void modregrm() {
 }
 
 __not_in_flash() void getea(uint8_t rmval) {
+    if (unlikely(addrsize32)) {
+        getea32(rmval);
+        return;
+    }
     register uint32_t tempea = 0;
     switch (mode) {
         case 0:
@@ -183,8 +231,8 @@ static INLINE void writerm8(uint8_t rmval, uint8_t value) {
     }
 }
 
-static INLINE uint16_t makeflagsword(void) {
-    return 2 | (x86_flags.value & 0b111111010101);
+uint16_t makeflagsword(void) {
+    return 2 | (x86_flags.value & 0x7FD5); // the 386 keeps IOPL and NT (bits 12-14) in real mode
 }
 
 static INLINE void decodeflagsword(uint16_t x) {
@@ -584,9 +632,8 @@ static inline void flag_sub16(uint16_t v1, uint16_t v2) {
 
 static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
     uint16_t s = oper1b;
-#ifdef CPU_LIMIT_SHIFT_COUNT
-    cnt &= 0x1F;
-#endif
+    cnt &= 0x1F; // the 386 uses five bits of the count
+    if (!cnt) return s;
     switch (reg) {
         case 0: /* ROL r/m8 */
             for (int shift = 1; shift <= cnt; shift++) {
@@ -600,10 +647,7 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
                 s = s | cf;
             }
 
-            if (cnt == 1) {
-                of = cf ^ ((s >> 7) & 1);
-            } else
-                of = 0;
+            of = cf ^ ((s >> 7) & 1);
             break;
 
         case 1: /* ROR r/m8 */
@@ -612,9 +656,7 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
                 s = (s >> 1) | (cf << 7);
             }
 
-            if (cnt == 1) {
-                of = (s >> 7) ^ ((s >> 6) & 1);
-            }
+            of = (s >> 7) ^ ((s >> 6) & 1);
             break;
 
         case 2: /* RCL r/m8 */
@@ -630,9 +672,7 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
                 s = s | oldcf;
             }
 
-            if (cnt == 1) {
-                of = cf ^ ((s >> 7) & 1);
-            }
+            of = cf ^ ((s >> 7) & 1);
             break;
 
         case 3: /* RCR r/m8 */
@@ -642,9 +682,7 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
                 s = (s >> 1) | (oldcf << 7);
             }
 
-            if (cnt == 1) {
-                of = (s >> 7) ^ ((s >> 6) & 1);
-            }
+            of = (s >> 7) ^ ((s >> 6) & 1);
             break;
 
         case 4:
@@ -659,21 +697,13 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
                 s = (s << 1) & 0xFF;
             }
 
-            if ((cnt == 1) && (cf == (s >> 7))) {
-                of = 0;
-            } else {
-                of = 1;
-            }
+            of = cf ^ (s >> 7);
 
             flag_szp8((uint8_t) s);
             break;
 
         case 5: /* SHR r/m8 */
-            if ((cnt == 1) && (s & 0x80)) {
-                of = 1;
-            } else {
-                of = 0;
-            }
+            of = cnt == 1 && (s & 0x80);
 
             for (int a = 1; a <= cnt; a++) {
                 cf = s & 1;
@@ -700,9 +730,8 @@ static __not_in_flash() uint8_t op_grp2_8(uint8_t cnt, uint8_t oper1b) {
 
 static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
     register uint32_t s = oper1;
-#ifdef CPU_LIMIT_SHIFT_COUNT
-    cnt &= 0x1F;
-#endif
+    cnt &= 0x1F; // the 386 uses five bits of the count
+    if (!cnt) return s;
     switch (reg) {
         case 0: /* ROL r/m16 */
             for (int shift = 1; shift <= cnt; shift++) {
@@ -716,9 +745,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
                 s = s | cf;
             }
 
-            if (cnt == 1) {
-                of = cf ^ ((s >> 15) & 1);
-            }
+            of = cf ^ ((s >> 15) & 1);
             break;
 
         case 1: /* ROR r/m16 */
@@ -727,9 +754,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
                 s = (s >> 1) | (cf << 15);
             }
 
-            if (cnt == 1) {
-                of = (s >> 15) ^ ((s >> 14) & 1);
-            }
+            of = (s >> 15) ^ ((s >> 14) & 1);
             break;
 
         case 2: /* RCL r/m16 */
@@ -745,9 +770,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
                 s = s | oldcf;
             }
 
-            if (cnt == 1) {
-                of = cf ^ ((s >> 15) & 1);
-            }
+            of = cf ^ ((s >> 15) & 1);
             break;
 
         case 3: /* RCR r/m16 */
@@ -757,9 +780,7 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
                 s = (s >> 1) | (oldcf << 15);
             }
 
-            if (cnt == 1) {
-                of = (s >> 15) ^ ((s >> 14) & 1);
-            }
+            of = (s >> 15) ^ ((s >> 14) & 1);
             break;
 
         case 4:
@@ -774,21 +795,13 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
                 s = (s << 1) & 0xFFFF;
             }
 
-            if ((cnt == 1) && (cf == (s >> 15))) {
-                of = 0;
-            } else {
-                of = 1;
-            }
+            of = cf ^ (s >> 15);
 
             flag_szp16((uint16_t) s);
             break;
 
         case 5: /* SHR r/m16 */
-            if ((cnt == 1) && (s & 0x8000)) {
-                of = 1;
-            } else {
-                of = 0;
-            }
+            of = cnt == 1 && (s & 0x8000);
 
             for (int shift = 1; shift <= cnt; shift++) {
                 cf = s & 1;
@@ -994,7 +1007,10 @@ static __not_in_flash() void op_grp5() {
     }
 }
 
-// Machine status word: bits 4-15 read as 1. PE (bit 0) stays 0, protected mode is not emulated
+#include "cpu386.c.inl"
+
+// Machine status word, the low half of the 386 CR0: ET (bit 4) is 1, a 387 is present.
+// PE (bit 0) stays 0: protected mode is not emulated yet
 static uint16_t msw;
 // GDTR and IDTR as SGDT/LGDT see them: 16-bit limit, 24-bit base.
 // They are only stored: real-mode interrupts always use the table at 0
@@ -1009,7 +1025,7 @@ static __not_in_flash() void op_0f() {
         return;
     }
     if (opcode != 0x01) {
-        cpu_fault(6);
+        if (!op_0f_386(opcode)) cpu_fault(6);
         return;
     }
     modregrm();
@@ -1035,7 +1051,7 @@ static __not_in_flash() void op_0f() {
         case 6: { // LMSW
             const uint16_t value = readrm16(rm);
             if (value & 1) printf("[CPU] LMSW: protected mode is not emulated\r\n");
-            msw = 0xFFF0 | (value & 0x0E); // MP, EM, TS
+            msw = 0x0010 | (value & 0x0E); // MP, EM, TS
             return;
         }
     }
@@ -1043,10 +1059,11 @@ static __not_in_flash() void op_0f() {
 }
 
 void reset86() {
-    msw = 0xFFF0;
+    msw = 0x0010;
     memset(descriptor_table_registers, 0, sizeof(descriptor_table_registers));
     descriptor_table_registers[1][0] = 0xFF; // IDT limit 03FFh
     descriptor_table_registers[1][1] = 0x03;
+    CPU_DX = 0x2308; // Intel386 SX, stepping C-E (data sheet 240187, Table 5.7)
     load_segment(regcs, 0xFFFF);
     load_segment(regss, 0x0000);
     CPU_SP = 0x0000;
@@ -1073,6 +1090,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
         }
         reptype = 0;
         segoverride = 0;
+        opsize32 = addrsize32 = 0;
         useseg = DS_BASE;
         uint8_t docontinue = 0;
         firstip = CPU_IP;
@@ -1115,6 +1133,24 @@ void __not_in_flash() exec86(uint32_t execloops) {
                     segoverride = 1;
                     break;
 
+                case 0x64: /* segment FS */
+                    useseg = FS_BASE;
+                    segoverride = 1;
+                    break;
+
+                case 0x65: /* segment GS */
+                    useseg = GS_BASE;
+                    segoverride = 1;
+                    break;
+
+                case 0x66: /* operand size */
+                    opsize32 = 1;
+                    break;
+
+                case 0x67: /* address size */
+                    addrsize32 = 1;
+                    break;
+
                 case 0xF0: /* LOCK (блокировка шины, для атомарных операций) */
                     /// TODO:
                     break;
@@ -1137,6 +1173,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
         register uint8_t res8;
         register uint8_t oper1b;
         register uint8_t oper2b;
+        if (likely(!(opsize32 | addrsize32)) || !exec386(opcode))
         switch (opcode) {
             case 0x0: /* 00 ADD Eb Gb */
                 modregrm();
@@ -1445,25 +1482,22 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AX = res16;
                 break;
 
-            case 0x27: /* 27 DAA */
-            {
-                uint8_t old_al;
-                old_al = CPU_AL;
-                if (((CPU_AL & 0x0F) > 9) || af) {
-                    oper1 = (uint16_t) CPU_AL + 0x06;
-                    CPU_AL = oper1 & 0xFF;
-                    if (oper1 & 0xFF00)
-                        cf = 1;
-                    if ((oper1 & 0x000F) < (old_al & 0x0F))
-                        af = 1;
+            case 0x27: { /* 27 DAA: the second step tests the old AL and CF */
+                const uint8_t old_al = CPU_AL;
+                const uint8_t old_cf = cf;
+                cf = 0;
+                if ((CPU_AL & 0x0F) > 9 || af) {
+                    cf = old_cf || CPU_AL > 0xF9;
+                    CPU_AL += 6;
+                    af = 1;
+                } else {
+                    af = 0;
                 }
-                if (((CPU_AL & 0xF0) > 0x90) || cf) {
-                    oper1 = (uint16_t) CPU_AL + 0x60;
-                    CPU_AL = oper1 & 0xFF;
-                    if (oper1 & 0xFF00)
-                        cf = 1;
-                    else
-                        cf = 0;
+                if (old_al > 0x99 || old_cf) {
+                    CPU_AL += 0x60;
+                    cf = 1;
+                } else {
+                    cf = 0;
                 }
                 flag_szp8(CPU_AL);
                 break;
@@ -1528,25 +1562,20 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AX = res16;
                 break;
 
-            case 0x2F: /* 2F DAS */
-            {
-                uint8_t old_al;
-                old_al = CPU_AL;
-                if (((CPU_AL & 0x0F) > 9) || af) {
-                    oper1 = (uint16_t) CPU_AL - 0x06;
-                    CPU_AL = oper1 & 0xFF;
-                    if (oper1 & 0xFF00)
-                        cf = 1;
-                    if ((oper1 & 0x000F) >= (old_al & 0x0F))
-                        af = 1;
+            case 0x2F: { /* 2F DAS: the second step tests the old AL and CF */
+                const uint8_t old_al = CPU_AL;
+                const uint8_t old_cf = cf;
+                cf = 0;
+                if ((CPU_AL & 0x0F) > 9 || af) {
+                    cf = old_cf || CPU_AL < 6;
+                    CPU_AL -= 6;
+                    af = 1;
+                } else {
+                    af = 0;
                 }
-                if (((CPU_AL & 0xF0) > 0x90) || cf) {
-                    oper1 = (uint16_t) CPU_AL - 0x60;
-                    CPU_AL = oper1 & 0xFF;
-                    if (oper1 & 0xFF00)
-                        cf = 1;
-                    else
-                        cf = 0;
+                if (old_al > 0x99 || old_cf) {
+                    CPU_AL -= 0x60;
+                    cf = 1;
                 }
                 flag_szp8(CPU_AL);
                 break;
@@ -1927,27 +1956,19 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_AX = pop();
                 break;
 
-            case 0x62: /* 62 BOUND Gv, Ev (80186+) */
+            case 0x62: { /* 62 BOUND Gv, Ma */
                 modregrm();
-
+                if (mode == 3) { // a register has no address
+                    cpu_fault(6);
+                    break;
+                }
                 getea(rm);
-                if (
-                    signext32(getreg16(reg)
-                    ) <
-                    signext32(readw86(ea)
-                    )) {
-                    intcall86(5); //bounds check exception
-                } else {
-                    ea += 2;
-                    if (
-                        signext32(getreg16(reg)
-                        ) >
-                        signext32(readw86(ea)
-                        )) {
-                        intcall86(5); //bounds check exception
-                    }
+                const int16_t index = (int16_t) getreg16(reg);
+                if (index < (int16_t) readw86(ea) || index > (int16_t) readw86(ea + 2)) {
+                    cpu_fault(5); // returns to the BOUND instruction
                 }
                 break;
+            }
             case 0x68: /* 68 PUSH Iv (80186+) */
                 push(getmem16(CS_BASE, CPU_IP)
                 );
@@ -2326,24 +2347,18 @@ void __not_in_flash() exec86(uint32_t execloops) {
                            & oper2);
                 break;
 
-            case 0x86: /* 86 XCHG Gb Eb */
+            case 0x86: /* 86 XCHG Gb Eb: the memory address may use the register, so write it last */
                 modregrm();
-
-                oper1b = getreg8(reg);
-                putreg8(reg, readrm8(rm)
-                );
-                writerm8(rm, oper1b
-                );
+                oper1b = readrm8(rm);
+                writerm8(rm, getreg8(reg));
+                putreg8(reg, oper1b);
                 break;
 
-            case 0x87: /* 87 XCHG Gv Ev */
+            case 0x87: /* 87 XCHG Gv Ev: the memory address may use the register, so write it last */
                 modregrm();
-
-                oper1 = getreg16(reg);
-                putreg16(reg, readrm16(rm)
-                );
-                writerm16(rm, oper1
-                );
+                oper1 = readrm16(rm);
+                writerm16(rm, getreg16(reg));
+                putreg16(reg, oper1);
                 break;
 
             case 0x88: /* 88 MOV Eb Gb */
@@ -2376,7 +2391,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x8C: /* 8C MOV Ew Sw */
                 modregrm();
-                if (reg > regds) { // a 286 has four segment registers
+                if (reg > reggs) { // six segment registers
                     cpu_fault(6);
                     break;
                 }
@@ -2385,7 +2400,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x8D: /* 8D LEA Gv M */
                 modregrm();
-
+                if (mode == 3) { // a register has no address
+                    cpu_fault(6);
+                    break;
+                }
                 getea(rm);
                 putreg16(reg, ea
                          -
@@ -2395,7 +2413,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x8E: /* 8E MOV Sw Ew */
                 modregrm();
-                if (reg > regds || reg == regcs) { // CS is loaded only by far jumps, calls and returns
+                if (reg > reggs || reg == regcs) { // CS is loaded only by far jumps, calls and returns
                     cpu_fault(6);
                     break;
                 }
@@ -2404,6 +2422,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x8F: /* 8F POP Ev */
                 modregrm();
+                if (reg) { // only /0 is defined
+                    cpu_fault(6);
+                    break;
+                }
 
                 writerm16(rm, pop()
                 );
@@ -2969,7 +2991,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0xC4: /* C4 LES Gv Mp */
                 modregrm();
-
+                if (mode == 3) { // a register has no address
+                    cpu_fault(6);
+                    break;
+                }
                 getea(rm);
                 putreg16(reg, read86(ea) + read86(ea + 1) * 256);
                 load_segment(reges, read86(ea + 2) + read86(ea + 3) * 256);
@@ -2977,7 +3002,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0xC5: /* C5 LDS Gv Mp */
                 modregrm();
-
+                if (mode == 3) { // a register has no address
+                    cpu_fault(6);
+                    break;
+                }
                 getea(rm);
                 putreg16(reg, read86(ea) + read86(ea + 1) * 256);
                 load_segment(regds, read86(ea + 2) + read86(ea + 3) * 256);
@@ -2985,6 +3013,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0xC6: /* C6 MOV Eb Ib */
                 modregrm();
+                if (reg) { // only /0 is defined
+                    cpu_fault(6);
+                    break;
+                }
 
                 writerm8(rm, getmem8(CS_BASE, CPU_IP)
                 );
@@ -2993,6 +3025,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0xC7: /* C7 MOV Ev Iv */
                 modregrm();
+                if (reg) { // only /0 is defined
+                    cpu_fault(6);
+                    break;
+                }
 
                 writerm16(rm, getmem16(CS_BASE, CPU_IP)
                 );
@@ -3110,7 +3146,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
                 CPU_AH = (CPU_AL / oper1) & 255;
                 CPU_AL = (CPU_AL % oper1) & 255;
-                flag_szp16(CPU_AX);
+                flag_szp8(CPU_AL);
                 break;
 
             case 0xD5: /* D5 AAD I0 */
@@ -3118,9 +3154,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 StepIP(1);
                 CPU_AL = (CPU_AH * oper1 + CPU_AL) & 255;
                 CPU_AH = 0;
-                flag_szp16(CPU_AH
-                           * oper1 + CPU_AL);
-                sf = 0;
+                flag_szp8(CPU_AL);
                 break;
 
             case 0xD6: /* D6 XLAT on V20/V30, SALC on 8086/8088 */
@@ -3130,7 +3164,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
 #endif
 
             case 0xD7: /* D7 XLAT */
-                CPU_AL = read86(useseg + (CPU_BX) + CPU_AL);
+                CPU_AL = read86(useseg + (uint16_t) (CPU_BX + CPU_AL)); // wraps in the segment
                 break;
 
             case 0xD8:
