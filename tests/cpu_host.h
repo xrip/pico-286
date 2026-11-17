@@ -36,8 +36,7 @@ read86dw_t readdw86 = flat_readdw;
 write86_t write86 = flat_write;
 write86w_t writew86 = flat_writew;
 write86dw_t writedw86 = flat_writedw;
-uint16_t readw_linear(uint32_t address) { return flat_readw(address); }
-void writew_linear(uint32_t address, uint16_t value) { flat_writew(address, value); }
+void move_linear(uint32_t destination, uint32_t source, uint32_t length) {}
 
 // What cpu.c needs from the rest of the emulator. The tests expect FFh from every port.
 uint16_t portin(uint16_t port) { return 0xFF; }
@@ -46,7 +45,7 @@ void portout(uint16_t port, uint16_t value) {}
 void portout16(uint16_t port, uint16_t value) {}
 void keyboard_pump(void) {}
 uint8_t xms_handler() { return 0xCB; }
-void init_umb() {}
+void xms_reset() {}
 void vga_init(void) {}
 void vga_set_cpu_page_offset(uint32_t offset) {}
 void tga_portout(uint16_t port, uint16_t value) {}
@@ -54,6 +53,6 @@ void tga_draw_char(uint8_t ch, int x, int y, uint8_t color) {}
 int a20_enabled;
 uint8_t cga_blinking, cga_blinking_lock, crt_controller[32], tga_palette_map[16], vga_planar_mode, i8237_byte_flipflop;
 uint32_t tga_offset, vga_palette[256], VIDEORAM[VIDEORAM_SIZE];
-uint8_t RAM[RAM_SIZE], UMB[UMB_END - UMB_START], HMA[HMA_END - HMA_START];
+uint8_t RAM[RAM_SIZE], UMB[UMB_END - UMB_START], EXTENDED[EXTENDED_END - HMA_START];
 dma_channel_s dma_channels[DMA_CHANNELS];
 i8259_s i8259;

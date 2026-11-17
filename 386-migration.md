@@ -123,14 +123,13 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
    - 386 behaviour found with the test data: shift counts masked to 5 bits, OF from the last one-bit step, DAA/DAS test the old AL and CF, a SIB byte with no index scales the base, 16-bit SHLD/SHRD with counts over 16 fill from the source again, POPAD keeps the high half of the ESP slot, PUSHF/POPF/IRET keep IOPL/NT (bits 12-14: this is how programs tell a 386 from a 286), SMSW gives the 386 CR0 low word (ET), DX = 2308h at reset;
    - also fixed for both CPUs: XCHG with memory, XLAT wrap, #UD for register LEA/LES/LDS/BOUND and C6/C7/8F with reg ≠ 0, BOUND returns to the instruction;
    - gate: SingleStepTests 80386 real mode 91.93% overall; **99.98%** without the cases left for later on purpose (109k limit faults → step 4, 31.6k LOCK #UD, 1.1k EIP past FFFFh). 80286 suite 98.25% (was 92.84%): the 286 tests of POPF and IRET (9D, CF) expect the 286 rule that clears bits 12-15, so 8.7k of them fail on purpose. Host speed: within noise of step 1 (−9% to +8% depending on compiler settings); the board (CheckIt) decides. RP2350 SRAM +484 B over step 1. Board (CheckIt v3): 3,400 Dhrystones against 3,489 for step 1 (−2.6%).
-3. **Memory above 1 MB and a real XMS driver** (from `docs/specs/xms30.txt`).
-   - Add XMS to the address space.
-   - In `xms.c`:
-     - allocate (09h) gives each handle its own block;
-     - add lock (0Ch) returning the linear address, unlock (0Dh), info (0Eh) and realloc (0Fh);
-     - move (0Bh) works with handles on both sides;
-     - INT 15h 88h agrees with it.
-   - Gate: a new host test `tests/xms_test.c`, and the existing INT 15h 87h path still works.
+3. **Memory above 1 MB and a real XMS driver** (from `docs/specs/xms30.txt`). Done:
+   - `HMA[]` and `XMS[]` are one PSRAM array `EXTENDED[]` at physical 1 MB: the 64 KB HMA, then 4 MB of XMS blocks from `XMS_START` (110000h). `read86`/`write86` map it after the RAM, video, EMS, UMB and BIOS checks, so the hot path is the same. With A20 shut, address bit 20 is 0;
+   - `xms.c`: each handle has its own block (first fit in KB); free 0Ah, move 0Bh with handles on both sides, lock 0Ch (DX:BX = linear address), unlock 0Dh, info 0Eh, realloc 0Fh, with the XMS 3.0 error codes. The version stays 2.00, so the 32-bit functions 88h/89h are not needed;
+   - one copy function `move_linear()` (A20 open, copies from the end on an overlap) for XMS 0Bh and INT 15h 87h;
+   - INT 15h 88h gives 0 KB, as with HIMEM.SYS: our XMS driver owns that memory, so a program using 88h cannot write over XMS blocks;
+   - `xms_handler` moved to flash: SRAM 363,236 B, 680 B less than after step 2;
+   - gate: `tests/xms_test.c` passes (address space, A20 wrap, every function and error, INT 15h 87h copy); both SingleStepTests counts are the same as after step 2.
 4. **Protected mode.**
    - CR0 PE/MP/EM/TS/ET; GDT, LDT, IDT; segment loads in protected mode.
    - Far JMP/CALL/RET/IRET with privilege change and call gates.

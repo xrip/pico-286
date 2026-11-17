@@ -412,19 +412,14 @@ void intcall86(uint8_t intnum) {
                     }
                     uint32_t src = readdw86(src_descriptor + 2) & 0xFFFFFF;
                     uint32_t dst = readdw86(dst_descriptor + 2) & 0xFFFFFF;
-                    int saved_a20 = a20_enabled;
-                    a20_enabled = 1; // the BIOS opens A20 for the move
-                    for (uint32_t i = 0; i < bytes; i += 2) {
-                        writew_linear(dst + i, readw_linear(src + i));
-                    }
-                    a20_enabled = saved_a20;
+                    move_linear(dst, src, bytes);
                     CPU_AH = 0;
                     CPU_FL_CF = 0;
                     return;
                 }
                 case 0x88: {
-                    // KB above 1 MB: HMA, then XMS[] (shared with the XMS driver)
-                    CPU_AX = (HMA_END - HMA_START + XMS_MEMORY_SIZE) / 1024;
+                    // KB above 1 MB: 0, as with HIMEM.SYS, because our XMS driver owns that memory
+                    CPU_AX = 0;
                     CPU_FL_CF = 0;
                     return;
                 }
@@ -1070,8 +1065,8 @@ void reset86() {
     memset(VIDEORAM, 0x00, sizeof(VIDEORAM));
     memset(RAM, 0, sizeof(RAM));
     memset(UMB, 0, sizeof(UMB));
-    memset(HMA, 0, sizeof(HMA));
-    init_umb();
+    memset(EXTENDED, 0, XMS_START - HMA_START); // the HMA
+    xms_reset();
     ip = 0x0000;
     i8237_reset();
     vga_init();

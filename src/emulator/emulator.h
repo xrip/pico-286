@@ -27,13 +27,15 @@ extern "C" {
 #define UMB_START (0xD0000)
 #define UMB_END (0xFC000)
 
+// Extended memory (EXTENDED[]) starts at 1 MB: the 64 KB HMA, then the XMS blocks
 #define HMA_START (0x100000)
-#define HMA_END (0x110000-16)
+#define XMS_START (0x110000)
 
 #define BIOS_START (0xFE000)
 
 #define EMS_MEMORY_SIZE (2048 << 10) // 2 MB
 #define XMS_MEMORY_SIZE (4096 << 10) // 4 MB
+#define EXTENDED_END (XMS_START + XMS_MEMORY_SIZE)
 
 #define BIOS_MEMORY_SIZE                0x413
 #define BIOS_TRUE_MEMORY_SIZE           0x415
@@ -44,7 +46,7 @@ extern uint8_t log_debug;
 extern uint8_t RAM[RAM_SIZE];
 extern uint32_t VIDEORAM[VIDEORAM_SIZE];
 extern uint8_t UMB[UMB_END - UMB_START];
-extern uint8_t HMA[HMA_END - HMA_START];
+extern uint8_t EXTENDED[EXTENDED_END - HMA_START];
 #define FIRST_RAM_PAGE RAM
 
 extern uint32_t dwordregs[8];
@@ -203,8 +205,7 @@ extern void sn76489_reset();
 #define XMS_FN_IP 0x03FF
 
 extern uint8_t xms_handler();
-uint16_t readw_linear(uint32_t address);
-void writew_linear(uint32_t address, uint16_t value);
+void move_linear(uint32_t destination, uint32_t source, uint32_t length);
 
 #include "i8237.h"
 

@@ -108,7 +108,7 @@ Each driver has its own CMakeLists.txt. Pinouts are in `CMakeLists.txt` and `REA
 ## Development Workflow
 
 ### Testing
-Host tests are in `tests/` (each file gives its build line): CPU (`sst_test.c` with SingleStepTests, `cpu_bench.c`), sound (`sb_test.c`, `mpu401_test.c`), chips (`i82_controllers_test.c`), video (`graphics_modes_test.c`, `graphics_raster_test.c`, `hstx_packet_test.c`, `vga_palette_port_test.c`). Real DOS software is the final check.
+Host tests are in `tests/` (each file gives its build line): CPU (`sst_test.c` with SingleStepTests, `cpu_bench.c`), sound (`sb_test.c`, `mpu401_test.c`), chips (`i82_controllers_test.c`), memory and XMS (`xms_test.c`), video (`graphics_modes_test.c`, `graphics_raster_test.c`, `hstx_packet_test.c`, `vga_palette_port_test.c`). Real DOS software is the final check.
 
 ### Debugging
 - Serial debug output available via printf (redirected on Pico)
