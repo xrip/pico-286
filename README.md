@@ -21,7 +21,7 @@ The Pico-286 project is an endeavor to emulate a classic PC system, reminiscent 
 *   **🎚️ Covox Speech Thing:** Compatible emulation of the simple parallel port DAC
 *   **🎭 Disney Sound Source (DSS):** Emulation of the popular parallel port digital audio device
 *   **🎹 Adlib / Sound Blaster (OPL2 FM Synthesis):** High-quality emulation of the Yamaha OPL2 chipset for classic FM music and sound effects.
-*   **🔊 Sound Blaster (Digital Audio):** Support for Sound Blaster's digital sound capabilities, including DMA-based playback.
+*   **🔊 Sound Blaster Pro (Digital Audio):** Emulation of a Sound Blaster Pro 2 (DSP 3.02): 8-bit mono and stereo DMA playback, including high-speed DMA, and the SB Pro mixer. Use `SET BLASTER=A220 I5 D1 T4`. FM music uses the OPL2 above, also at 228h/229h. Not available on RP2040.
 *   **🎼 MPU-401 (MIDI Interface with General MIDI Synthesizer):** Provides a MIDI interface and includes an integrated General MIDI (GM) software synthesizer, allowing playback of GM scores without external MIDI hardware. This is a key feature for many later DOS games.
 *   **📢 Tandy 3-voice / PCjr (SN76489 PSG):** Emulation of the Texas Instruments SN76489 Programmable Sound Generator.
 *   **🎮 Creative Music System / Game Blaster (CMS/GameBlaster):** Emulation of the dual Philips SAA1099 based sound card.
