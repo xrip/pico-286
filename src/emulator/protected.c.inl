@@ -770,6 +770,8 @@ static __attribute__((noinline)) bool op_0f_system(uint8_t opcode) { // cold: st
             return true;
         case 0x20: case 0x21: case 0x22: case 0x23:
             return move_special(opcode);
+        case 0xFF: // our BIOS escape (cpu.c)
+            return bios_escape(fetch8());
     }
     return false;
 }

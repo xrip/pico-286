@@ -214,11 +214,11 @@ extern void sn76489_reset();
 
 // extern void cms_samples(int16_t *output);
 
-// BIOS stubs (cpu.c) in the last 16 bytes of UMB space, F000:BFF0, which no UMB block gives out:
-// IRET for each hooked vector, then the XMS entry with the hookable header of the XMS spec.
-#define BIOS_STUBS 0xFBFF0 // linear
+// BIOS stubs (cpu.c) in the last 32 bytes of UMB space, F000:BFE0, which no UMB block gives out:
+// one stub for each hooked vector, then the XMS entry with the hookable header of the XMS spec.
+#define BIOS_STUBS 0xFBFE0 // linear
 #define XMS_FN_CS 0xF000
-#define XMS_FN_IP 0xBFF5
+#define XMS_FN_IP 0xBFF4
 
 void xms_handler();
 void move_linear(uint32_t destination, uint32_t source, uint32_t length);

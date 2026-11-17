@@ -284,23 +284,29 @@ static void far_return(bool size32, uint16_t release);
 static void interrupt_return(bool size32);
 
 // BIOS calls that do not come through intcall86(): INT n in V86 mode (EMM386 and Windows send it
-// to the vector themselves), or a far call to the vector. At BIOS_STUBS (emulator.h): an IRET for
-// each of these vectors, then the XMS entry. bios_stub() runs the C code at those addresses first.
+// to the vector themselves), or a far call to the vector. These vectors point to stubs at
+// BIOS_STUBS (emulator.h): "0F FF n" (an opcode the 386 does not have) runs bios_escape(n), then
+// IRET. The XMS entry starts with JMP SHORT $+5 and three NOPs, so a driver like EMM386 can hook
+// it by writing a far jump there (XMS 3.0 spec), then "0F FF 5" and RETF.
 static const uint8_t stub_vectors[] = {0x10, 0x13, 0x15, 0x1A, 0x2F};
 static uint32_t original_vectors[sizeof stub_vectors]; // segment:offset, as in the IVT
-// The XMS entry starts with JMP SHORT $+5 and three NOPs, so a driver like EMM386 can hook it
-// by writing a far jump there (XMS 3.0 spec); the C handler is at the RETF after it.
-static const uint8_t xms_entry_code[] = {0xEB, 0x03, 0x90, 0x90, 0x90, 0xCB};
-#define XMS_TRAP (XMS_FN_IP + 5 - (BIOS_STUBS - 0xF0000)) // offset of the RETF in the stubs
+#define XMS_ESCAPE sizeof stub_vectors
+static const uint8_t xms_entry_code[] = {0xEB, 0x03, 0x90, 0x90, 0x90, 0x0F, 0xFF, XMS_ESCAPE, 0xCB};
+static bool bios_stubs_installed;
 
 static void install_bios_stubs(void) {
     for (unsigned i = 0; i < sizeof stub_vectors; i++) {
-        const uint32_t vector = stub_vectors[i] * 4u, stub = 0xF0000000u | (BIOS_STUBS - 0xF0000 + i);
-        if (readdw86(vector) != stub) original_vectors[i] = readdw86(vector); // not again on a warm boot
-        writedw86(vector, stub);
-        write86(BIOS_STUBS + i, 0xCF); // IRET
+        const uint32_t vector = stub_vectors[i] * 4u, stub = BIOS_STUBS + i * 4;
+        const uint32_t far_stub = 0xF0000000u | (stub - 0xF0000);
+        if (readdw86(vector) != far_stub) original_vectors[i] = readdw86(vector); // not again on a warm boot
+        writedw86(vector, far_stub);
+        write86(stub, 0x0F);
+        write86(stub + 1, 0xFF);
+        write86(stub + 2, i);
+        write86(stub + 3, 0xCF); // IRET
     }
-    for (unsigned i = 0; i < sizeof xms_entry_code; i++) write86(BIOS_STUBS + sizeof stub_vectors + i, xms_entry_code[i]);
+    for (unsigned i = 0; i < sizeof xms_entry_code; i++) write86(XMS_FN_CS * 16 + XMS_FN_IP + i, xms_entry_code[i]);
+    bios_stubs_installed = true;
 }
 
 // The BIOS functions done in C. True if the call is done; false: the BIOS code at the vector runs.
@@ -563,25 +569,27 @@ static bool bios_hook(uint8_t intnum) {
     return false;
 }
 
-static __attribute__((noinline)) void bios_stub(void) {
-    if (protected_mode) return; // only real and V86 mode code calls the BIOS
-    const unsigned i = CS_BASE + ip - BIOS_STUBS;
-    if (i == XMS_TRAP) {
+// 0F FF n in a stub. False (#UD, as on a 386) before the stubs exist, or in protected mode.
+static bool bios_escape(uint8_t i) {
+    if (!bios_stubs_installed || protected_mode || i > XMS_ESCAPE) return false;
+    if (i == XMS_ESCAPE) {
         xms_handler();
-        return;
+        return true;
     }
-    if (i >= sizeof stub_vectors || !original_vectors[i]) return; // the XMS header, or not installed yet
     if (bios_hook(stub_vectors[i])) {
         const uint32_t flags = SS_BASE + stack_top() + 4; // the caller's FLAGS get the new CF
         writew86(flags, (readw86(flags) & ~1u) | cf);
-        return; // then the IRET runs
+        return true; // then the IRET runs
     }
     load_segment(regcs, original_vectors[i] >> 16);
     ip = original_vectors[i] & 0xFFFF;
+    return true;
 }
 
 void intcall86(uint8_t intnum) {
     if (unlikely(cr0 & CR0_PE)) { // the C BIOS hooks only run in real mode
+        // but the network redirector must come before DOS in the INT 2Fh chain, also in V86 mode
+        if (v86 && intnum == 0x2F && CPU_AH == 0x11 && redirector_handler()) return;
         protected_interrupt(intnum, NO_ERROR_CODE, true);
         return;
     }
@@ -1138,14 +1146,11 @@ void reset86() {
     vga_init();
 }
 
-void __not_in_flash() exec86(uint32_t execloops) {
+// The instruction loop. It has no setjmp of its own: a function with setjmp is compiled with
+// fewer optimizations, so that is in exec86() around it.
+static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t execloops) {
     static bool was_TF;
 
-    keyboard_pump();
-    if (__builtin_setjmp(fault_point)) { // a protected-mode fault: deliver it and end this run
-        deliver_fault();
-        return;
-    }
     for (uint32_t loopcount = 0; loopcount < execloops; loopcount++) {
         if (unlikely(ifl && i8259_get_pending_irqs())) {
             firstip = CPU_IP;
@@ -1159,10 +1164,6 @@ void __not_in_flash() exec86(uint32_t execloops) {
         uint8_t docontinue = 0;
         firstip = CPU_IP;
         first_esp = dwordregs[regsp];
-        if (unlikely(CS_BASE + ip - BIOS_STUBS <= XMS_TRAP)) { // a BIOS stub or the XMS entry
-            bios_stub();
-            firstip = CPU_IP;
-        }
         register uint8_t opcode;
 
         while (!docontinue) {
@@ -3400,4 +3401,13 @@ void __not_in_flash() exec86(uint32_t execloops) {
             was_TF = true;
         }
     }
+}
+
+void __not_in_flash() exec86(uint32_t execloops) {
+    keyboard_pump();
+    if (__builtin_setjmp(fault_point)) { // a protected-mode fault: deliver it and end this run
+        deliver_fault();
+        return;
+    }
+    run_instructions(execloops);
 }
