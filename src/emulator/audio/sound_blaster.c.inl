@@ -63,6 +63,8 @@
 #define DSP_IRQ                 0xF2
 #define DSP_UNDOCUMENTED_F8     0xF8
 
+typedef enum { DMA_MODE_PLAY, DMA_MODE_RECORD, DMA_MODE_SILENCE } dma_mode_e;
+
 typedef  struct sound_blaster_s {
     int16_t current_audio_sample;    // direct DAC (0x10)
     int16_t dma_sample_left;
@@ -79,8 +81,7 @@ typedef  struct sound_blaster_s {
     uint32_t dma_bytes_processed;
     uint8_t auto_init_mode_enabled;
     uint8_t dsp_test_register;
-    uint8_t silence_mode_active;
-    uint8_t recording_mode_active;
+    dma_mode_e dma_mode;
     uint8_t dma_transfer_enabled;
     uint8_t dsp_read_buffer[SB_READ_BUFFER];
 } sound_blaster_s;
@@ -91,6 +92,7 @@ static sound_blaster_s sound_blaster = { 0 };
 #define MIXER_RESET         0x00
 #define MIXER_OUTPUT        0x0E
 #define MIXER_STEREO        0x02    // bit in MIXER_OUTPUT
+// voice, master, FM, CD, line volume
 #define MIXER_DEFAULTS { [0x04] = 0x99, [0x22] = 0x99, [0x26] = 0x99, [0x28] = 0x11, [0x2E] = 0x11 }
 static const uint8_t mixer_defaults[256] = MIXER_DEFAULTS;
 static uint8_t mixer_registers[256] = MIXER_DEFAULTS;
@@ -141,16 +143,15 @@ static INLINE bool take_length_byte(uint32_t *length, const uint8_t byte_value) 
     return true;
 }
 
-static INLINE void start_dma(const bool auto_init, const bool recording, const bool silence) {
+static INLINE void start_dma(const bool auto_init, const dma_mode_e mode) {
     sound_blaster.dma_bytes_processed = 0;
     sound_blaster.next_dma_byte_is_right = 0;
     sound_blaster.auto_init_mode_enabled = auto_init;
-    sound_blaster.recording_mode_active = recording;
-    sound_blaster.silence_mode_active = silence;
+    sound_blaster.dma_mode = mode;
     sound_blaster.dma_transfer_enabled = 1;
 #ifdef DEBUG_BLASTER
-    printf("[BLASTER] Begin DMA: %u bytes, auto-init %d, record %d, silence %d\r\n",
-           (unsigned) sound_blaster.dma_transfer_length, auto_init, recording, silence);
+    printf("[BLASTER] Begin DMA: %u bytes, auto-init %d, mode %d\r\n",
+           (unsigned) sound_blaster.dma_transfer_length, auto_init, mode);
 #endif
 }
 
@@ -164,9 +165,9 @@ static INLINE void blaster_command(const uint8_t command_byte) {
             return;
         case DSP_DMA_SINGLE: //DMA DAC, 8-bit
         case DSP_DMA_ADC_SINGLE: {
-            const bool recording = sound_blaster.current_dsp_command == DSP_DMA_ADC_SINGLE;
+            const dma_mode_e mode = sound_blaster.current_dsp_command == DSP_DMA_ADC_SINGLE ? DMA_MODE_RECORD : DMA_MODE_PLAY;
             if (take_length_byte(&sound_blaster.dma_transfer_length, command_byte))
-                start_dma(false, recording, false);
+                start_dma(false, mode);
             return;
         }
         case DSP_SET_TIME_CONSTANT:
@@ -181,7 +182,7 @@ static INLINE void blaster_command(const uint8_t command_byte) {
             return;
         case DSP_DMA_SILENCE:
             if (take_length_byte(&sound_blaster.dma_transfer_length, command_byte))
-                start_dma(false, false, true);
+                start_dma(false, DMA_MODE_SILENCE);
             return;
         case DSP_IDENTIFICATION: //DSP identification (returns bitwise NOT of data byte)
             blaster_write_buffer(~command_byte);
@@ -220,7 +221,7 @@ static INLINE void blaster_command(const uint8_t command_byte) {
         case DSP_DMA_ADC_AUTO:
         case DSP_DMA_HS_SINGLE: //high-speed single-cycle DMA DAC, 8-bit
             sound_blaster.dma_transfer_length = sound_blaster.dma_block_size;
-            start_dma(command_byte != DSP_DMA_HS_SINGLE, command_byte == DSP_DMA_ADC_AUTO, false);
+            start_dma(command_byte != DSP_DMA_HS_SINGLE, command_byte == DSP_DMA_ADC_AUTO ? DMA_MODE_RECORD : DMA_MODE_PLAY);
             break;
         case DSP_DIRECT_ADC: //direct ADC, 8-bit record
             blaster_write_buffer(128); //Silence, though I might add actual recording support later.
@@ -321,12 +322,10 @@ static INLINE uint8_t blaster_read(const uint16_t port) {
 inline void blaster_tick(void) {
     if (!sound_blaster.dma_transfer_enabled) return;
     int16_t generated_sample = 0;
-    if (sound_blaster.silence_mode_active == 0) {
-        if (sound_blaster.recording_mode_active == 0) {
-            generated_sample = (i8237_read(SB_DMA_CHANNEL) - 128) << 6;
-        } else {
-            i8237_write(SB_DMA_CHANNEL, 128); //silence
-        }
+    if (sound_blaster.dma_mode == DMA_MODE_PLAY) {
+        generated_sample = (i8237_read(SB_DMA_CHANNEL) - 128) << 6;
+    } else if (sound_blaster.dma_mode == DMA_MODE_RECORD) {
+        i8237_write(SB_DMA_CHANNEL, 128); // no input: record silence
     }
 
     if (!(mixer_registers[MIXER_OUTPUT] & MIXER_STEREO)) {

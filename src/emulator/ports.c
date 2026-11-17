@@ -272,15 +272,11 @@ if (sound_chips_clock) {
 // Disney Sound Source
             return dss_out(portnum, value);
 // AdLib / OPL2; a Sound Blaster has the same OPL also at base+8/base+9
-#if !PICO_RP2040
         case 0x228:
-#endif
         case 0x388:
             adlib_register = value;
             break;
-#if !PICO_RP2040
         case 0x229:
-#endif
         case 0x389:
             if (adlib_register <= 4) {
                 adlibregmem[adlib_register] = value;
@@ -520,10 +516,8 @@ uint16_t portin(uint16_t portnum) {
         case 0x37A:
             return 0;
 // AdLib, and its copy on the Sound Blaster
-#if !PICO_RP2040
         case 0x228:
         case 0x229:
-#endif
         case 0x388:
         case 0x389:
             if (!adlibregmem[4])
