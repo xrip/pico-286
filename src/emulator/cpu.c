@@ -19,9 +19,25 @@
 
 
 int videomode = 3;
-uint8_t segoverride, reptype;
-static uint8_t opsize32, addrsize32; // operand and address size of the current instruction: 1 = 32-bit
-static uint8_t code32, stack32; // D bit of CS (default size) and B bit of SS (the stack uses ESP)
+// The decoder state, used at every instruction. One struct, so the RP2350 code reaches all of it
+// from one base register instead of loading each address; the macros keep the short names.
+static struct {
+    uint32_t useseg; // base of the segment used for memory operands
+    uint32_t firstip; // EIP of the current instruction, with its prefixes
+    uint32_t first_esp; // ESP before the current instruction: a fault puts it back
+    uint8_t reptype, segoverride;
+    uint8_t opsize32, addrsize32; // operand and address size of the current instruction: 1 = 32-bit
+    uint8_t code32, stack32; // D bit of CS (default size) and B bit of SS (the stack uses ESP)
+} decode;
+#define useseg decode.useseg
+#define firstip decode.firstip
+#define first_esp decode.first_esp
+#define reptype decode.reptype
+#define segoverride decode.segoverride
+#define opsize32 decode.opsize32
+#define addrsize32 decode.addrsize32
+#define code32 decode.code32
+#define stack32 decode.stack32
 static uint8_t cpl; // current privilege level: 0 in real mode, 3 in V86 mode
 uint8_t protected_mode;
 // The hot memory accesses of the CPU. Below fast_memory_size the linear address is an index into
@@ -61,7 +77,6 @@ static inline void mem_write16(uint32_t address, uint16_t value) {
 static uint32_t cr0 = CR0_ET;
 uint16_t segregs[6];
 uint32_t segment_base[6];
-uint32_t useseg; // base of the segment used for memory operands
 uint16_t oldsp;
 uint32_t ip32;
 uint8_t tempcf, oldcf, mode, reg, rm;
@@ -952,8 +967,6 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
     return (uint16_t) s & 0xFFFF;
 }
 
-static uint32_t firstip; // EIP of the current instruction, with its prefixes
-static uint32_t first_esp; // ESP before the current instruction: a fault puts it back
 
 // A protected-mode fault goes back to exec86() with longjmp; exec86() puts back EIP and ESP
 // of the instruction and delivers the exception through the IDT. The GCC builtins need no
@@ -1177,6 +1190,12 @@ void reset86() {
     vga_init();
 }
 
+// Prefix bytes: segment overrides, 66h, 67h, LOCK, REPNE, REP
+static const bool __not_in_flash("cpu.prefix") is_prefix[256] = {
+    [0x26] = 1, [0x2E] = 1, [0x36] = 1, [0x3E] = 1, [0x64] = 1, [0x65] = 1, [0x66] = 1, [0x67] = 1,
+    [0xF0] = 1, [0xF2] = 1, [0xF3] = 1,
+};
+
 // The instruction loop. It has no setjmp of its own: a function with setjmp is compiled with
 // fewer optimizations, so that is in exec86() around it.
 static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t execloops) {
@@ -1192,20 +1211,12 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
         segoverride = 0;
         opsize32 = addrsize32 = code32;
         useseg = DS_BASE;
-        uint8_t docontinue = 0;
         firstip = CPU_IP;
         first_esp = dwordregs[regsp];
-        register uint8_t opcode;
+        register uint8_t opcode = getmem8(CS_BASE, CPU_IP);
+        StepIP(1);
 
-        while (!docontinue) {
-            ///         CPU_CS &= 0xFFFF;
-            ///         CPU_IP &= 0xFFFF;
-            //            savecs = CPU_CS;
-            //            saveip = ip;
-            opcode = getmem8(CS_BASE, CPU_IP);
-
-            StepIP(1);
-
+        while (unlikely(is_prefix[opcode])) { // one table load for an instruction without prefixes
             switch (opcode) {
                 /* segment prefix check */
                 case 0x2E: /* segment CPU_CS */
@@ -1258,11 +1269,9 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 case 0xF3: /* REP/REPE/REPZ */
                     reptype = 1;
                     break;
-
-                default:
-                    docontinue = 1;
-                    break;
             }
+            opcode = getmem8(CS_BASE, CPU_IP);
+            StepIP(1);
         }
 
         register uint8_t res8;
