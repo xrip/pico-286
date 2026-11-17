@@ -31,4 +31,7 @@ From the 386SX data sheet: the physical address is 24-bit (16 MB), and after res
 These are too big for git, or have their own license. Each test runner takes the path as an argument. The MOO files come gzipped: get them with `gh api repos/SingleStepTests/80286/contents/v1_real_mode --jq '.[].download_url'` and `curl`, then unpack with `gzip -d *.MOO.gz`.
 
 - SingleStepTests 80286 and 80386 (real mode, MOO format): https://github.com/SingleStepTests/80286, https://github.com/SingleStepTests/80386
-- test386.asm ROM: https://github.com/barotto/test386.asm
+- test386.asm ROM: https://github.com/barotto/test386.asm. Build it with NASM and run `tests/test386_test.exe test386.bin`. Changes to a copy of the source before the build:
+  - NASM 3 needs the size on the memory side: `mov [x], word y` becomes `mov word [x], y` (`sed -i -E 's/mov(\s+)\[([^]]*)\],\s*(byte|word|dword)\s+/mov\1\3 [\2], /' src/*.asm src/tests/*.asm`);
+  - in `src/test386.asm`, put `%if 0` / `%endif` around the test 12 checks (from "#GP(0) If the destination operand is in a non-writable segment" to the LOCK test) and around the ENTER page-fault test ("The ENTER instruction causes a page fault" to its `testCPL 0`): the emulator leaves these out on purpose;
+  - then `nasm -isrc/ -f bin src/test386.asm -l test386.lst -o test386.bin`. The runner prints the POST codes, and on an error the last EIPs, which can be found in `test386.lst`.

@@ -27,7 +27,7 @@ Options: `MIDI_GM_DLS=ON` (GM.DLS wavetable MIDI, RP2350 and Win32), `MIDI_WINMM
 ### Core Components
 
 **Emulator Core** (`src/emulator/`):
-- `cpu.c/cpu.h` - Intel x86 CPU emulation (8086-286)
+- `cpu.c/cpu.h` - x86 CPU emulation (386SX); `cpu386.c.inl` 32-bit instructions, `protected.c.inl` protected mode, paging, V86
 - `memory.c` - Memory management and addressing 
 - `ports.c` - I/O port handling
 - `emulator.h` - Main emulator definitions and interfaces
@@ -108,7 +108,7 @@ Each driver has its own CMakeLists.txt. Pinouts are in `CMakeLists.txt` and `REA
 ## Development Workflow
 
 ### Testing
-Host tests are in `tests/` (each file gives its build line): CPU (`sst_test.c` with SingleStepTests, `cpu_bench.c`), sound (`sb_test.c`, `mpu401_test.c`), chips (`i82_controllers_test.c`), memory and XMS (`xms_test.c`), video (`graphics_modes_test.c`, `graphics_raster_test.c`, `hstx_packet_test.c`, `vga_palette_port_test.c`). Real DOS software is the final check.
+Host tests are in `tests/` (each file gives its build line): CPU (`sst_test.c` with SingleStepTests, `test386_test.c` with the test386.asm ROM, `cpu_bench.c`), sound (`sb_test.c`, `mpu401_test.c`), chips (`i82_controllers_test.c`), memory and XMS (`xms_test.c`), video (`graphics_modes_test.c`, `graphics_raster_test.c`, `hstx_packet_test.c`, `vga_palette_port_test.c`). Real DOS software is the final check.
 
 ### Debugging
 - Serial debug output available via printf (redirected on Pico)

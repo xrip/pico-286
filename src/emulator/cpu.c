@@ -1,5 +1,6 @@
 #include <time.h>
 #include <stdbool.h>
+#include <setjmp.h>
 #include "emulator.h"
 
 //#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
@@ -20,7 +21,14 @@
 
 int videomode = 3;
 uint8_t segoverride, reptype;
-static uint8_t opsize32, addrsize32; // 66h and 67h prefixes of the current instruction
+static uint8_t opsize32, addrsize32; // operand and address size of the current instruction: 1 = 32-bit
+static uint8_t code32, stack32; // D bit of CS (default size) and B bit of SS (the stack uses ESP)
+static uint8_t cpl; // current privilege level: 0 in real mode, 3 in V86 mode
+uint8_t protected_mode;
+#define CR0_PE 0x00000001u
+#define CR0_ET 0x00000010u // a 387 is present
+#define CR0_PG 0x80000000u
+static uint32_t cr0 = CR0_ET;
 uint16_t segregs[6];
 uint32_t segment_base[6];
 uint32_t useseg; // base of the segment used for memory operands
@@ -185,15 +193,37 @@ __not_in_flash() void getea(uint8_t rmval) {
     ea = (tempea & 0xFFFF) + useseg;
 }
 
+// The stack uses SP, or ESP when SS is a 32-bit (B) segment.
+static INLINE uint32_t stack_top(void) {
+    return unlikely(stack32) ? dwordregs[regsp] : CPU_SP;
+}
+
+static INLINE void stack_add(int32_t delta) {
+    if (unlikely(stack32)) dwordregs[regsp] += delta;
+    else CPU_SP += delta;
+}
+
+// LEAVE: the stack pointer goes back to the frame pointer (EBP or BP, by the stack size)
+static INLINE void stack_to_frame(void) {
+    if (unlikely(stack32)) dwordregs[regsp] = dwordregs[regbp];
+    else CPU_SP = CPU_BP;
+}
+
 static INLINE void push(uint16_t pushval) {
-    CPU_SP = CPU_SP - 2;
-    putmem16(SS_BASE, CPU_SP, pushval);
+    stack_add(-2);
+    writew86(SS_BASE + stack_top(), pushval);
 }
 
 static INLINE uint16_t pop() {
-    uint16_t tempval = getmem16(SS_BASE, CPU_SP);
-    CPU_SP = CPU_SP + 2;
-    return tempval;
+    const uint16_t value = readw86(SS_BASE + stack_top());
+    stack_add(2);
+    return value;
+}
+
+// Near relative jump; with a 16-bit operand size EIP wraps at 64K.
+static INLINE void jump_relative(int32_t displacement) {
+    ip += displacement;
+    if (!opsize32) ip &= 0xFFFF;
 }
 
 static INLINE uint16_t readrm16(uint8_t rmval) {
@@ -234,11 +264,31 @@ uint16_t makeflagsword(void) {
     return 2 | (x86_flags.value & 0x7FD5); // the 386 keeps IOPL and NT (bits 12-14) in real mode
 }
 
-static INLINE void decodeflagsword(uint16_t x) {
-    x86_flags.value = x;
+// POPF, IRET, SAHF: bits outside mask keep their values. Only CPL 0 changes IOPL, and only
+// CPL <= IOPL changes IF (in real mode CPL is 0).
+static void set_flags(uint32_t value, uint32_t mask) {
+    if (cpl) mask &= ~0x3000u;
+    if (cpl > iopl) mask &= ~0x0200u;
+    x86_flags.value = (x86_flags.value & ~mask) | (value & mask);
 }
 
+static INLINE void decodeflagsword(uint16_t x) {
+    set_flags(x, 0x7FD5);
+}
+
+#define NO_ERROR_CODE (-1)
+static void protected_interrupt(uint8_t vector, int32_t error_code, bool software);
+// Far transfers (protected.c.inl): in protected mode the selector names a descriptor or a gate
+static void far_jump(uint16_t selector, uint32_t offset);
+static void far_call(uint16_t selector, uint32_t offset, bool size32);
+static void far_return(bool size32, uint16_t release);
+static void interrupt_return(bool size32);
+
 void intcall86(uint8_t intnum) {
+    if (unlikely(cr0 & CR0_PE)) { // the C BIOS hooks only run in real mode
+        protected_interrupt(intnum, NO_ERROR_CODE, true);
+        return;
+    }
     switch (intnum) {
         case 0x10: {
             switch (CPU_AH) {
@@ -820,10 +870,30 @@ static __not_in_flash() uint16_t op_grp2_16(uint8_t cnt) {
     return (uint16_t) s & 0xFFFF;
 }
 
-static uint16_t firstip; // IP of the current instruction, with its prefixes
+static uint32_t firstip; // EIP of the current instruction, with its prefixes
+static uint32_t first_esp; // ESP before the current instruction: a fault puts it back
 
-// A 286 fault returns to the instruction that caused it
+// A protected-mode fault goes back to exec86() with longjmp; exec86() puts back EIP and ESP
+// of the instruction and delivers the exception through the IDT.
+static jmp_buf fault_point;
+static uint8_t fault_vector;
+static int32_t fault_error;
+
+static __attribute__((noreturn)) void raise_fault(uint8_t vector, int32_t error_code) {
+    fault_vector = vector;
+    fault_error = error_code;
+    longjmp(fault_point, 1);
+}
+
+// PUSHF, POPF (and INT n, IRET) in V86 mode need IOPL 3, else #GP(0)
+static INLINE void check_v86_iopl(void) {
+    if (unlikely(v86) && iopl < 3) raise_fault(13, 0);
+}
+
+// A fault returns to the instruction that caused it
+
 static void cpu_fault(const uint8_t vector) {
+    if (cr0 & CR0_PE) raise_fault(vector, NO_ERROR_CODE);
     ip = firstip;
     intcall86(vector);
 }
@@ -978,11 +1048,8 @@ static __not_in_flash() void op_grp5() {
             break;
 
         case 3: /* CALL Mp */
-            push(CPU_CS);
-            push(ip);
             getea(rm);
-            ip = (uint16_t) read86(ea) + (uint16_t) read86(ea + 1) * 256;
-            load_segment(regcs, (uint16_t) read86(ea + 2) + (uint16_t) read86(ea + 3) * 256);
+            far_call(readw86(ea + 2), readw86(ea), false);
             break;
 
         case 4: /* JMP Ev */
@@ -991,8 +1058,7 @@ static __not_in_flash() void op_grp5() {
 
         case 5: /* JMP Mp */
             getea(rm);
-            ip = (uint16_t) read86(ea) + (uint16_t) read86(ea + 1) * 256;
-            load_segment(regcs, (uint16_t) read86(ea + 2) + (uint16_t) read86(ea + 3) * 256);
+            far_jump(readw86(ea + 2), readw86(ea));
             break;
 
         case 6: /* PUSH Ev */
@@ -1003,60 +1069,16 @@ static __not_in_flash() void op_grp5() {
 
 #include "cpu386.c.inl"
 
-// Machine status word, the low half of the 386 CR0: ET (bit 4) is 1, a 387 is present.
-// PE (bit 0) stays 0: protected mode is not emulated yet
-static uint16_t msw;
-// GDTR and IDTR as SGDT/LGDT see them: 16-bit limit, 24-bit base.
-// They are only stored: real-mode interrupts always use the table at 0
-static uint8_t descriptor_table_registers[2][5];
+#include "protected.c.inl"
 
-// 0F: the 286 system instructions that work in real mode; the others are invalid (#UD)
 static __not_in_flash() void op_0f() {
     const uint8_t opcode = getmem8(CS_BASE, CPU_IP);
     StepIP(1);
-    if (opcode == 0x06) { // CLTS
-        msw &= ~8;
-        return;
-    }
-    if (opcode != 0x01) {
-        if (!op_0f_386(opcode)) cpu_fault(6);
-        return;
-    }
-    modregrm();
-    switch (reg) {
-        case 0: // SGDT
-        case 1: // SIDT
-        case 2: // LGDT
-        case 3: { // LIDT
-            if (mode == 3) break;
-            getea(rm);
-            uint8_t *table_register = descriptor_table_registers[reg & 1];
-            if (reg < 2) { // store
-                for (int i = 0; i < 5; i++) write86(ea + i, table_register[i]);
-                write86(ea + 5, 0xFF); // a 286 stores FFh here, a 386 stores 00h
-            } else { // load
-                for (int i = 0; i < 5; i++) table_register[i] = read86(ea + i);
-            }
-            return;
-        }
-        case 4: // SMSW
-            writerm16(rm, msw);
-            return;
-        case 6: { // LMSW
-            const uint16_t value = readrm16(rm);
-            if (value & 1) printf("[CPU] LMSW: protected mode is not emulated\r\n");
-            msw = 0x0010 | (value & 0x0E); // MP, EM, TS
-            return;
-        }
-    }
-    cpu_fault(6);
+    if (!op_0f_system(opcode) && !op_0f_386(opcode)) cpu_fault(6);
 }
 
 void reset86() {
-    msw = 0x0010;
-    memset(descriptor_table_registers, 0, sizeof(descriptor_table_registers));
-    descriptor_table_registers[1][0] = 0xFF; // IDT limit 03FFh
-    descriptor_table_registers[1][1] = 0x03;
+    reset_protected_mode();
     CPU_DX = 0x2308; // Intel386 SX, stepping C-E (data sheet 240187, Table 5.7)
     load_segment(regcs, 0xFFFF);
     load_segment(regss, 0x0000);
@@ -1076,18 +1098,23 @@ void __not_in_flash() exec86(uint32_t execloops) {
     static bool was_TF;
 
     keyboard_pump();
-    //counterticks = (uint64_t) ( (double) timerfreq / (double) 65536.0);
-    //tickssource();
+    if (setjmp(fault_point)) { // a protected-mode fault: deliver it and end this run
+        deliver_fault();
+        return;
+    }
     for (uint32_t loopcount = 0; loopcount < execloops; loopcount++) {
         if (unlikely(ifl && i8259_get_pending_irqs())) {
-            intcall86(i8259_nextirq()); // get next interrupt from the i8259, if any d
+            firstip = CPU_IP;
+            first_esp = dwordregs[regsp];
+            external_interrupt(i8259_nextirq());
         }
         reptype = 0;
         segoverride = 0;
-        opsize32 = addrsize32 = 0;
+        opsize32 = addrsize32 = code32;
         useseg = DS_BASE;
         uint8_t docontinue = 0;
         firstip = CPU_IP;
+        first_esp = dwordregs[regsp];
         register uint8_t opcode;
 
         while (!docontinue) {
@@ -1137,12 +1164,12 @@ void __not_in_flash() exec86(uint32_t execloops) {
                     segoverride = 1;
                     break;
 
-                case 0x66: /* operand size */
-                    opsize32 = 1;
+                case 0x66: /* operand size: the other one than the CS default */
+                    opsize32 = !code32;
                     break;
 
                 case 0x67: /* address size */
-                    addrsize32 = 1;
+                    addrsize32 = !code32;
                     break;
 
                 case 0xF0: /* LOCK (блокировка шины, для атомарных операций) */
@@ -1932,7 +1959,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 CPU_DI = pop();
                 CPU_SI = pop();
                 CPU_BP = pop();
-                CPU_SP += 2;
+                stack_add(2);
                 CPU_BX = pop();
                 CPU_DX = pop();
                 CPU_CX = pop();
@@ -1952,6 +1979,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
             }
+            case 0x63: /* 63 ARPL Ew, Gw */
+                adjust_rpl();
+                break;
+
             case 0x68: /* 68 PUSH Iv (80186+) */
                 push(getmem16(CS_BASE, CPU_IP)
                 );
@@ -1993,100 +2024,11 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 }
                 break;
             }
-            case 0x6C: /* 6E INSB */
-                if (reptype && (CPU_CX == 0)) {
-                    break;
-                }
-
-                putmem8(ES_BASE, CPU_DI, portin(CPU_DX));
-                if (df) {
-                    CPU_DI = CPU_DI - 1;
-                } else {
-                    CPU_DI = CPU_DI + 1;
-                }
-
-                if (reptype) {
-                    CPU_CX = CPU_CX - 1;
-                }
-
-                loopcount++;
-                if (!reptype) {
-                    break;
-                }
-
-                CPU_IP = firstip;
-                break;
-
-            case 0x6D: /* 6F INSW */
-                if (reptype && (CPU_CX == 0)) {
-                    break;
-                }
-
-                putmem16(ES_BASE, CPU_DI, portin16(CPU_DX));
-                if (df) {
-                    CPU_DI = CPU_DI - 2;
-                } else {
-                    CPU_DI = CPU_DI + 2;
-                }
-
-                if (reptype) {
-                    CPU_CX = CPU_CX - 1;
-                }
-
-                loopcount++;
-                if (!reptype) {
-                    break;
-                }
-
-                CPU_IP = firstip;
-                break;
-
+            case 0x6C: /* 6C INSB */
+            case 0x6D: /* 6D INSW */
             case 0x6E: /* 6E OUTSB */
-                if (reptype && (CPU_CX == 0)) {
-                    break;
-                }
-
-                portout(CPU_DX, getmem8(useseg, CPU_SI));
-                if (df) {
-                    CPU_SI = CPU_SI - 1;
-                } else {
-                    CPU_SI = CPU_SI + 1;
-                }
-
-                if (reptype) {
-                    CPU_CX = CPU_CX - 1;
-                }
-
-                loopcount++;
-                if (!reptype) {
-                    break;
-                }
-
-                CPU_IP = firstip;
-                break;
-
             case 0x6F: /* 6F OUTSW */
-                if (reptype && (CPU_CX == 0)) {
-                    break;
-                }
-
-                portout16(CPU_DX, getmem16(useseg, CPU_SI));
-                if (df) {
-                    CPU_SI = CPU_SI - 2;
-                } else {
-                    CPU_SI = CPU_SI + 2;
-                }
-
-                if (reptype) {
-                    CPU_CX = CPU_CX - 1;
-                }
-
-                loopcount++;
-                if (!reptype) {
-                    break;
-                }
-
-                CPU_IP = firstip;
+                string_step(opcode, opcode & 1 ? 2 : 1);
                 break;
 #endif
 
@@ -2094,7 +2036,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (of) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2102,7 +2044,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (!of) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2110,7 +2052,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (cf) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2118,7 +2060,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (!cf) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2126,7 +2068,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (zf) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2134,7 +2076,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (!zf) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2142,7 +2084,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (cf || zf) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2150,7 +2092,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (!cf && !zf) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2158,7 +2100,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (sf) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2166,7 +2108,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (!sf) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2174,7 +2116,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (pf) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2182,7 +2124,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (!pf) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2190,7 +2132,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (sf != of) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2198,7 +2140,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (sf == of) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2206,7 +2148,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if ((sf != of) || zf) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2216,7 +2158,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 if (!
                     zf && (sf
                            == of)) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -2480,10 +2422,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 StepIP(2);
                 oper2 = getmem16(CS_BASE, CPU_IP);
                 StepIP(2);
-                push(CPU_CS);
-                push(CPU_IP);
-                CPU_IP = oper1;
-                load_segment(regcs, oper2);
+                far_call(oper2, oper1, false);
                 break;
 
             case 0x9B: /* 9B WAIT */
@@ -2491,10 +2430,12 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 break;
 
             case 0x9C: /* 9C PUSHF */
+                check_v86_iopl();
                 push(makeflagsword());
                 break;
 
             case 0x9D: /* 9D POPF */
+                check_v86_iopl();
                 decodeflagsword(pop()); // the 386 keeps IOPL and NT: this is how programs tell it from a 286
                 break;
 
@@ -2961,7 +2902,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
             case 0xC2: /* C2 RET Iw */
                 oper1 = getmem16(CS_BASE, CPU_IP);
                 CPU_IP = pop();
-                CPU_SP = CPU_SP + oper1;
+                stack_add(oper1);
                 break;
 
             case 0xC3: /* C3 RET */
@@ -3039,20 +2980,16 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 break;
 
             case 0xC9: /* C9 LEAVE (80186+) */
-                CPU_SP = CPU_BP;
+                stack_to_frame();
                 CPU_BP = pop();
                 break;
 
             case 0xCA: /* CA RETF Iw */
-                oper1 = getmem16(CS_BASE, CPU_IP);
-                CPU_IP = pop();
-                load_segment(regcs, pop());
-                CPU_SP = CPU_SP + oper1;
+                far_return(false, getmem16(CS_BASE, CPU_IP));
                 break;
 
             case 0xCB: /* CB RETF */
-                CPU_IP = pop();
-                load_segment(regcs, pop());
+                far_return(false, 0);
                 break;
 
             case 0xCC: /* CC INT 3 */
@@ -3072,9 +3009,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 break;
 
             case 0xCF: /* CF IRET */
-                CPU_IP = pop();
-                load_segment(regcs, pop());
-                decodeflagsword(pop());
+                interrupt_return(false);
 
 
                 /*
@@ -3158,7 +3093,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 StepIP(1);
                 CPU_CX = CPU_CX - 1;
                 if ((CPU_CX) && !zf) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -3167,7 +3102,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 StepIP(1);
                 CPU_CX = CPU_CX - 1;
                 if (CPU_CX && (zf == 1)) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -3176,7 +3111,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 StepIP(1);
                 CPU_CX = CPU_CX - 1;
                 if (CPU_CX) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
@@ -3184,89 +3119,81 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 if (!CPU_CX) {
-                    CPU_IP = CPU_IP + temp16;
+                    jump_relative((int16_t) temp16);
                 }
                 break;
 
             case 0xE4: /* E4 IN CPU_AL Ib */
                 oper1b = getmem8(CS_BASE, CPU_IP);
                 StepIP(1);
-                CPU_AL = (uint8_t) portin(oper1b);
+                CPU_AL = port_read_sized(oper1b, 1);
                 break;
 
             case 0xE5: /* E5 IN eAX Ib */
                 oper1b = getmem8(CS_BASE, CPU_IP);
                 StepIP(1);
-                CPU_AX = portin16(oper1b);
+                CPU_AX = port_read_sized(oper1b, 2);
                 break;
 
             case 0xE6: /* E6 OUT Ib CPU_AL */
                 oper1b = getmem8(CS_BASE, CPU_IP);
                 StepIP(1);
-                portout(oper1b, CPU_AL
-                );
+                port_write_sized(oper1b, CPU_AL, 1);
                 break;
 
             case 0xE7: /* E7 OUT Ib eAX */
                 oper1b = getmem8(CS_BASE, CPU_IP);
                 StepIP(1);
-                portout16(oper1b, CPU_AX
-                );
+                port_write_sized(oper1b, CPU_AX, 2);
                 break;
 
             case 0xE8: /* E8 CALL Jv */
                 oper1 = getmem16(CS_BASE, CPU_IP);
                 StepIP(2);
                 push(CPU_IP);
-                CPU_IP = CPU_IP + oper1;
+                jump_relative((int16_t) oper1);
                 break;
 
             case 0xE9: /* E9 JMP Jv */
                 oper1 = getmem16(CS_BASE, CPU_IP);
                 StepIP(2);
-                CPU_IP = CPU_IP + oper1;
+                jump_relative((int16_t) oper1);
                 break;
 
             case 0xEA: /* EA JMP Ap */
                 oper1 = getmem16(CS_BASE, CPU_IP);
                 StepIP(2);
                 oper2 = getmem16(CS_BASE, CPU_IP);
-                CPU_IP = oper1;
-                load_segment(regcs, oper2);
+                far_jump(oper2, oper1);
                 break;
 
             case 0xEB: /* EB JMP Jb */
                 oper1 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
-                CPU_IP = CPU_IP + oper1;
+                jump_relative((int16_t) oper1);
                 break;
 
             case 0xEC: /* EC IN CPU_AL regdx */
-                oper1 = CPU_DX;
-                CPU_AL = (uint8_t) portin(oper1);
+                CPU_AL = port_read_sized(CPU_DX, 1);
                 break;
 
             case 0xED: /* ED IN eAX regdx */
-                oper1 = CPU_DX;
-                CPU_AX = portin16(oper1);
+                CPU_AX = port_read_sized(CPU_DX, 2);
                 break;
 
             case 0xEE: /* EE OUT regdx CPU_AL */
-                oper1 = CPU_DX;
-                portout(oper1, CPU_AL
-                );
+                port_write_sized(CPU_DX, CPU_AL, 1);
                 break;
 
             case 0xEF: /* EF OUT regdx eAX */
-                oper1 = CPU_DX;
-                portout16(oper1, CPU_AX);
+                port_write_sized(CPU_DX, CPU_AX, 2);
                 break;
 
             case 0xF0: /* F0 LOCK */
                 break;
 
             case 0xF4: /* F4 HLT */
-                /// TODO:
+                if (cpl) raise_fault(13, 0); // privileged
                 //hltstate = 1;
                 break;
 
@@ -3373,10 +3300,12 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 break;
 
             case 0xFA: /* FA CLI */
+                if (unlikely(cpl > iopl)) raise_fault(13, 0);
                 ifl = 0;
                 break;
 
             case 0xFB: /* FB STI */
+                if (unlikely(cpl > iopl)) raise_fault(13, 0);
                 ifl = 1;
                 break;
 
@@ -3423,7 +3352,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
         }
         if (was_TF) {
             was_TF = false;
-            intcall86(1);
+            external_interrupt(1);
         }
         if (tf) {
             was_TF = true;

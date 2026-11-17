@@ -131,22 +131,20 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
    - `xms_handler` moved to flash: SRAM 363,236 B, 680 B less than after step 2;
    - gate: `tests/xms_test.c` passes (address space, A20 wrap, every function and error, INT 15h 87h copy); both SingleStepTests counts are the same as after step 2.
    - board: CheckIt v3 3,400 Dhrystones (same as step 2) and CPU type 386; The Lost Vikings (needs a 386) runs; `MEM` shows 64K HMA, 0K extended (INT 15h 88h) and 4,096K via XMS.
-4. **Protected mode.**
-   - CR0 PE/MP/EM/TS/ET; GDT, LDT, IDT; segment loads in protected mode.
-   - Far JMP/CALL/RET/IRET with privilege change and call gates.
-   - IDT interrupts and exceptions, TSS stack switch.
-   - LTR/STR/LLDT/SLDT/LAR/LSL/VERR/VERW/ARPL.
-   - The longjmp fault path; return to real mode by clearing PE.
-   - Gate:
-     - the test386.asm protected-mode parts pass in a host runner `tests/test386_test.c`, which loads the ROM at F0000 and reads the POST port;
-     - a DOS/4GW program (Doom shareware), PMODE/W and DOS32A programs run on host;
-     - Windows 3.1 `win /s` starts.
-5. **Paging.**
-   - CR3, page walk, TLB, A/D bits, #PF, pointer switch.
-   - Gate: the test386 paging part passes, and a DJGPP program with CWSDPMI runs.
-6. **V86 mode.**
-   - EFLAGS.VM, real-mode style segment loads, IOPL-sensitive faults, interrupt entry and exit for V86.
-   - The BIOS stub ROM with the escape opcode.
+4. **Protected mode**, 5. **paging** and the CPU part of 6. **V86 mode**, done together, because test386 enters protected mode with paging on (`CR0 = PE | PG`) and runs the V86 test before most of the others. The code is in `src/emulator/protected.c.inl` (flash):
+   - EIP is 32-bit (`ip32`); 16-bit near jumps wrap at 64K through `jump_relative()`. `opsize32`/`addrsize32` start from the CS D bit; the stack uses ESP when the SS B bit is set (`stack_top()`, `stack_add()`).
+   - Segment loads in protected mode read the GDT/LDT (`load_segment()` calls `load_segment_protected()` only when `protected_mode` is set) with the type, privilege and present checks, and set the accessed bit. Real-mode and V86 loads only change the base.
+   - Far JMP/CALL/RET and IRET with privilege changes, call gates (with parameter copy), the TSS stack switch, and null data segments on a return to an outer level. IDT interrupts and exceptions (286 and 386 gates), error codes, #DF, and a reset on a triple fault.
+   - Faults: `raise_fault()` does a `longjmp` back to `exec86()`, which puts back EIP and ESP of the instruction, delivers the exception and ends the run. Real-mode faults keep the direct path.
+   - System instructions: LGDT/LIDT/SGDT/SIDT, LLDT/SLDT, LTR/STR, LAR/LSL, VERR/VERW, ARPL, LMSW/SMSW, CLTS, MOV CR0/CR2/CR3 and DR0-7 (only stored). CPL > 0 gives #GP for the privileged ones, HLT included; CLI/STI need CPL <= IOPL.
+   - I/O: with CPL > IOPL, and always in V86 mode, IN/OUT/INS/OUTS go through the I/O permission bitmap of the 386 TSS. All port instructions use `port_read_sized()`/`port_write_sized()`.
+   - Paging: two-level walk, A and D bits, U/S and R/W checks, #PF with CR2, a 64-entry direct-mapped TLB flushed on CR3 and CR0.PG writes. When CR0.PG changes, `read86`..`writedw86` switch to the `paged_` functions, so paging costs nothing while it is off. DMA (`i8237.h`) uses the physical functions (`read86_ob`/`write86_ob`).
+   - V86: IRETD with VM enters it (ESP, SS, ES, DS, FS, GS from the stack); interrupts from V86 push GS, FS, DS, ES and go to ring 0; INT n, IRET, PUSHF, POPF need IOPL 3; CLI/STI follow CPL 3 > IOPL.
+   - Left out (fast, not exact): segment limit and write-protect checks on memory access, LOCK #UD, the ENTER page-fault probe of the final ESP, task switches (a printf and #GP), debug traps.
+   - gate: `tests/test386_test.c` runs test386.asm to **POST FF**, with test 12 (limits, write protect, LOCK) and the ENTER page-fault probe left out of the ROM build (see `docs/README.md`). SingleStepTests 80386 92.0% (EIP past FFFFh passes now), 80286 98.25% (the same). Board: CheckIt v3 3,400 Dhrystones, the same as step 3. RP2350 SRAM +9.9 KB (exec86 grew; there is room).
+   - still to do: DOS extenders (DOS/4GW, PMODE/W, DOS32A, CWSDPMI) and Windows 3.1 on the board or host.
+6. **V86 mode: the BIOS part.**
+   - The BIOS stub ROM with the escape opcode, so INT 13h and the other C hooks work when EMM386 or Windows send them to the vector in V86 mode. `move_linear()` (XMS 0Bh, INT 15h 87h) must then use physical addresses while paging is on.
    - Gate:
      - EMM386 (MS-DOS 6.22) loads, `MEM` shows UMBs, and games run under it;
      - Windows 3.1 starts in 386 enhanced mode and opens a DOS box.
@@ -162,7 +160,7 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
 - `docs/intel/`, `docs/specs/`, `docs/README.md`: new, committed.
 - `CMakeLists.txt`: one firmware configuration (step 0, done).
 - `src/emulator/cpu.c`, `cpu.h`: decoder, segment cache, 32-bit ops, `intcall86` real-mode guard.
-- New `src/emulator/protected.c.inl` (descriptors, gates, protected-mode and V86 interrupts, TSS) and `src/emulator/paging.c.inl` (TLB, walk), in the same `.c.inl` way the audio code uses.
+- New `src/emulator/protected.c.inl`: descriptors, gates, protected-mode and V86 interrupts, TSS stack switch, paging (TLB, walk).
 - `src/emulator/emulator.h`: flag names, CR registers, memory map constants.
 - `src/emulator/memory.c`: XMS in the address space, 24-bit wrap, paging versions of the memory functions.
 - `src/emulator/xms.c`: real allocator and lock.

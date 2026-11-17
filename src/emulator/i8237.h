@@ -34,11 +34,13 @@ typedef struct {
 extern dma_channel_s dma_channels[DMA_CHANNELS];
 extern uint8_t i8237_byte_flipflop;
 
+// DMA uses physical addresses: not read86/write86, which go through paging when it is on
+// (and the sound DMA runs on the other core, where a page fault cannot be delivered).
 #ifndef I8237_MEMORY_READ
-#define I8237_MEMORY_READ(address) read86(address)
+#define I8237_MEMORY_READ(address) read86_ob(address)
 #endif
 #ifndef I8237_MEMORY_WRITE
-#define I8237_MEMORY_WRITE(address, value) write86((address), (value))
+#define I8237_MEMORY_WRITE(address, value) write86_ob((address), (value))
 #endif
 
 static inline void i8237_reset(void) {

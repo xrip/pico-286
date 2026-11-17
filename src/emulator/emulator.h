@@ -68,6 +68,11 @@ typedef union {
         unsigned IF : 1;  // 9
         unsigned DF : 1;  // 10
         unsigned OF : 1;  // 11
+        unsigned IOPL : 2; // 12-13
+        unsigned NT : 1;  // 14
+        unsigned _15 : 1; // 15
+        unsigned RF : 1;  // 16
+        unsigned VM : 1;  // 17
     } bits;
 } x86_flags_t;
 
@@ -75,8 +80,16 @@ extern x86_flags_t x86_flags;
 extern uint16_t segregs[6];
 extern uint32_t segment_base[6];
 
+extern uint8_t protected_mode; // CR0.PE and not V86 mode: selectors index descriptor tables
+void load_segment_protected(uint8_t reg, uint16_t selector);
+
 // Every segment register load goes through here, so the base stays in step with the selector.
+// In real mode only the base changes; the rest of the cached descriptor stays (as on a 386).
 static inline void load_segment(const uint8_t reg, const uint16_t selector) {
+    if (__builtin_expect(protected_mode, 0)) {
+        load_segment_protected(reg, selector);
+        return;
+    }
     segregs[reg] = selector;
     segment_base[reg] = (uint32_t) selector << 4;
 }

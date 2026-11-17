@@ -41,7 +41,11 @@ void move_linear(uint32_t destination, uint32_t source, uint32_t length) {}
 // What cpu.c needs from the rest of the emulator. The tests expect FFh from every port.
 uint16_t portin(uint16_t port) { return 0xFF; }
 uint16_t portin16(uint16_t port) { return 0xFFFF; }
-void portout(uint16_t port, uint16_t value) {}
+uint16_t last_out_port, last_out_value; // for the test386 runner (POST codes)
+void portout(uint16_t port, uint16_t value) {
+    last_out_port = port;
+    last_out_value = value;
+}
 void portout16(uint16_t port, uint16_t value) {}
 void keyboard_pump(void) {}
 uint8_t xms_handler() { return 0xCB; }

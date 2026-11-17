@@ -8,6 +8,8 @@
 uint32_t dwordregs[8];
 uint16_t segregs[6];
 uint32_t segment_base[6];
+uint8_t protected_mode; // load_segment() needs it; the test stays in real mode
+void load_segment_protected(uint8_t reg, uint16_t selector) {}
 uint8_t vga_mem_read(uint32_t address) { return 0; }
 uint16_t vga_mem_read16(uint32_t address) { return 0; }
 void vga_mem_write(uint32_t address, uint8_t value) {}

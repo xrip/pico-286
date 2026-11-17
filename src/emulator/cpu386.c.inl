@@ -1,6 +1,6 @@
 // 386 instructions whose meaning depends on the operand-size (66h) or address-size (67h)
 // prefix, from the Intel 80386 Programmer's Reference Manual, chapter 17.
-// Included by cpu.c before exec86(). Real mode: IP stays 16-bit, the stack is 16-bit (SP).
+// Included by cpu.c before exec86().
 // exec386() is only called for an instruction with a 66h or 67h prefix; it returns false
 // for an opcode it does not handle, which then runs in the 16-bit switch of exec86().
 #pragma once
@@ -41,13 +41,13 @@ static void writerm32(uint8_t rmval, uint32_t value) {
 }
 
 static void push32(uint32_t value) {
-    CPU_SP -= 4;
-    writedw86(SS_BASE + CPU_SP, value);
+    stack_add(-4);
+    writedw86(SS_BASE + stack_top(), value);
 }
 
 static uint32_t pop32(void) {
-    const uint32_t value = readdw86(SS_BASE + CPU_SP);
-    CPU_SP += 4;
+    const uint32_t value = readdw86(SS_BASE + stack_top());
+    stack_add(4);
     return value;
 }
 
@@ -251,13 +251,18 @@ static void add_address_register(uint8_t id, int32_t delta) {
     else wordregs[id << 1] += delta;
 }
 
+static void check_io_permission(uint16_t port, uint8_t size); // protected.c.inl
+
+// I/O in protected mode with CPL > IOPL, and all I/O in V86 mode, goes through the TSS bitmap
 static uint32_t port_read_sized(uint16_t port, uint8_t size) {
+    if (unlikely(cpl > iopl) || unlikely(v86)) check_io_permission(port, size);
     if (size == 1) return (uint8_t) portin(port);
     if (size == 2) return portin16(port);
     return portin16(port) | (uint32_t) portin16(port + 2) << 16;
 }
 
 static void port_write_sized(uint16_t port, uint32_t value, uint8_t size) {
+    if (unlikely(cpl > iopl) || unlikely(v86)) check_io_permission(port, size);
     if (size == 1) portout(port, (uint8_t) value);
     else if (size == 2) portout16(port, (uint16_t) value);
     else {
@@ -413,7 +418,7 @@ static void double_shift(bool left, uint8_t count) {
 static __attribute__((noinline)) bool op_0f_386(uint8_t opcode) { // cold: stays in flash
     if (opcode >= 0x80 && opcode <= 0x8F) { // Jcc rel16/rel32
         const int32_t displacement = opsize32 ? (int32_t) fetch32() : (int16_t) fetch16();
-        if (condition(opcode)) ip += displacement;
+        if (condition(opcode)) jump_relative(displacement);
         return true;
     }
     if (opcode >= 0x90 && opcode <= 0x9F) { // SETcc r/m8
@@ -514,12 +519,12 @@ static bool exec386(uint8_t opcode) {
         case 0xE0: case 0xE1: case 0xE2: { // LOOPNE, LOOPE, LOOP
             const int8_t displacement = (int8_t) fetch8();
             add_address_register(regcx, -1);
-            if (address_register(regcx) && (opcode == 0xE2 || zf == (opcode == 0xE1))) ip += displacement;
+            if (address_register(regcx) && (opcode == 0xE2 || zf == (opcode == 0xE1))) jump_relative(displacement);
             return true;
         }
         case 0xE3: { // JCXZ / JECXZ
             const int8_t displacement = (int8_t) fetch8();
-            if (!address_register(regcx)) ip += displacement;
+            if (!address_register(regcx)) jump_relative(displacement);
             return true;
         }
     }
@@ -581,7 +586,7 @@ static bool exec386(uint8_t opcode) {
                 if (id == regsp) esp_high = value & 0xFFFF0000u;
                 else dwordregs[id] = value;
             }
-            dwordregs[regsp] = esp_high | CPU_SP;
+            if (!stack32) dwordregs[regsp] = esp_high | CPU_SP;
             return true;
         }
         case 0x62: { // BOUND r32, m32&32
@@ -664,15 +669,11 @@ static bool exec386(uint8_t opcode) {
             return true;
         case 0x9A: { // CALL ptr16:32
             const uint32_t offset = fetch32();
-            const uint16_t selector = fetch16();
-            push32(CPU_CS);
-            push32(ip);
-            load_segment(regcs, selector);
-            ip = (uint16_t) offset;
+            far_call(fetch16(), offset, true);
             return true;
         }
-        case 0x9C: push32(makeflagsword()); return true; // PUSHFD: VM and RF read as 0
-        case 0x9D: decodeflagsword((uint16_t) pop32()); return true; // POPFD
+        case 0x9C: check_v86_iopl(); push32(makeflagsword()); return true; // PUSHFD: VM and RF read as 0
+        case 0x9D: check_v86_iopl(); set_flags(pop32(), 0x7FD5); return true; // POPFD: VM and RF stay
         case 0xA9: alu32(4, dwordregs[regax], fetch32()); return true;
         case 0xB8: case 0xB9: case 0xBA: case 0xBB: case 0xBC: case 0xBD: case 0xBE: case 0xBF:
             dwordregs[opcode & 7] = fetch32();
@@ -682,11 +683,11 @@ static bool exec386(uint8_t opcode) {
         case 0xD3: modregrm(); writerm32(rm, shift32(readrm32(rm), CPU_CL)); return true;
         case 0xC2: { // RET imm16, 32-bit return address
             const uint16_t release = fetch16();
-            ip = (uint16_t) pop32();
-            CPU_SP += release;
+            ip = pop32();
+            stack_add(release);
             return true;
         }
-        case 0xC3: ip = (uint16_t) pop32(); return true;
+        case 0xC3: ip = pop32(); return true;
         case 0xC4: case 0xC5: // LES / LDS r32, m16:32
             modregrm();
             if (mode == 3) {
@@ -714,31 +715,26 @@ static bool exec386(uint8_t opcode) {
             const uint16_t frame_size = fetch16();
             const uint8_t level = fetch8() & 31;
             push32(dwordregs[regbp]);
-            const uint16_t frame = CPU_SP;
+            const uint32_t frame = dwordregs[regsp]; // all of ESP, also with a 16-bit stack
             for (uint8_t i = 1; i < level; i++) {
-                CPU_BP -= 4;
-                push32(readdw86(SS_BASE + CPU_BP));
+                if (stack32) dwordregs[regbp] -= 4;
+                else CPU_BP -= 4;
+                push32(readdw86(SS_BASE + (stack32 ? dwordregs[regbp] : CPU_BP)));
             }
             if (level) push32(frame);
             dwordregs[regbp] = frame;
-            CPU_SP -= frame_size;
+            stack_add(-(int32_t) frame_size);
             return true;
         }
         case 0xC9: // LEAVE
-            CPU_SP = CPU_BP;
+            stack_to_frame();
             dwordregs[regbp] = pop32();
             return true;
-        case 0xCA: case 0xCB: { // RETF, 32-bit slots
-            const uint16_t release = opcode == 0xCA ? fetch16() : 0;
-            ip = (uint16_t) pop32();
-            load_segment(regcs, (uint16_t) pop32());
-            CPU_SP += release;
+        case 0xCA: case 0xCB: // RETF, 32-bit slots
+            far_return(true, opcode == 0xCA ? fetch16() : 0);
             return true;
-        }
         case 0xCF: // IRETD
-            ip = (uint16_t) pop32();
-            load_segment(regcs, (uint16_t) pop32());
-            decodeflagsword((uint16_t) pop32());
+            interrupt_return(true);
             return true;
         case 0xE5: dwordregs[regax] = port_read_sized(fetch8(), 4); return true;
         case 0xE7: port_write_sized(fetch8(), dwordregs[regax], 4); return true;
@@ -757,8 +753,7 @@ static bool exec386(uint8_t opcode) {
         }
         case 0xEA: { // JMP ptr16:32
             const uint32_t offset = fetch32();
-            load_segment(regcs, fetch16());
-            ip = (uint16_t) offset;
+            far_jump(fetch16(), offset);
             return true;
         }
         case 0xF7: modregrm(); group3_32(); return true;
@@ -770,24 +765,17 @@ static bool exec386(uint8_t opcode) {
                 case 2: { // CALL near r/m32
                     const uint32_t target = readrm32(rm);
                     push32(ip);
-                    ip = (uint16_t) target;
+                    ip = target;
                     return true;
                 }
-                case 3: { // CALL far m16:32
+                case 3: // CALL far m16:32
                     getea(rm);
-                    const uint32_t offset = readdw86(ea);
-                    const uint16_t selector = readw86(ea + 4);
-                    push32(CPU_CS);
-                    push32(ip);
-                    load_segment(regcs, selector);
-                    ip = (uint16_t) offset;
+                    far_call(readw86(ea + 4), readdw86(ea), true);
                     return true;
-                }
-                case 4: ip = (uint16_t) readrm32(rm); return true;
+                case 4: ip = readrm32(rm); return true;
                 case 5: // JMP far m16:32
                     getea(rm);
-                    ip = (uint16_t) readdw86(ea);
-                    load_segment(regcs, readw86(ea + 4));
+                    far_jump(readw86(ea + 4), readdw86(ea));
                     return true;
                 case 6: push32(readrm32(rm)); return true;
                 default: cpu_fault(6); return true;

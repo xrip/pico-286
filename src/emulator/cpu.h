@@ -65,6 +65,9 @@ void xms_reset();
 #define ifl x86_flags.bits.IF
 #define df  x86_flags.bits.DF
 #define of  x86_flags.bits.OF
+#define iopl x86_flags.bits.IOPL
+#define nt  x86_flags.bits.NT
+#define v86 x86_flags.bits.VM
 
 #define CPU_FL_CF    cf
 #define CPU_FL_PF    pf
@@ -103,8 +106,8 @@ void xms_reset();
 #define CPU_BP    wordregs[regbp << 1]
 #define CPU_SP    wordregs[regsp << 1]
 extern uint32_t ip32;
-#define CPU_IP    (*(uint16_t*)&ip32)
-#define ip        (*(uint16_t*)&ip32)
+#define CPU_IP    ip32
+#define ip        ip32
 
 #define CPU_AL    byteregs[regal]
 #define CPU_BL    byteregs[regbl]
