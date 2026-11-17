@@ -5,7 +5,6 @@
 
 static uint32_t vram[65536];
 static graphics_pc_state_t state;
-uint8_t *text_buffer;
 static uint8_t guarded[644];
 #define pixels (guarded + 2)
 
@@ -105,9 +104,7 @@ static void test_tandy_and_composite(void) {
         assert(pixels[0] == 3 && pixels[1] == 3 && pixels[2] == 4 && pixels[3] == 4);
         if (m != 0) {
             vram[0x8000] = 0x1b;
-            graphics_source_render_ntsc_line(0, 320, 240, pixels);
-            for (unsigned x = 0; x < 4; ++x) assert(pixels[x] == x);
-            // RGB still has the two artifact-color nibbles.
+            // RGB has the two artifact-color nibbles.
             line(0, 320, 240);
             assert(pixels[0] == 1 && pixels[1] == 1 && pixels[2] == 11);
         }
@@ -144,48 +141,6 @@ static void test_start_address(void) {
     vram[0x1ffe] = 0x12; vram[0x1fff] = 0x34; vram[0] = 0x56;
     line(0, 320, 240);
     for (unsigned x = 0; x < 6; ++x) assert(pixels[x] == x + 1);
-}
-
-// The PIO HDMI glyph expander draws PC text from graphics_source_pc_text_line().
-// Decode its cells like the expander (attribute word, blink, cursor, 64K wrap)
-// and compare with the pixel renderer.
-static void test_pc_text_line_source(void) {
-    const enum graphics_mode_t modes[] = {TEXTMODE_40x25_COLOR, TEXTMODE_80x25_COLOR};
-    const uint32_t offsets[] = {0, 1, 0x3ff0};
-    uint8_t expected[640];
-    for (unsigned m = 0; m < 2; ++m)
-    for (unsigned o = 0; o < 3; ++o)
-    for (unsigned blink = 0; blink < 4; ++blink) {
-        reset(modes[m]);
-        uint32_t seed = o * 7u + blink + 1u;
-        for (unsigned i = 0; i < 65536; ++i) vram[i] = (seed = seed * 1664525u + 1013904223u) >> 8;
-        state.vram_offset = offsets[o];
-        state.blink_mask = blink & 1u ? 0x7fu : 0xffu;
-        state.cursor_phase = (blink & 2u) != 0;
-        state.cursor_x = 7; state.cursor_y = 3; state.cursor_start = 13; state.cursor_end = 14;
-        for (unsigned row = 0; row < 480; ++row) {
-            struct graphics_text_line text;
-            const bool drawn = graphics_source_pc_text_line(row, &text);
-            line(row, 640, 480);
-            if (!drawn) { assert(row >= 400); expect_zero(640); continue; }
-            const unsigned first = text.wrap_at / 8u < text.columns ? (unsigned)(text.wrap_at / 8u) : text.columns;
-            const unsigned width = 640u / text.columns;
-            for (unsigned c = 0; c < text.columns; ++c) {
-                const uint8_t *cell = c < first ? text.cells + c * 8u : text.wrap_cells + (c - first) * 8u;
-                const unsigned attr = cell[4];
-                unsigned glyph = text.font[cell[0] * text.font_stride + text.glyph_line];
-                const unsigned background = (attr >> 4) & (text.blink_enabled ? 7u : 15u);
-                const bool cursor = text.cursor_visible && c == text.cursor_column;
-                // The cursor shows the real foreground, also on a hidden blinking cell.
-                const unsigned foreground = !cursor && text.blink_enabled && text.blink_hidden &&
-                        (attr & 128u) ? background : attr & 15u;
-                if (cursor) glyph = 0xffu;
-                for (unsigned x = 0; x < width; ++x)
-                    expected[c * width + x] = (glyph >> (x * 8u / width)) & 1u ? foreground : background;
-            }
-            assert(memcmp(pixels, expected, 640) == 0);
-        }
-    }
 }
 
 static void test_planar_and_indexed(void) {
@@ -273,58 +228,12 @@ static void test_text(void) {
     }
 }
 
-static void test_text_pairs(void) {
-    uint16_t pairs[1024], output[320];
-    uint32_t quad_pixels[4096];
-    uint8_t reference[640];
-    for (unsigned attr = 0; attr < 256; ++attr) {
-        const uint8_t fg = 0xc0u | (attr & 15u);
-        const uint8_t bg = 0xc0u | (attr >> 4);
-        for (unsigned bits = 0; bits < 4; ++bits) {
-            pairs[attr * 4 + bits] = (bits & 1 ? fg : bg) |
-                    (uint16_t)(bits & 2 ? fg : bg) << 8;
-
-        }
-        for (unsigned pattern = 0; pattern < 16; ++pattern) {
-            uint32_t quad = 0;
-            for (unsigned bit = 0; bit < 4; ++bit)
-                quad |= (uint32_t)(pattern & (1u << bit) ? fg : bg) << (bit * 8);
-            quad_pixels[attr * 16 + pattern] = quad;
-        }
-    }
-    for (unsigned mode = 0; mode < 4; ++mode) {
-        reset((enum graphics_mode_t)mode);
-        for (unsigned i = 0; i < 65536; ++i) vram[i] = i * 19u + 7u;
-        for (unsigned setting = 0; setting < 4; ++setting) {
-            state.blink_mask = setting & 1 ? 0x7f : 0xff;
-            state.cursor_phase = (setting & 2) != 0;
-            state.cursor_x = 12;
-            state.cursor_y = 3;
-            state.cursor_start = 5;
-            state.cursor_end = 7;
-            state.vram_offset = setting * 160;
-            for (int shift = -1; shift <= 1; ++shift) {
-                graphics_source_set_offset(shift, 0);
-                for (unsigned height = 240; height <= 480; height += 240) {
-                    for (unsigned y = 0; y < height; ++y) {
-                        graphics_source_render_line(y, 640, height, reference);
-                        graphics_source_render_vga_text(y, height, output, pairs, quad_pixels);
-                        for (unsigned x = 0; x < 640; ++x)
-                            assert(((uint8_t *)output)[x] == (0xc0u | reference[x]));
-                    }
-                }
-            }
-        }
-    }
-}
-
 static void test_rebind_offsets_and_modes(void) {
     reset(VGA_320x200x256);
     vram[0] = 99;
     graphics_source_set_mode(CGA_320x200x4);
     graphics_source_set_mode(VGA_320x200x256);
     assert(vram[0] == 99); // selecting a mode must never clear emulator VRAM
-#if defined(GRAPHICS_PC_EMULATOR)
     const unsigned pseudo_modes[] = {0x77, 0x79, 0x87};
     for (unsigned i = 0; i < sizeof pseudo_modes / sizeof *pseudo_modes; ++i) {
         graphics_source_set_mode((enum graphics_mode_t)pseudo_modes[i]);
@@ -332,7 +241,6 @@ static void test_rebind_offsets_and_modes(void) {
         line(0, 320, 240);
         assert(pixels[0] == 99);
     }
-#endif
     graphics_source_set_offset(1, 1);
     line(0, 320, 240); expect_zero(320);
     line(1, 320, 240); assert(pixels[0] == 0 && pixels[1] == 99);
@@ -342,16 +250,10 @@ static void test_rebind_offsets_and_modes(void) {
     graphics_source_set_buffer(NULL, 320, 200);
     line(0, 640, 480); expect_zero(640);
     graphics_source_set_mode(VGA_320x240x256);
-#if defined(GRAPHICS_PC_EMULATOR)
     assert(graphics_source_is_pc_mode()); // no demo byte-buffer fallback
     line(0, 640, 480); expect_zero(640);
     graphics_source_set_mode(TEXTMODE_DEFAULT);
     assert(graphics_source_is_pc_mode());
-#else
-    assert(!graphics_source_is_pc_mode()); // upstream direct byte framebuffer
-    graphics_source_set_mode(TEXTMODE_DEFAULT);
-    assert(!graphics_source_is_pc_mode() && graphics_source_is_text());
-#endif
 }
 
 static void test_fused_mapping(void) {
@@ -367,15 +269,11 @@ static void test_fused_mapping(void) {
     const unsigned rows[] = {0, 1, 2, 15, 199, 200, 347, 349, 399, 479};
     uint16_t palette[256];
     uint32_t palette32[256], guarded32[644];
-    uint32_t even[256], odd[256];
-    uint8_t indices[640], mapped8[640];
+    uint8_t indices[640];
     uint16_t mapped16[640];
-    uint32_t mapped32[640];
     for (unsigned i = 0; i < 256; ++i) {
         palette[i] = (uint16_t)((i << 8) | (255 - i));
         palette32[i] = palette[i] | (uint32_t)palette[i] << 16;
-        even[i] = (i * 19 + 3) | ((i * 31 + 7) << 16);
-        odd[i] = (i * 13 + 5) | ((i * 29 + 11) << 16);
     }
     for (unsigned m = 0; m < sizeof(modes) / sizeof(*modes); ++m) {
         reset(modes[m]);
@@ -391,7 +289,6 @@ static void test_fused_mapping(void) {
                 graphics_source_set_offset(shift, 0);
                 for (unsigned r = 0; r < sizeof(rows) / sizeof(*rows); ++r) {
                     graphics_source_render_line(rows[r], width, height, indices);
-                    graphics_source_render_line8(rows[r], width, height, mapped8, palette);
                     graphics_source_render_line16(rows[r], width, height, mapped16, palette);
                     memset(guarded32, 0xa5, sizeof(guarded32));
                     graphics_source_render_line32(rows[r], width, height, guarded32 + 2, palette32);
@@ -399,22 +296,8 @@ static void test_fused_mapping(void) {
                     for (unsigned x = width + 2; x < 644; ++x)
                         assert(guarded32[x] == 0xa5a5a5a5u);
                     for (unsigned x = 0; x < width; ++x) {
-                        assert(mapped8[x] == (uint8_t)(palette[indices[x]] >> ((x & 1) * 8)));
                         assert(mapped16[x] == palette[indices[x]]);
                         assert(guarded32[x + 2] == palette32[indices[x]]);
-                    }
-                    if (width == 640) {
-                        graphics_source_render_vga8(rows[r], height, mapped8, palette);
-                        for (unsigned x = 0; x < width; ++x)
-                            assert(mapped8[x] == (uint8_t)palette[indices[x]]);
-                    }
-                    graphics_source_render_ntsc_line(rows[r], width, height, indices);
-                    graphics_source_render_ntsc16(rows[r], width, height, mapped16, even, odd);
-                    graphics_source_render_ntsc32(rows[r], width, height, mapped32, even, odd);
-                    for (unsigned x = 0; x < width; ++x) {
-                        const uint32_t entry = x & 2 ? odd[indices[x]] : even[indices[x]];
-                        assert(mapped16[x] == (uint16_t)(entry >> ((x & 1) * 16)));
-                        assert(mapped32[x] == (x & 1 ? odd[indices[x]] : even[indices[x]]));
                     }
                 }
             }
@@ -447,12 +330,10 @@ static void test_line32_wrapping(void) {
     palette[12] = 0xd00da55au; // All 32 palette bits, not a rebuilt halfword.
     graphics_source_render_line32(0, 320, 240, output, palette);
     assert(output[0] == 0xd00da55au);
-#if defined(GRAPHICS_PC_EMULATOR)
     graphics_source_set_mode((enum graphics_mode_t)0x77);
     assert(graphics_source_mode() == VGA_320x200x256);
     graphics_source_render_line32(0, 320, 240, output, palette);
     assert(output[0] == 0xd00da55au);
-#endif
 }
 
 int main(void) {
@@ -461,12 +342,10 @@ int main(void) {
     test_tandy_and_composite();
     test_planar_and_indexed();
     test_start_address();
-    test_pc_text_line_source();
     test_text();
     test_rebind_offsets_and_modes();
     test_fused_mapping();
     test_line32_wrapping();
-    test_text_pairs();
     puts("PC graphics modes: all 21 modes, packing, banks, rows, text, cursor, blink, bounds passed");
     return 0;
 }

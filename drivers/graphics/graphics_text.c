@@ -30,45 +30,6 @@ void graphics_text_init(void) {
     }
 }
 
-static bool text_font_valid(const graphics_text_config_t *config) {
-    return config->font != NULL && config->font_height >= 1u &&
-           config->font_height <= 32u &&
-           config->font_stride >= config->font_height &&
-           config->font_size >= (size_t)255u * config->font_stride +
-                                config->font_height;
-}
-
-bool graphics_configure_text(const graphics_text_config_t *config) {
-    if (config == NULL || config->vram == NULL || config->vram_size < 2u ||
-        (config->vram_size & 1u) || (config->start_offset & 1u) ||
-        (config->row_stride & 1u) || !text_font_valid(config)) {
-        return false;
-    }
-    if (!config->wrap_vram && config->start_offset >= config->vram_size) {
-        return false;
-    }
-    const uint32_t irq_state = text_enter();
-    text_config = *config;
-    text_buffer = config->vram;
-    text_leave(irq_state);
-    return true;
-}
-
-bool graphics_set_text_font(const uint8_t *font, uint8_t height,
-                            uint16_t stride, bool msb_first) {
-    if (font == NULL || height == 0u || height > 32u || stride < height) {
-        return false;
-    }
-    const uint32_t irq_state = text_enter();
-    text_config.font = font;
-    text_config.font_height = height;
-    text_config.font_stride = stride;
-    text_config.font_size = (size_t)255u * stride + height;
-    text_config.msb_first = msb_first;
-    text_leave(irq_state);
-    return true;
-}
-
 void graphics_set_textbuffer(uint8_t *buffer) {
     const uint32_t irq_state = text_enter();
     text_buffer = buffer;
@@ -79,22 +40,6 @@ void graphics_set_textbuffer(uint8_t *buffer) {
     text_config.start_offset = 0;
     text_config.row_stride = 0;
     text_config.wrap_vram = false;
-    text_leave(irq_state);
-}
-
-void graphics_set_text_blink(bool enabled) {
-    const uint32_t irq_state = text_enter();
-    text_config.blink_enabled = enabled;
-    text_leave(irq_state);
-}
-
-void graphics_set_text_cursor(size_t byte_offset, uint8_t first_scanline,
-                              uint8_t last_scanline, bool enabled) {
-    const uint32_t irq_state = text_enter();
-    text_config.cursor_offset = byte_offset;
-    text_config.cursor_start = first_scanline;
-    text_config.cursor_end = last_scanline;
-    text_config.cursor_enabled = enabled;
     text_leave(irq_state);
 }
 
@@ -133,8 +78,6 @@ void __time_critical_func(graphics_text_frame_tick)(void) {
     // Only the scanout core writes this byte. Setters never wait for a frame.
     ++text_frame;
 }
-
-unsigned graphics_text_columns_current(void) { return text_columns; }
 
 bool __time_critical_func(graphics_text_line)(unsigned output_line,
                                              unsigned output_height,
@@ -219,67 +162,3 @@ bool __time_critical_func(graphics_text_line)(unsigned output_line,
     return true;
 }
 
-// Text helpers below are for simple applications. An emulator writes its own
-// VRAM directly. They never clear graphics memory or touch other text pages.
-static uint8_t *text_cell_address(const graphics_text_config_t *config,
-                                  unsigned columns, unsigned x, unsigned y) {
-    const size_t stride = config->row_stride ? config->row_stride : columns * 2u;
-    if (config->vram == NULL || stride < columns * 2u || config->vram_size < 2u) {
-        return NULL;
-    }
-    size_t offset = (size_t)y * stride + x * 2u;
-    if (config->wrap_vram) {
-        const size_t start = config->start_offset % config->vram_size;
-        offset %= config->vram_size;
-        offset = start >= config->vram_size - offset
-                ? start - (config->vram_size - offset) : start + offset;
-    } else {
-        if (config->start_offset > config->vram_size - 2u ||
-            offset > config->vram_size - 2u - config->start_offset) {
-            return NULL;
-        }
-        offset += config->start_offset;
-    }
-    return config->vram + offset;
-}
-
-void graphics_text_draw(const char *string, unsigned x, unsigned y,
-                        uint8_t foreground, uint8_t background) {
-    if (string == NULL) {
-        return;
-    }
-    const uint32_t irq_state = text_enter();
-    const graphics_text_config_t config = text_config;
-    const unsigned columns = text_columns, rows = text_rows;
-    text_leave(irq_state);
-    if (y >= rows) {
-        return;
-    }
-    while (*string && x < columns) {
-        uint8_t *cell = text_cell_address(&config, columns, x++, y);
-        if (cell == NULL) {
-            return;
-        }
-        cell[0] = (uint8_t)*string++;
-        cell[1] = (uint8_t)((background & 15u) << 4 | (foreground & 15u));
-    }
-}
-
-#if !defined(GRAPHICS_PC_EMULATOR)
-void clrScr(uint8_t color) {
-    const uint32_t irq_state = text_enter();
-    const graphics_text_config_t config = text_config;
-    const unsigned columns = text_columns, rows = text_rows;
-    text_leave(irq_state);
-    for (unsigned y = 0; y < rows; ++y) {
-        for (unsigned x = 0; x < columns; ++x) {
-            uint8_t *cell = text_cell_address(&config, columns, x, y);
-            if (cell == NULL) {
-                break;
-            }
-            cell[0] = ' ';
-            cell[1] = (uint8_t)((color & 15u) << 4);
-        }
-    }
-}
-#endif

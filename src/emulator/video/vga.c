@@ -66,20 +66,8 @@ bool ega_vga_enabled = true;
 
 // Utility: replicate an 8-bit value into all four bytes of a 32-bit word
 inline static uint32_t expand_to_u32(const uint8_t value) {
-#if PICO_ON_DEVICE && !PICO_RP2350
-    // ✅ RP2040 (Cortex-M0+) optimal: 3 instructions (no MUL, no constants)
-    uint32_t result;
-    __asm __volatile(
-        "uxtb   %[res], %[val]\n" // zero-extend v
-        "orr    %[res], %[res], %[res], lsl #8\n" // duplicate into 16 bits
-        "orr    %[res], %[res], %[res], lsl #16\n" // duplicate into 32 bits
-        : [res] "=&r"(result)
-        : [val] "r"(value));
-    return result;
-#else
     // ✅ RP2350 (Cortex-M33) optimal: single MUL
     return (uint32_t) __fast_mul(value, 0x01010101u);
-#endif
 }
 
 // Rotate right 8-bit
@@ -224,95 +212,6 @@ uint16_t __not_in_flash() vga_mem_read16(uint32_t address) {
     return (uint16_t)r0 | (uint16_t)r1 << 8;
 }
 
-#if VGA_DEBUGGING
-// ---------------------- Write path ----------------------
-void vga_mem_write_loop(uint32_t address, const uint8_t cpu_data) {
-    address &= 0xFFFF;
-
-    uint32_t new_data;
-    const uint32_t previous_data = VIDEORAM[address]; // read current mem for blending
-
-    switch (vga.write_mode) {
-        case 1: // Mode 1: Write latch directly to enabled planes
-            VIDEORAM[address] = (previous_data & ~vga.map_mask32) | (vga_latch32 & vga.map_mask32);
-            return;
-
-        case 0: {
-            // Mode 0: Normal write with set/reset + ALU
-            new_data = 0;
-            const uint8_t rdata = (ror8(cpu_data, vga.data_rotate_counter));
-
-            for (int i = 0; i < 4; i++) {
-                const uint32_t mask = 1 << i;
-
-                uint8_t value = 0;
-                if ((vga.sequencer[2] & 0xf) & mask) {
-                    if (vga.graphics_controller[1] & mask) {
-                        value = vga.graphics_controller[0] & mask ? 0xFF : 0x00;
-                    } else {
-                        value = ror8(rdata, vga.data_rotate_counter);
-                    }
-
-                    new_data |= value << (i * 8);
-                }
-            }
-            break;
-        }
-
-        case 2: {
-            // Mode 2: Color expands to all planes
-            new_data = 0;
-            for (int i = 0; i < 4; i++) {
-                uint8_t value = 0;
-                const uint32_t mask = 1 << i;
-                if ((vga.sequencer[2] & 0xf) & mask) {
-                    value = cpu_data & mask ? 0xFF : 0x00;
-                }
-                new_data |= value << (i * 8);
-            }
-            break;
-        }
-
-        case 3: {
-            // Mode 0: Normal write with set/reset + ALU
-            new_data = 0;
-            const uint8_t value = ror8(cpu_data, vga.data_rotate_counter) & vga.graphics_controller[8];
-
-            for (int i = 0; i < 4; i++) {
-                const uint32_t mask = 1 << i;
-
-                if ((vga.sequencer[2] & 0xf) & mask) {
-                    uint8_t set_reset = vga.graphics_controller[0] & mask ? 0xFF : 0x00;
-
-                    new_data |= value << (i * 8);
-                }
-            }
-            VIDEORAM[address] = (vga.set_reset32 & new_data) | (~new_data & vga_latch32);
-            return;
-            break;
-        }
-
-        default:
-            new_data = 0;
-    }
-
-
-    // --- ALU (applies to modes 0, 2, 3) ---
-    //
-    if (vga.logical_operation == 1) {
-        new_data &= vga_latch32;
-    } else if (vga.logical_operation == 2) {
-        new_data |= vga_latch32;
-    } else if (vga.logical_operation == 3) {
-        new_data ^= vga_latch32;
-    }
-
-    new_data = (vga.bit_mask32 & new_data) | (~vga.bit_mask32 & vga_latch32);
-
-    // Смешивание всех изменившихся планов с не изменившимися
-    VIDEORAM[address] = (~vga.map_mask32 & previous_data) | (vga.map_mask32 & new_data);
-}
-#endif
 // Core write implementation (CPU writes a byte to VGA memory)
 void __not_in_flash() vga_mem_write(const uint32_t address, const uint8_t cpu_data) {
     uint32_t new_data;

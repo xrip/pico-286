@@ -3,27 +3,25 @@
 // There is no run-time output-format branch or per-pixel function pointer.
 static inline __attribute__((always_inline)) void PC_FN(emit)(
         PC_PIXEL **output, uint8_t color, unsigned repeat, PC_PIXEL *origin,
-        const PC_PALETTE *palette, const PC_PALETTE *odd, unsigned phase_offset) {
-    (void)origin; (void)palette; (void)odd;
+        const PC_PALETTE *palette) {
+    (void)origin; (void)palette;
     do {
-        const unsigned phase = (unsigned)(*output - origin) + phase_offset;
-        (void)phase;
-        *(*output)++ = PC_MAP(color, phase);
+        *(*output)++ = PC_MAP(color);
     } while (--repeat);
 }
 
 static inline __attribute__((always_inline)) void PC_FN(fill)(
         PC_PIXEL *output, unsigned width, PC_PIXEL *origin,
-        const PC_PALETTE *palette, const PC_PALETTE *odd) {
-    if (width) PC_FN(emit)(&output, 0, width, origin, palette, odd, 0);
+        const PC_PALETTE *palette) {
+    if (width) PC_FN(emit)(&output, 0, width, origin, palette);
 }
 
 static inline __attribute__((always_inline)) void PC_FN(text_line)(
         const uint32_t *vram, const graphics_pc_state_t *state,
         enum graphics_mode_t mode, unsigned y, unsigned width, unsigned height,
-        PC_PIXEL *output, const PC_PALETTE *palette, const PC_PALETTE *odd, unsigned phase_offset) {
+        PC_PIXEL *output, const PC_PALETTE *palette) {
     PC_PIXEL *const origin = output;
-    (void)origin; (void)palette; (void)odd; (void)phase_offset;
+    (void)origin; (void)palette;
     const unsigned columns = mode <= TEXTMODE_40x25_COLOR ? 40u : 80u;
     const unsigned cell_height = height == 480 ? 16u : 8u;
     const unsigned line = height == 480 ? y : y >> 1;
@@ -41,33 +39,23 @@ static inline __attribute__((always_inline)) void PC_FN(text_line)(
         if (cursor_row && column == state->cursor_x) glyph = 0xffu;
         const uint8_t foreground = attr & 15u;
         const uint8_t background = (attr & state->blink_mask) >> 4;
-#if defined(PC_PHASE_INDEPENDENT)
         // Text has only two colors per cell. Fetch them once rather than
         // performing eight identical palette lookups in the glyph loop.
-        const PC_PIXEL foreground_pixel = PC_MAP(foreground, 0);
-        const PC_PIXEL background_pixel = PC_MAP(background, 0);
-#endif
+        const PC_PIXEL foreground_pixel = PC_MAP(foreground);
+        const PC_PIXEL background_pixel = PC_MAP(background);
         if (width == 320 && columns == 80) {
             // Four samples per glyph. OR the pair so thin strokes remain
             // legible on a 320-pixel TFT instead of dropping alternate strokes.
             for (unsigned pair = 0; pair < 4; ++pair) {
-#if defined(PC_PHASE_INDEPENDENT)
                 *output++ = glyph & 3u ? foreground_pixel : background_pixel;
-#else
-                PC_FN(emit)(&output, glyph & 3u ? foreground : background, 1, origin, palette, odd, phase_offset);
-#endif
                 glyph >>= 2;
             }
         } else {
             const unsigned repeat = width == 640 && columns == 40 ? 2u : 1u;
             for (unsigned bit = 0; bit < 8; ++bit) {
-#if defined(PC_PHASE_INDEPENDENT)
                 const PC_PIXEL pixel = glyph & 1u ? foreground_pixel : background_pixel;
                 *output++ = pixel;
                 if (repeat == 2) *output++ = pixel;
-#else
-                PC_FN(emit)(&output, glyph & 1u ? foreground : background, repeat, origin, palette, odd, phase_offset);
-#endif
                 glyph >>= 1;
             }
         }
@@ -77,7 +65,7 @@ static inline __attribute__((always_inline)) void PC_FN(text_line)(
 static inline __attribute__((always_inline)) void PC_FN(render_line)(
         enum graphics_mode_t mode, const uint32_t *vram,
         const graphics_pc_state_t *state, unsigned y, unsigned width,
-        unsigned height, PC_PIXEL *output, const PC_PALETTE *palette, const PC_PALETTE *odd, unsigned phase_offset) {
+        unsigned height, PC_PIXEL *output, const PC_PALETTE *palette) {
     PC_PIXEL *const origin = output;
     const unsigned low_y = y >> 1;
     unsigned limit = 400;
@@ -89,13 +77,13 @@ static inline __attribute__((always_inline)) void PC_FN(render_line)(
         default: break;
     }
     if (vram == NULL || y >= limit) {
-        PC_FN(emit)(&output, 0, width, origin, palette, odd, phase_offset);
+        PC_FN(emit)(&output, 0, width, origin, palette);
         return;
     }
     switch (mode) {
         case TEXTMODE_40x25_BW: case TEXTMODE_40x25_COLOR:
         case TEXTMODE_80x25_BW: case TEXTMODE_80x25_COLOR:
-            PC_FN(text_line)(vram, state, mode, y, width, height, output, palette, odd, phase_offset);
+            PC_FN(text_line)(vram, state, mode, y, width, height, output, palette);
             return;
         case CGA_320x200x4: case CGA_320x200x4_BW: {
             const unsigned base = 0x8000u + (state->vram_offset << 1) +
@@ -103,10 +91,10 @@ static inline __attribute__((always_inline)) void PC_FN(render_line)(
             const unsigned repeat = width == 640 ? 2u : 1u;
             for (unsigned byte = 0; byte < 80; ++byte) {
                 const uint8_t bits = (uint8_t)pc_word(vram, base + byte);
-                PC_FN(emit)(&output, bits >> 6, repeat, origin, palette, odd, phase_offset);
-                PC_FN(emit)(&output, (bits >> 4) & 3u, repeat, origin, palette, odd, phase_offset);
-                PC_FN(emit)(&output, (bits >> 2) & 3u, repeat, origin, palette, odd, phase_offset);
-                PC_FN(emit)(&output, bits & 3u, repeat, origin, palette, odd, phase_offset);
+                PC_FN(emit)(&output, bits >> 6, repeat, origin, palette);
+                PC_FN(emit)(&output, (bits >> 4) & 3u, repeat, origin, palette);
+                PC_FN(emit)(&output, (bits >> 2) & 3u, repeat, origin, palette);
+                PC_FN(emit)(&output, bits & 3u, repeat, origin, palette);
             }
             return;
         }
@@ -128,7 +116,7 @@ static inline __attribute__((always_inline)) void PC_FN(render_line)(
             for (unsigned byte = 0; byte < 80; ++byte) {
                 const uint8_t bits = (uint8_t)pc_word(vram, base + byte);
                 for (int bit = 7; bit >= 0; bit -= step)
-                    PC_FN(emit)(&output, ((bits >> bit) & 1u) ? foreground : 0, 1, origin, palette, odd, phase_offset);
+                    PC_FN(emit)(&output, ((bits >> bit) & 1u) ? foreground : 0, 1, origin, palette);
             }
             return;
         }
@@ -163,9 +151,9 @@ static inline __attribute__((always_inline)) void PC_FN(render_line)(
                     if (!left) left = state->foreground;
                     if (!right) right = state->foreground;
                 }
-                PC_FN(emit)(&output, left, repeat, origin, palette, odd, phase_offset);
+                PC_FN(emit)(&output, left, repeat, origin, palette);
                 if (mode != TGA_640x200x16 || width == 640)
-                    PC_FN(emit)(&output, right, repeat, origin, palette, odd, phase_offset);
+                    PC_FN(emit)(&output, right, repeat, origin, palette);
             }
             return;
         }
@@ -180,7 +168,7 @@ static inline __attribute__((always_inline)) void PC_FN(render_line)(
             for (unsigned word = 0; word < words; ++word) {
                 const uint32_t packed = pc_pack_planes(pc_word(vram, base + word));
                 for (int bit = 7; bit >= 0; bit -= step)
-                    PC_FN(emit)(&output, (packed >> (bit * 4)) & 15u, repeat, origin, palette, odd, phase_offset);
+                    PC_FN(emit)(&output, (packed >> (bit * 4)) & 15u, repeat, origin, palette);
             }
             return;
         }
@@ -188,61 +176,52 @@ static inline __attribute__((always_inline)) void PC_FN(render_line)(
             const unsigned repeat = width == 640 ? 2u : 1u;
             for (unsigned word = 0; word < 80; ++word) {
                 const uint32_t pixels = pc_word(vram, low_y * 80u + word);
-                PC_FN(emit)(&output, (uint8_t)pixels, repeat, origin, palette, odd, phase_offset);
-                PC_FN(emit)(&output, (uint8_t)(pixels >> 8), repeat, origin, palette, odd, phase_offset);
-                PC_FN(emit)(&output, (uint8_t)(pixels >> 16), repeat, origin, palette, odd, phase_offset);
-                PC_FN(emit)(&output, (uint8_t)(pixels >> 24), repeat, origin, palette, odd, phase_offset);
+                PC_FN(emit)(&output, (uint8_t)pixels, repeat, origin, palette);
+                PC_FN(emit)(&output, (uint8_t)(pixels >> 8), repeat, origin, palette);
+                PC_FN(emit)(&output, (uint8_t)(pixels >> 16), repeat, origin, palette);
+                PC_FN(emit)(&output, (uint8_t)(pixels >> 24), repeat, origin, palette);
             }
             return;
         }
         case VGA_320x200x256: {
             const unsigned repeat = width == 640 ? 2u : 1u;
             for (unsigned pixel = 0; pixel < 320; ++pixel)
-                PC_FN(emit)(&output, (uint8_t)pc_word(vram, low_y * 320u + pixel), repeat, origin, palette, odd, phase_offset);
+                PC_FN(emit)(&output, (uint8_t)pc_word(vram, low_y * 320u + pixel), repeat, origin, palette);
             return;
         }
         default:
-            PC_FN(emit)(&output, 0, width, origin, palette, odd, phase_offset);
+            PC_FN(emit)(&output, 0, width, origin, palette);
             return;
     }
 }
 
 static inline __attribute__((always_inline)) void PC_FN(render)(
-        unsigned row, unsigned width, unsigned height, PC_PIXEL *indices, bool ntsc, const PC_PALETTE *palette, const PC_PALETTE *odd) {
-#if defined(HDMI_HSTX)
+        unsigned row, unsigned width, unsigned height, PC_PIXEL *indices, const PC_PALETTE *palette) {
     const graphics_source_state_t source = source_snapshot();
-    enum graphics_mode_t mode = source.mode;
+    const enum graphics_mode_t mode = source.mode;
     const uint32_t *vram = (const uint32_t *)source.buffer;
     const int shift_x = source.shift_x;
     const int shift_y = source.shift_y;
-#else
-    enum graphics_mode_t mode = graphics_mode;
-    const uint32_t *vram = (const uint32_t *)graphics_source_buffer;
-    const int shift_x = graphics_shift_x;
-    const int shift_y = graphics_shift_y;
-#endif
     if ((width != 320 && width != 640) || (height != 240 && height != 480)) {
-        PC_FN(fill)(indices, width, indices, palette, odd);
+        PC_FN(fill)(indices, width, indices, palette);
         return;
     }
-    if (ntsc && (mode == COMPOSITE_160x200x16 || mode == COMPOSITE_160x200x16_force))
-        mode = CGA_320x200x4;
     const int y = (int)(height == 480 ? row : row * 2u) - shift_y * 2;
     if (row >= height || y < 0 || y >= 480) {
-        PC_FN(fill)(indices, width, indices, palette, odd);
+        PC_FN(fill)(indices, width, indices, palette);
         return;
     }
     graphics_pc_state_t state;
     graphics_pc_snapshot(&state);
     const int shift = width == 640 ? shift_x * 2 : shift_x;
-    PC_FN(render_line)(mode, vram, &state, (unsigned)y, width, height, indices, palette, odd, (unsigned)shift);
+    PC_FN(render_line)(mode, vram, &state, (unsigned)y, width, height, indices, palette);
     if (shift >= (int)width || shift <= -(int)width) {
-        PC_FN(fill)(indices, width, indices, palette, odd);
+        PC_FN(fill)(indices, width, indices, palette);
     } else if (shift > 0) {
         memmove(indices + shift, indices, (width - (unsigned)shift) * sizeof(*indices));
-        PC_FN(fill)(indices, (unsigned)shift, indices, palette, odd);
+        PC_FN(fill)(indices, (unsigned)shift, indices, palette);
     } else if (shift < 0) {
         memmove(indices, indices - shift, (width + shift) * sizeof(*indices));
-        PC_FN(fill)(indices + width + shift, (unsigned)-shift, indices, palette, odd);
+        PC_FN(fill)(indices + width + shift, (unsigned)-shift, indices, palette);
     }
 }

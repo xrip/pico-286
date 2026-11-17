@@ -68,24 +68,6 @@ static inline uint16_t i8253_get_current_count(const i8253_channel_s *channel) {
     return (uint16_t)(reload - 1 - ticks % reload);
 }
 
-// PC speaker = channel 2 OUT2 AND port 61h bit 1; with GATE2 (bit 0) off, OUT2 stays high.
-#define SPEAKER_ON_PWM_PIN (PICO_ON_DEVICE && !I2S_SOUND && !HARDWARE_SOUND && !HDMI_SOUND)
-#if SPEAKER_ON_PWM_PIN
-#include <hardware/clocks.h>
-// The beeper PWM counts at twice the PIT clock: at the PIT clock the divider would be above 255.
-static inline void speaker_update(void) {
-    const uint slice = pwm_gpio_to_slice_num(PWM_BEEPER);
-    if ((port61 & 3) == 3) { // channel 2 square wave
-        const uint32_t ticks = MIN(i8253_divisor(&i8253.channels[2]) * 2u, 65536u);
-        pwm_set_clkdiv(slice, (float) clock_get_hz(clk_sys) / (PIT_FREQUENCY * 2u));
-        pwm_set_wrap(slice, (uint16_t) (ticks - 1u));
-        pwm_set_gpio_level(PWM_BEEPER, (uint16_t) (ticks / 2u));
-    } else { // constant level: the speaker follows bit 1
-        pwm_set_wrap(slice, 0);
-        pwm_set_gpio_level(PWM_BEEPER, (port61 >> 1) & 1u);
-    }
-}
-#endif
 
 static inline uint8_t i8253_read(const uint16_t port_number) {
     const uint8_t channel_index = port_number & 3;
@@ -151,9 +133,6 @@ static inline void i8253_write(const uint16_t port_number, const uint8_t data) {
             timer_period = (int)(PIT_FREQUENCY / divisor);
 #endif
         } else if (channel_index == 2) {
-#if SPEAKER_ON_PWM_PIN
-            speaker_update();
-#endif
         }
         return;
     }

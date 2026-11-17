@@ -30,24 +30,7 @@ typedef struct graphics_text_config {
     bool wrap_vram;           // true: wrap display addresses at vram_size
 } graphics_text_config_t;
 
-// Copies only the small descriptor. VRAM and font remain owned by the caller.
-// Setters synchronize the descriptor with the IRQ, not the backing storage.
-// Keep both allocations alive while bound. After rebinding, retain the old
-// allocations for a full frame (two graphics_wait_vblank() calls are safe), or
-// stop scanout before freeing them: an in-flight IRQ may hold the old pointers.
-// Direct VRAM/font writes are visible on subsequent scanlines; they are not an
-// atomic screen update. Typical emulator-owned permanent allocations need no
-// additional synchronization or copies.
-bool graphics_configure_text(const graphics_text_config_t *config);
 
-// Convenience for existing graphics_set_textbuffer() users. The supplied font
-// must contain at least 255 * stride + height bytes. No fallback font is linked
-// into the HDMI driver: the application/emulator explicitly supplies its font.
-bool graphics_set_text_font(const uint8_t *font, uint8_t height,
-                            uint16_t stride, bool msb_first);
-void graphics_set_text_blink(bool enabled);
-void graphics_set_text_cursor(size_t byte_offset, uint8_t first_scanline,
-                              uint8_t last_scanline, bool enabled);
 
 // Internal scanout interface. These are allocation-free and shared by the
 // HDMI renderer and its host tests. Geometry comes from graphics_set_mode().
@@ -71,9 +54,6 @@ void graphics_text_select_mode(unsigned mode);
 void graphics_text_frame_tick(void);
 bool graphics_text_line(unsigned output_line, unsigned output_height,
                         struct graphics_text_line *line);
-unsigned graphics_text_columns_current(void);
-void graphics_text_draw(const char *string, unsigned x, unsigned y,
-                        uint8_t foreground, uint8_t background);
 
 static inline uint16_t graphics_text_cell(const struct graphics_text_line *line,
                                           unsigned column) {

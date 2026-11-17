@@ -5,13 +5,8 @@
 #endif
 #include "emulator.h"
 #if PICO_ON_DEVICE
-#include <74hc595.h>
-#include <hardware/pwm.h>
 extern int16_t keyboard_send(uint8_t data);
 #include "nespad.h"
-#if defined(VGA)
-#include "vga_crtc.h"
-#endif
 #endif
 
 #include <emu8950.h>
@@ -61,8 +56,6 @@ dma_channel_s dma_channels[DMA_CHANNELS] = {
     {.masked = 1},
 };
 uint8_t i8237_byte_flipflop;
-
-int sound_chips_clock = 0;
 
 static uint16_t adlibregmem[5], adlib_register = 0;
 static uint8_t adlibstatus = 0;
@@ -167,9 +160,6 @@ void portout(uint16_t portnum, uint16_t value) {
             return i8253_write(portnum, value);
         case 0x61: // PC Speaker
             port61 = value;
-#if SPEAKER_ON_PWM_PIN
-            speaker_update();
-#endif
             break;
         case 0x64: // Keyboard Controller
 #if PICO_ON_DEVICE
@@ -201,15 +191,7 @@ void portout(uint16_t portnum, uint16_t value) {
         case 0xC5:
         case 0xC6:
         case 0xC7:
-#if HARDWARE_SOUND
-        if (!sound_chips_clock) {
-            clock_init(CLOCK_PIN, CLOCK_FREQUENCY);
-            sound_chips_clock = 1;
-        }
-        return SN76489_write(value);
-#else
         return sn76489_out(value);
-#endif
 // Joystick
         case 0x201:
             return joystick_out();
@@ -218,28 +200,7 @@ void portout(uint16_t portnum, uint16_t value) {
         case 0x221:
         case 0x222:
         case 0x223:
-#if HARDWARE_SOUND
-if (sound_chips_clock) {
-    clock_init(CLOCK_PIN, CLOCK_FREQUENCY * 2);
-    sound_chips_clock = 0;
-}
-        switch (portnum & 3) {
-            case 0:
-                SAA1099_write(0, 0, value);
-            break;
-            case 1:
-                SAA1099_write(1, 0, value);
-            break;
-            case 2:
-                SAA1099_write(0, 1, value);
-            break;
-            case 3:
-                SAA1099_write(1, 1, value);
-            break;
-        }
-#else
         cms_out(portnum, value);
-#endif
         case 0x224:
         case 0x225:
         case 0x226:
@@ -251,9 +212,7 @@ if (sound_chips_clock) {
         case 0x22e:
         case 0x22f:
 // Sound Blaster
-#if !PICO_RP2040
             blaster_write(portnum, value);
-#endif
         return;
         case 0x260:
         case 0x261:
@@ -289,17 +248,7 @@ if (sound_chips_clock) {
                     adlibregmem[4] = 0;
                 }
             }
-#if HARDWARE_SOUND
-        if (!sound_chips_clock) {
-            clock_init(CLOCK_PIN, CLOCK_FREQUENCY);
-            sound_chips_clock = 1;
-        }
-            OPL2_write_byte(0, 0, adlib_register & 0xff);
-            OPL2_write_byte(1, 0, value & 0xff);
-        return;
-#else
             return OPL_writeReg(emu8950_opl, adlib_register, value);
-#endif
 // EGA/VGA
         case 0x3C4:
         case 0x3CE:
@@ -381,9 +330,6 @@ if (sound_chips_clock) {
 //                printf("CRT %x %x\n", crt_controller_idx, value);
 
             crt_controller[crt_controller_idx] = value;
-#if PICO_ON_DEVICE && defined(VGA)
-            vga_crtc_write(crt_controller_idx, value);
-#endif
 
             break;
         case 0x3B8:
@@ -475,11 +421,7 @@ uint16_t portin(uint16_t portnum) {
         case 0x22e:
         case 0x22f:
 // Sound Blaster / GameBlaster
-#if !PICO_RP2040
             return blaster_read(portnum);
-#else
-            return cms_in(portnum);
-#endif
 // RTC
         case 0x240:
         case 0x241:
@@ -574,12 +516,6 @@ uint16_t portin16(uint16_t portnum) {
 
 
 void get_sound_sample(const int16_t other_sample, int16_t *samples) {
-#if HARDWARE_SOUND
-    int16_t sb_samples[2] = { 0, 0 };
-    blaster_samples(sb_samples);
-    const int32_t sample = (speaker_sample() + other_sample + covox_sample + midi_sample() + (sb_samples[0] + sb_samples[1]) / 2);
-    pwm_set_gpio_level(PCM_PIN, (uint16_t) ((int32_t) sample + 0x8000L) >> 4);
-#else
     OPL_calc_buffer_linear(emu8950_opl, (int32_t *)samples, 1);
 
     samples[1] = samples[0] += (int32_t)(speaker_sample() + other_sample + covox_sample + sn76489_sample()
@@ -592,6 +528,5 @@ void get_sound_sample(const int16_t other_sample, int16_t *samples) {
 #endif
     cms_samples(samples);
     blaster_samples(samples);
-#endif
 
 }

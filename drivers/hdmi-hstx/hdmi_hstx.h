@@ -17,8 +17,7 @@ extern "C" {
 #endif
 
 // Called by graphics_init(), on the core which will service scanout IRQs.
-// HDMI-only: SYS is 500 MHz. With NTSC: SYS is 315 MHz.
-// HSTX uses a separate PLL_USB at 126 MHz in both profiles.
+// SYS is 500 MHz; HSTX uses a separate PLL_USB at 126 MHz.
 // USB and ADC clocks are stopped.
 void hdmi_hstx_graphics_init(void);
 

@@ -41,11 +41,7 @@ void __attribute__((used, externally_visible, noreturn))
     record->icsr = m33_hw->icsr;
     record->vtor = m33_hw->vtor;
     record->video_dma_vector = 0;
-#if defined(HDMI)
-    const unsigned dma_vector = VTABLE_FIRST_IRQ + DMA_IRQ_0;
-#else
     const unsigned dma_vector = VTABLE_FIRST_IRQ + DMA_IRQ_1;
-#endif
     if (record->vtor >= 0x20000000u &&
         record->vtor <= 0x20082000u - (dma_vector + 1u) * sizeof(uint32_t))
         record->video_dma_vector = ((const volatile uint32_t *)record->vtor)[dma_vector];

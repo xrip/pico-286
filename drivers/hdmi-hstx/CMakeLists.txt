@@ -3,14 +3,10 @@ add_library(hdmi-hstx INTERFACE)
 target_sources(hdmi-hstx INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/hstx_video.c
         ${CMAKE_CURRENT_LIST_DIR}/graphics.c
+        ${CMAKE_CURRENT_LIST_DIR}/hstx_audio.c
+        ${CMAKE_CURRENT_LIST_DIR}/hstx_data_island.c
 )
-if (HDMI_SOUND)
-    target_sources(hdmi-hstx INTERFACE
-            ${CMAKE_CURRENT_LIST_DIR}/hstx_audio.c
-            ${CMAKE_CURRENT_LIST_DIR}/hstx_data_island.c
-    )
-endif ()
-target_compile_definitions(hdmi-hstx INTERFACE HDMI_HSTX=1 PICO_DIVIDER_IN_RAM=1)
+target_compile_definitions(hdmi-hstx INTERFACE PICO_DIVIDER_IN_RAM=1)
 target_link_libraries(hdmi-hstx INTERFACE
         pico_stdlib
         hardware_clocks
@@ -33,7 +29,6 @@ set_source_files_properties(
         ${CMAKE_CURRENT_LIST_DIR}/hstx_video.c
         ${CMAKE_CURRENT_LIST_DIR}/graphics.c
         ${CMAKE_CURRENT_LIST_DIR}/hstx_audio.c
-        ${PROJECT_SOURCE_DIR}/drivers/ntsc-composite/ntsc-composite.c
         DIRECTORY ${PROJECT_SOURCE_DIR}
         PROPERTIES COMPILE_OPTIONS "-fno-tree-loop-distribute-patterns"
 )

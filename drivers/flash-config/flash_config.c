@@ -17,9 +17,6 @@
 #include <hardware/sync.h>
 #include <hardware/timer.h>
 
-#if !PICO_RP2350
-#error "Flash QE startup uses the RP2350 QMI controller"
-#endif
 
 #define FLASH_RAM(name) __no_inline_not_in_flash_func(name)
 

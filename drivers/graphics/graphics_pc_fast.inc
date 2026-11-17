@@ -3,14 +3,8 @@
 // PC_FAST_TYPE/PALETTE/PAIR and MAP0/1 specialize the hardware pixel format.
 static inline __attribute__((always_inline)) void PC_FAST_FN(pair)(
         PC_FAST_TYPE **out, unsigned a, unsigned b, const PC_FAST_PALETTE *palette) {
-#if defined(PC_FAST_DIRECT_STORES)
-    (*out)[0] = PC_FAST_MAP0(a);
-    (*out)[1] = PC_FAST_MAP1(b);
-#else
-    const PC_FAST_PAIR pixels = (PC_FAST_PAIR)PC_FAST_MAP0(a) |
-            (PC_FAST_PAIR)PC_FAST_MAP1(b) << (8u * sizeof(PC_FAST_TYPE));
-    __builtin_memcpy(*out, &pixels, sizeof pixels);
-#endif
+    (*out)[0] = PC_FAST_MAP(a);
+    (*out)[1] = PC_FAST_MAP(b);
     *out += 2;
 }
 
@@ -21,11 +15,7 @@ static inline __attribute__((always_inline)) bool PC_FAST_FN(render)(
     graphics_source_pc_view(&view);
     if (view.vram == NULL || view.shift_x || view.shift_y ||
         (height != 240 && height != 480) || row >= height) return false;
-#if PC_FAST_BYTES == 1
-    if (width != 640) return false;
-#else
     if (width != 320 && width != 640) return false;
-#endif
     const unsigned y = height == 480 ? row : row * 2u;
     const unsigned low_y = y >> 1;
     const enum graphics_mode_t mode = view.mode;
@@ -107,11 +97,11 @@ static inline __attribute__((always_inline)) bool PC_FAST_FN(render)(
         case CGA_320x200x4: case CGA_320x200x4_BW: {
             PC_FAST_PAIR pairs[16];
             for (unsigned a = 0; a < 4; ++a) {
-                const PC_FAST_PAIR left = PC_FAST_MAP0(a);
-                pairs[a * 4] = left | (PC_FAST_PAIR)PC_FAST_MAP1(0) << (8u * sizeof(PC_FAST_TYPE));
-                pairs[a * 4 + 1] = left | (PC_FAST_PAIR)PC_FAST_MAP1(1) << (8u * sizeof(PC_FAST_TYPE));
-                pairs[a * 4 + 2] = left | (PC_FAST_PAIR)PC_FAST_MAP1(2) << (8u * sizeof(PC_FAST_TYPE));
-                pairs[a * 4 + 3] = left | (PC_FAST_PAIR)PC_FAST_MAP1(3) << (8u * sizeof(PC_FAST_TYPE));
+                const PC_FAST_PAIR left = PC_FAST_MAP(a);
+                pairs[a * 4] = left | (PC_FAST_PAIR)PC_FAST_MAP(0) << (8u * sizeof(PC_FAST_TYPE));
+                pairs[a * 4 + 1] = left | (PC_FAST_PAIR)PC_FAST_MAP(1) << (8u * sizeof(PC_FAST_TYPE));
+                pairs[a * 4 + 2] = left | (PC_FAST_PAIR)PC_FAST_MAP(2) << (8u * sizeof(PC_FAST_TYPE));
+                pairs[a * 4 + 3] = left | (PC_FAST_PAIR)PC_FAST_MAP(3) << (8u * sizeof(PC_FAST_TYPE));
             }
             for (unsigned i = 0; i < 80; ++i) {
                 const uint8_t bits = (uint8_t)*source++;
@@ -124,10 +114,10 @@ static inline __attribute__((always_inline)) bool PC_FAST_FN(render)(
         }
         case CGA_640x200x2: case HERC_640x480x2:
         case HERC_640x480x2_90: case VGA_640x480x2: {
-            const PC_FAST_PAIR lo0 = PC_FAST_MAP0(0);
-            const PC_FAST_PAIR lo1 = PC_FAST_MAP0(foreground);
-            const PC_FAST_PAIR hi0 = (PC_FAST_PAIR)PC_FAST_MAP1(0) << (8u * sizeof(PC_FAST_TYPE));
-            const PC_FAST_PAIR hi1 = (PC_FAST_PAIR)PC_FAST_MAP1(foreground) << (8u * sizeof(PC_FAST_TYPE));
+            const PC_FAST_PAIR lo0 = PC_FAST_MAP(0);
+            const PC_FAST_PAIR lo1 = PC_FAST_MAP(foreground);
+            const PC_FAST_PAIR hi0 = (PC_FAST_PAIR)PC_FAST_MAP(0) << (8u * sizeof(PC_FAST_TYPE));
+            const PC_FAST_PAIR hi1 = (PC_FAST_PAIR)PC_FAST_MAP(foreground) << (8u * sizeof(PC_FAST_TYPE));
             const PC_FAST_PAIR pair[4] = {lo0 | hi0, lo0 | hi1, lo1 | hi0, lo1 | hi1};
             if (width == 640) {
                 for (unsigned i = 0; i < 80; ++i) {

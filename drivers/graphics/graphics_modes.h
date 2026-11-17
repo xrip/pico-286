@@ -102,13 +102,9 @@ typedef struct graphics_pc_view {
 } graphics_pc_view_t;
 void graphics_source_pc_view(graphics_pc_view_t *view);
 enum graphics_mode_t graphics_source_mode(void);
-#if defined(GRAPHICS_PC_EMULATOR)
 // PC modes always use word-backed VRAM. Unknown values keep the old VGA
 // decoder's linear Mode 13h fallback, never the demo's byte framebuffer.
 static inline bool graphics_source_is_pc_mode(void) { return true; }
-#else
-bool graphics_source_is_pc_mode(void);
-#endif
 // 320 for low-resolution graphics (including doubled 160-pixel modes),
 // 640 for text and high-resolution graphics. Lets hardware double pixels.
 unsigned graphics_source_native_width(void);
@@ -118,75 +114,26 @@ unsigned graphics_source_native_width(void);
 // their full height, and unused rows are black. No full framebuffer is made.
 void graphics_source_render_line(unsigned row, unsigned width, unsigned height,
                                  uint8_t *indices);
-// Composite CGA modes send the original 2-bpp signal on NTSC; RGB outputs
-// use their 160-pixel artifact-color interpretation instead.
-void graphics_source_render_ntsc_line(unsigned row, unsigned width, unsigned height,
-                                      uint8_t *indices);
 
-// Fused decoders write hardware pixels directly. The 8-bit form selects the
-// low/high byte of a packed palette entry on even/odd samples (VGA dither or
-// HDMI phase). The 16-bit form maps one index to one entry (RGB565/BGR555 or
-// a VGA doubled-pixel pair at width 320).
-void graphics_source_render_line8(unsigned row, unsigned width, unsigned height,
-                                  uint8_t *output, const uint16_t *palette);
-// Legacy VGA high-resolution graphics use the low byte of the selected
-// frame/line dither palette for every sample, as the old VGA driver did.
-void graphics_source_render_vga8(unsigned row, unsigned height, uint8_t *output,
-                                 const uint16_t *palette);
 void graphics_source_render_line16(unsigned row, unsigned width, unsigned height,
                                    uint16_t *output, const uint16_t *palette);
 // One complete 32-bit palette entry per logical pixel. HSTX supplies two
 // equal BGR555 halfwords per entry to double low-resolution pixels in DMA.
 void graphics_source_render_line32(unsigned row, unsigned width, unsigned height,
                                    uint32_t *output, const uint32_t *palette);
-// quad_pixels has 4096 four-byte entries: attribute * 16 + four glyph bits,
-// lowest bit/pixel first. Build it when the VGA text palette is set. Both
-// 40- and 80-column output share this table; no second doubled table is used.
-void graphics_source_render_vga_text(unsigned row, unsigned height,
-                                     uint16_t *output,
-                                     const uint16_t *attribute_pairs,
-                                     const uint32_t *quad_pixels);
-#if defined(GRAPHICS_PC_EMULATOR)
 #include "graphics_text.h"
-// PC text for a glyph expander (PIO HDMI): the cells of output line `row`
-// of 480. A cell is two VRAM words, eight bytes: character, then attribute.
-// Rows 400..479 below the 25 text rows are blank: returns false.
-bool graphics_source_pc_text_line(unsigned row, struct graphics_text_line *line);
-#endif
-// NTSC full palette tables have two samples per entry. The even table is
-// phases 0/1, odd is phases 2/3. The 32-bit form emits a whole sample pair.
-void graphics_source_render_ntsc16(unsigned row, unsigned width, unsigned height,
-                                  uint16_t *output, const uint32_t *even,
-                                  const uint32_t *odd);
-void graphics_source_render_ntsc32(unsigned row, unsigned width, unsigned height,
-                                  uint32_t *output, const uint32_t *even,
-                                  const uint32_t *odd);
-bool graphics_source_render_ntsc_fast(unsigned row, uint16_t *output,
-                                      const uint32_t *even, const uint32_t *odd,
-                                      const uint16_t *luma);
 
-// True while a text mode is selected. A backend then leaves the composer above
-// alone and builds its line from graphics_text_row() instead.
+// True while a text mode is selected. The backend then draws text lines itself.
 bool graphics_source_is_text(void);
 
 // Columns in the selected text mode: 80, or 40 for TEXTMODE_53x30. A 40-column
 // line sends every pixel twice, so both fill the same 640 samples.
 unsigned graphics_text_columns(void);
 
-// Start of the character/attribute pairs for the text row holding output line
-// `line`, or NULL when there is no text buffer. `font_height` is 16 for a
-// 480-line output and 8 for a 240-line one; `*glyph_line` gets the row inside
-// the character cell.
-const uint8_t *graphics_text_row(unsigned line,
-                                 unsigned font_height,
-                                 unsigned *glyph_line);
-
 // State, set from the backend graphics_set_* functions.
-#if defined(HDMI_HSTX)
 // Call once on the scanout core before enabling either output IRQ. Setters
 // remain usable before initialization while no scanout is running.
 void graphics_source_init(void);
-#endif
 void graphics_source_set_mode(enum graphics_mode_t mode);
 void graphics_source_set_buffer(uint8_t *buffer, uint16_t width, uint16_t height);
 void graphics_source_set_offset(int x, int y);

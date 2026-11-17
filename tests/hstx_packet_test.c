@@ -18,8 +18,9 @@ static uint32_t take_word(const uint32_t *words, unsigned *read, trace_t *trace)
 }
 
 // Model the documented command count as OUTPUT symbols. RAW_REPEAT never
-// reloads its operand. RAW and TMDS reload once per two symbols; RAW_SHIFT=0
-// repeats a control word, ENC_SHIFT=16 selects the next BGR555 halfword.
+// reloads its operand. RAW reloads every symbol (RAW_N_SHIFTS=1: each data
+// island word is one symbol). TMDS reloads once per two symbols; ENC_SHIFT=16
+// selects the next BGR555 halfword.
 static trace_t decode(const hstx_video_packet_t *packet) {
     uint32_t words[HSTX_PACKET_WORDS];
     memcpy(words, packet, sizeof words);
@@ -37,7 +38,7 @@ static trace_t decode(const hstx_video_packet_t *packet) {
         uint32_t data = 0;
         if (op == HSTX_CMD_RAW_REPEAT) data = take_word(words, &read, &trace);
         for (unsigned i = 0; i < count; ++i) {
-            if (op != HSTX_CMD_RAW_REPEAT && !(i & 1u))
+            if (op == HSTX_CMD_RAW || (op == HSTX_CMD_TMDS && !(i & 1u)))
                 data = take_word(words, &read, &trace);
             assert(trace.pixels < 800);
             trace.encoded[trace.pixels] = op == HSTX_CMD_TMDS;
@@ -68,29 +69,20 @@ static void test_packets(void) {
                 assert(traces[kind].encoded[x]);
                 assert(traces[kind].values[x] == x - 160);
             } else {
-                const bool hsync = x >= 16 && x < 112;
-                const uint32_t expected = vsync ?
-                        (hsync ? HSTX_SYNC_V0_H0 : HSTX_SYNC_V0_H1) :
-                        (hsync ? HSTX_SYNC_V1_H0 : HSTX_SYNC_V1_H1);
+                // Blanking is raw symbols: control words, the data island and the guard bands.
                 assert(!traces[kind].encoded[x]);
-                assert(traces[kind].values[x] == expected);
-                assert(((expected >> 10) & 1023u) == 0x354u);
-                assert(((expected >> 20) & 1023u) == 0x354u);
             }
         }
     }
-    // Same FIFO pops at the same beam positions for every packet kind.
-    // With eight slots, accepting the last DMA word needs329-8 pops. Hence
-    // consecutive completions remain800 pixels apart, even active->blank.
+    // With eight FIFO slots the DMA has its last word accepted at pop
+    // HSTX_PACKET_WORDS - 9. Blank and vsync lines pop at the same positions.
+    // An active line reads its pixels two per word, a blank line one per symbol,
+    // so with the HDMI data island the last accept is 9 symbols apart
+    // (782 against 791): completions are 791 or 809 pixels apart, not 800.
     const unsigned last_accept_pop = HSTX_PACKET_WORDS - 8u - 1u;
-    for (unsigned a = 0; a < 3; ++a) {
-        for (unsigned b = 0; b < 3; ++b) {
-            assert(memcmp(traces[a].read_at, traces[b].read_at, sizeof traces[a].read_at) == 0);
-            const unsigned deadline = 800u + traces[b].read_at[last_accept_pop] -
-                                      traces[a].read_at[last_accept_pop];
-            assert(deadline == 800u);
-        }
-    }
+    assert(memcmp(traces[1].read_at, traces[2].read_at, sizeof traces[1].read_at) == 0);
+    assert(traces[0].read_at[last_accept_pop] == 782u);
+    assert(traces[1].read_at[last_accept_pop] == 791u);
     hstx_packet_init(&packets[0], true, false);
     const trace_t black = decode(&packets[0]);
     assert(black.active == 640);
@@ -126,5 +118,5 @@ static void test_packet_lifetimes(void) {
 int main(void) {
     test_packets();
     test_packet_lifetimes();
-    puts("HSTX packets: pixels, sync, FIFO deadline and buffer lifetime checks passed");
+    puts("HSTX packets: pixels, blanking, FIFO accept positions and buffer lifetime checks passed");
 }

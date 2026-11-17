@@ -3,8 +3,6 @@
 #include <string.h>
 
 #define PICO_ON_DEVICE 0
-#define I2S_SOUND 1
-#define HARDWARE_SOUND 0
 
 static uint8_t test_memory[1u << 20];
 #define I8237_MEMORY_READ(address) test_memory[(address) & 0xFFFFFu]

@@ -38,8 +38,6 @@
 #define RELEASE_UMB 0x11
 
 #define XMS_HANDLES 64
-// FIXME: Calculate with EMS offset
-#define XMS_PSRAM_OFFSET (4096*1024)
 
 //typedef struct __attribute__((packed, aligned)) {
 typedef struct __attribute__((packed, aligned)) {
@@ -164,36 +162,12 @@ umb_t *get_free_umb_block(const uint16_t size) {
     }
     return best;
 }
-#if PICO_ON_DEVICE && !defined(ONBOARD_PSRAM)
-#include "swap.h"
-#include "psram_spi.h"
-extern uint32_t butter_psram_size;
-#endif
 static INLINE uint16_t xms_readw(const uint32_t offset) {
-    if (butter_psram_size) {
-        return *(uint16_t *) &XMS[offset];
-    }
-#if PICO_ON_DEVICE && !defined(ONBOARD_PSRAM)
-    const uint32_t address = XMS_PSRAM_OFFSET + offset;
-    return PSRAM_AVAILABLE ? read16psram(address) : swap_read16(address);
-#else
-    return 0xFFFF;
-#endif
+    return *(uint16_t *) &XMS[offset];
 }
 
 static INLINE void xms_writew(const uint32_t offset, const uint16_t value) {
-    if (butter_psram_size) {
-        *(uint16_t *) &XMS[offset] = value;
-        return;
-    }
-#if PICO_ON_DEVICE && !defined(ONBOARD_PSRAM)
-    const uint32_t address = XMS_PSRAM_OFFSET + offset;
-    if (PSRAM_AVAILABLE) {
-        write16psram(address, value);
-    } else {
-        swap_write16(address, value);
-    }
-#endif
+    *(uint16_t *) &XMS[offset] = value;
 }
 
 static INLINE void xms_move_to(const uint32_t destination, const uint32_t source, const uint32_t length) {

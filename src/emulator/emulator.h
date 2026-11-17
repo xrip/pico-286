@@ -1,8 +1,7 @@
 #pragma once
-#if PICO_ON_DEVICE
 #include "printf/printf.h"
+#if PICO_ON_DEVICE
 #include <pico.h>
-#else
 #endif
 #include <stdint.h>
 #include "cpu.h"
@@ -11,41 +10,9 @@
 extern "C" {
 #endif
 
-#if PICO_ON_DEVICE
-extern uint32_t butter_psram_size;
-extern bool PSRAM_AVAILABLE;
-#include "psram_spi.h"
-#define VIDEORAM_SIZE (64 << 10)
-#if PICO_RP2350
-
-#define RAM_SIZE (640 << 10)
-
-#else
-//#define RAM_SIZE (146 << 10)
-
-#ifdef TOTAL_VIRTUAL_MEMORY_KBS
-#define RAM_SIZE (72 << 10)
-#else
-#define RAM_SIZE (112 << 10)
-#endif
-
-#endif
-#else
-#include "printf/printf.h"
 #define VIDEORAM_SIZE (64 << 10)
 #define RAM_SIZE (640 << 10)
-#define butter_psram_size 1
-#define PSRAM_AVAILABLE 1
-#endif
-#ifdef HARDWARE_SOUND
 #define SOUND_FREQUENCY (44100)
-#else
-    #if PICO_RP2040
-#define SOUND_FREQUENCY (22050)
-#else
-#define SOUND_FREQUENCY (44100)
-#endif
-#endif
 #define rgb(r, g, b) (((r)<<16) | ((g) << 8 ) | (b) )
 
 #define VIDEORAM_START (0xA0000)
@@ -78,14 +45,7 @@ extern uint8_t RAM[RAM_SIZE];
 extern uint32_t VIDEORAM[VIDEORAM_SIZE];
 extern uint8_t UMB[UMB_END - UMB_START];
 extern uint8_t HMA[HMA_END - HMA_START];
-// for non-butter-psram modes
-#define SRAM_BLOCK_SIZE 0x2C000
-extern uint8_t SRAM[SRAM_BLOCK_SIZE];
-#if defined(ONBOARD_PSRAM)
 #define FIRST_RAM_PAGE RAM
-#else
-#define FIRST_RAM_PAGE (butter_psram_size ? RAM : SRAM)
-#endif
 
 extern uint32_t dwordregs[8];
 #define byteregs ((uint8_t*)dwordregs)
@@ -187,20 +147,6 @@ void writedw86_ob(uint32_t address, uint32_t value);
 uint8_t read86_ob(uint32_t address);
 uint16_t readw86_ob(uint32_t address);
 uint32_t readdw86_ob(uint32_t address);
-// murmulator-psram
-void write86_mp(const uint32_t address, const uint8_t value);
-void writew86_mp(uint32_t address, uint16_t value);
-void writedw86_mp(uint32_t address, uint32_t value);
-uint8_t read86_mp(uint32_t address);
-uint16_t readw86_mp(uint32_t address);
-uint32_t readdw86_mp(uint32_t address);
-// swap
-void write86_sw(const uint32_t address, const uint8_t value);
-void writew86_sw(uint32_t address, uint16_t value);
-void writedw86_sw(uint32_t address, uint32_t value);
-uint8_t read86_sw(uint32_t address);
-uint16_t readw86_sw(uint32_t address);
-uint32_t readdw86_sw(uint32_t address);
 
 // Ports
 void vga_portout(uint16_t portnum, uint16_t value);
@@ -312,9 +258,6 @@ extern int16_t covox_sample;
 #endif
 #endif
 static INLINE int16_t speaker_sample() {
-#if SPEAKER_ON_PWM_PIN
-    return 0; // the speaker has its own PWM pin
-#else
     if (!(port61 & 2)) return 0;
     if (!(port61 & 1)) return 4096; // GATE2 off: OUT2 stays high, the speaker follows bit 1
     static uint32_t speakerfullstep, speakerhalfstep, speakercurstep = 0;
@@ -330,7 +273,6 @@ static INLINE int16_t speaker_sample() {
     }
     speakercurstep = (speakercurstep + 1) % speakerfullstep;
     return speakervalue;
-#endif
 }
 
 extern void get_sound_sample(int16_t other_sample, int16_t *samples);
@@ -342,27 +284,6 @@ extern void midi_dls_init(void);
 #endif
 
 
-#ifdef TOTAL_VIRTUAL_MEMORY_KBS
-#include "swap.h"
-static INLINE void write8psram(uint32_t address, uint8_t value) {
-    swap_write(address, value);
-}
-static INLINE void write16psram(uint32_t address, uint16_t value) {
-    swap_write16(address, value);
-}
-static INLINE void write32psram(uint32_t address, uint32_t value) {
-    swap_write32(address, value);
-}
-static INLINE uint8_t read8psram(uint32_t address) {
-    return swap_read(address);
-}
-static INLINE uint16_t read16psram(uint32_t address) {
-    return swap_read16(address);
-}
-static INLINE uint32_t read32psram(uint32_t address) {
-    return swap_read32(address);
-}
-#endif
 
 void vga_init(void);
 void vga_mem_write(uint32_t address, uint8_t cpu_data);

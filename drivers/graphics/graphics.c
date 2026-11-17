@@ -2,50 +2,23 @@
 #include "graphics_modes.h"
 #include <string.h>
 
-#if defined(HDMI) || defined(HDMI_HSTX) || defined(NTSC_TV)
 #include <hardware/clocks.h>
 #include <hardware/sync.h>
 #include <hardware/vreg.h>
 #include <pico/time.h>
-#endif
 
-#if defined(HDMI_HSTX)
-#if !PICO_RP2350
-#error "HDMI_HSTX requires RP2350"
-#endif
 #include <hardware/pll.h>
 #include <hardware/resets.h>
 #include <hardware/structs/clocks.h>
 #include <pico/stdlib.h>
-#endif
 
-#if defined(HDMI) && PICO_RP2040
-#include <hardware/regs/vreg_and_chip_reset.h>
-#include <hardware/structs/vreg_and_chip_reset.h>
-#endif
 
 enum {
-    GRAPHICS_NTSC_SYSTEM_CLOCK_KHZ = 315000,
-    GRAPHICS_HDMI_SYSTEM_CLOCK_KHZ = 378000,
     GRAPHICS_HSTX_CLOCK_HZ = 126000000
 };
 
-// An application which already owns the system clock, or which must set it
-// before starting a second core, defines GRAPHICS_NO_CLOCK_SETUP. It then has
-// to supply the clock the selected form needs by itself. HSTX validates the
-// actual PLLs and clock mux/divider registers even when setup is disabled.
-#if defined(HDMI_HSTX)
-#if defined(CPU_FREQ_MHZ)
 #define GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ (CPU_FREQ_MHZ * 1000u)
-#else
-#define GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ 315000u
-#endif
-_Static_assert(GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 315000u ||
-               GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 500000u,
-               "HSTX supports the 315 MHz and 500 MHz clock profiles");
-#if defined(NTSC_TV)
-_Static_assert(GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 315000u, "NTSC requires 315 MHz");
-#endif
+_Static_assert(GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 500000u, "HSTX runs with a 500 MHz system clock");
 
 static bool graphics_pll_is_frequency(PLL pll, uint32_t frequency_hz) {
     const uint32_t cs = pll->cs;
@@ -111,7 +84,6 @@ static void graphics_validate_hstx_clocks(void) {
     }
 }
 
-#if !defined(GRAPHICS_NO_CLOCK_SETUP)
 static void graphics_stop_peripheral_clock(clock_handle_t clock) {
     if (clock != clk_hstx && clock != clk_peri &&
         clock != clk_usb && clock != clk_adc) {
@@ -124,41 +96,35 @@ static void graphics_stop_peripheral_clock(clock_handle_t clock) {
         tight_loop_contents();
     }
 }
-#endif
 
 void graphics_prepare_clock(void) {
     if (XOSC_HZ != 12000000u) {
         panic("HDMI_HSTX clock profile requires a 12 MHz crystal");
     }
 
-#if !defined(GRAPHICS_NO_CLOCK_SETUP)
     // set_sys_clock_khz() temporarily uses PLL_USB and assumes it is 48 MHz.
     // Run this startup once, before any video DMA or the second core starts.
     if (!graphics_pll_is_frequency(pll_usb, 48000000u)) {
-        panic("HDMI_HSTX startup expects PLL_USB at 48 MHz; use GRAPHICS_NO_CLOCK_SETUP for external setup");
+        panic("HDMI_HSTX startup expects PLL_USB at 48 MHz");
     }
 
     // The SDK initially sources HSTX from clk_sys. Stop it before raising SYS.
     reset_block_mask(RESETS_RESET_HSTX_BITS);
     graphics_stop_peripheral_clock(clk_hstx);
 
-    if (GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 500000u) {
-        vreg_disable_voltage_limit();
-        vreg_set_voltage(VREG_VOLTAGE_1_60);
-    } else {
-        vreg_set_voltage(VREG_VOLTAGE_1_30);
-    }
+    vreg_disable_voltage_limit();
+    vreg_set_voltage(VREG_VOLTAGE_1_60);
     sleep_ms(10);
     set_sys_clock_khz(GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ, true);
 
     // The SDK normally leaves PERI on PLL_USB after changing SYS. Move it to
     // an integer division of SYS. Initialise application UART/SPI after this
-    // call (105 MHz at 315, 125 MHz at 500).
+    // call (125 MHz).
     graphics_stop_peripheral_clock(clk_peri);
     clock_configure_int_divider(
         clk_peri, 0, CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS,
         GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ * 1000u,
-        GRAPHICS_HSTX_SYSTEM_CLOCK_KHZ == 500000u ? 4u : 3u);
+        4u);
 
     reset_block_mask(RESETS_RESET_USBCTRL_BITS | RESETS_RESET_ADC_BITS);
     graphics_stop_peripheral_clock(clk_usb);
@@ -174,80 +140,32 @@ void graphics_prepare_clock(void) {
         tight_loop_contents();
     }
     unreset_block_mask_wait_blocking(RESETS_RESET_HSTX_BITS);
-#endif
 
     graphics_validate_hstx_clocks();
 }
-#elif defined(GRAPHICS_NO_CLOCK_SETUP)
-void graphics_prepare_clock(void) {
-}
-#elif defined(HDMI)
-void graphics_prepare_clock(void) {
-#if PICO_RP2040
-    hw_set_bits(&vreg_and_chip_reset_hw->vreg,
-                VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
-    sleep_ms(33);
-#else
-    vreg_set_voltage(VREG_VOLTAGE_1_30);
-    sleep_ms(10);
-#endif
-    set_sys_clock_khz(GRAPHICS_HDMI_SYSTEM_CLOCK_KHZ, true);
-}
-#elif defined(NTSC_TV)
-void graphics_prepare_clock(void) {
-    vreg_set_voltage(VREG_VOLTAGE_1_30);
-    sleep_ms(10);
-    set_sys_clock_khz(GRAPHICS_NTSC_SYSTEM_CLOCK_KHZ, true);
-}
-#else
-void graphics_prepare_clock(void) {
-}
-#endif
 
 void graphics_init(void) {
-#if defined(HDMI_HSTX)
     static bool initialized;
     if (initialized) {
         panic("HDMI_HSTX graphics_init must run once on the scanout core");
     }
     initialized = true;
-#endif
     // The application prepares HSTX clocks on core 0; IRQs belong to the
     // scanout core. Never retune PLLs after SD, PSRAM or core 1 have started.
-#if defined(HDMI_HSTX)
     graphics_validate_hstx_clocks();
-#else
-    graphics_prepare_clock();
-#endif
 
-#if defined(HDMI_HSTX)
     graphics_text_init();
     hdmi_hstx_graphics_init();
-#elif defined(HDMI)
-    graphics_text_init();
-    hdmi_graphics_init();
-#elif defined(NTSC_TV)
-    ntsc_composite_graphics_init();
-#elif defined(TFT)
-    tft_graphics_init();
-#elif defined(VGA)
-    vga_graphics_init();
-#else
-#error "No graphics backend selected"
-#endif
 }
 
-#if defined(GRAPHICS_PC_EMULATOR)
 enum { PC_TEXT_ROWS = 25 };
 
 static void write_pc_text_cell(uint32_t *cell, uint8_t character, uint8_t attribute) {
     cell[0] = (cell[0] & 0xffffff00u) | character;
     cell[1] = (cell[1] & 0xffffff00u) | attribute;
 }
-#endif
 
 void draw_text(const char *string, uint32_t x, uint32_t y, uint8_t color, uint8_t bgcolor) {
-#if defined(GRAPHICS_PC_EMULATOR)
     const unsigned columns = graphics_text_columns();
     if (!string || !text_buffer || x >= columns || y >= PC_TEXT_ROWS) return;
     uint32_t *cells = (uint32_t *)text_buffer + (y * columns + x) * 2u;
@@ -256,68 +174,5 @@ void draw_text(const char *string, uint32_t x, uint32_t y, uint8_t color, uint8_
         write_pc_text_cell(cells, (uint8_t)*string++, attribute);
         cells += 2;
     }
-#elif defined(HDMI) || defined(HDMI_HSTX)
-    graphics_text_draw(string, x, y, color, bgcolor);
-#else
-    const unsigned columns = graphics_text_columns();
-    if (!string || !text_buffer || x >= columns || y >= TEXTMODE_ROWS) return;
-    uint8_t *cells = text_buffer + (y * columns + x) * 2u;
-    const uint8_t attribute = (uint8_t)((bgcolor & 15u) << 4 | (color & 15u));
-    while (*string && x++ < columns) {
-        *cells++ = (uint8_t)*string++;
-        *cells++ = attribute;
-    }
-#endif
 }
 
-#if defined(GRAPHICS_PC_EMULATOR) || \
-        (!defined(HDMI) && !defined(HDMI_HSTX) && \
-         (defined(VGA) || defined(NTSC_TV) || defined(TFT)))
-void clrScr(uint8_t color) {
-    if (!text_buffer) return;
-    const unsigned columns = graphics_text_columns();
-    const uint8_t attribute = (uint8_t)((color & 15u) << 4);
-#if defined(GRAPHICS_PC_EMULATOR)
-    uint32_t *cells = (uint32_t *)text_buffer;
-    for (unsigned count = columns * PC_TEXT_ROWS; count; --count) {
-        write_pc_text_cell(cells, ' ', attribute);
-        cells += 2;
-    }
-#else
-    uint8_t *cells = text_buffer;
-    for (unsigned count = columns * TEXTMODE_ROWS; count; --count) {
-        *cells++ = ' ';
-        *cells++ = attribute;
-    }
-#endif
-}
-#endif
-
-void draw_window(const char title[2*TEXTMODE_COLS + 1], uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
-    char line[width + 1];
-    memset(line, 0, sizeof line);
-    width--;
-    height--;
-    // Рисуем рамки
-
-    memset(line, 0xCD, width); // ═══
-
-
-    line[0] = 0xC9; // ╔
-    line[width] = 0xBB; // ╗
-    draw_text(line, x, y, 11, 1);
-
-    line[0] = 0xC8; // ╚
-    line[width] = 0xBC; //  ╝
-    draw_text(line, x, height + y, 11, 1);
-
-    memset(line, ' ', width);
-    line[0] = line[width] = 0xBA;
-
-    for (int i = 1; i < height; i++) {
-        draw_text(line, x, y + i, 11, 1);
-    }
-
-    snprintf(line, width - 1, " %s ", title);
-    draw_text(line, x + (width - strlen(line)) / 2, y, 14, 3);
-}

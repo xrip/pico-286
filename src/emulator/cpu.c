@@ -12,11 +12,6 @@
 #include "disks-rp2350.c.inl"
 #include "network-redirector-rp2350.c.inl"
 #include "graphics.h"
-#if defined(VGA)
-#include "vga_crtc.h"
-#endif
-#include "psram_spi.h"
-#include "swap.h"
 #else
 
 #include "disks-win32.c.inl"
@@ -24,10 +19,6 @@
 
 #endif
 
-#ifdef TOTAL_VIRTUAL_MEMORY_KBS
-#undef __not_in_flash
-#define __not_in_flash(group)
-#endif
 
 int videomode = 3;
 uint8_t segoverride, reptype;
@@ -500,9 +491,6 @@ void intcall86(uint8_t intnum) {
                     // http://www.techhelpmanual.com/89-video_memory_layouts.html
 
                     videomode = CPU_AL & 0x7F;
-#if PICO_ON_DEVICE && defined(VGA)
-                    vga_crtc_reset(videomode);
-#endif
 
                     FIRST_RAM_PAGE[0x449] = CPU_AL;
                     FIRST_RAM_PAGE[0x44A] = videomode <= 2 || (videomode >= 0x8 && videomode <= 0xa) ? 40 : 80;
@@ -1371,29 +1359,14 @@ void reset86() {
     CPU_SP = 0x0000;
 
     memset(VIDEORAM, 0x00, sizeof(VIDEORAM));
-    if (butter_psram_size) {
-        memset(RAM, 0, sizeof(RAM));
-        memset(UMB, 0, sizeof(UMB));
-        memset(HMA, 0, sizeof(HMA));
-    }
-#if PICO_ON_DEVICE && !defined(ONBOARD_PSRAM)
-    else {
-        memset(SRAM, 0, sizeof(SRAM));
-        if (PSRAM_AVAILABLE) {
-            for (uint32_t a = HMA_START; a < HMA_END; a += 4) write32psram(a, 0);
-        } else {
-            for (uint32_t a = HMA_START; a < HMA_END; a += 4) swap_write32(a, 0);
-        }
-    }
-#endif
+    memset(RAM, 0, sizeof(RAM));
+    memset(UMB, 0, sizeof(UMB));
+    memset(HMA, 0, sizeof(HMA));
     init_umb();
     ip = 0x0000;
     i8237_reset();
     vga_init();
 }
-
-/// @brief  W/A for SWAP mode (avoid using core#1)
-extern volatile bool ask_to_blast;
 
 void __not_in_flash() exec86(uint32_t execloops) {
     static bool was_TF;
@@ -1405,12 +1378,6 @@ void __not_in_flash() exec86(uint32_t execloops) {
         if (unlikely(ifl && i8259_get_pending_irqs())) {
             intcall86(i8259_nextirq()); // get next interrupt from the i8259, if any d
         }
-#if PICO_ON_DEVICE
-        if (ask_to_blast) {
-            ask_to_blast = false;
-            blaster_tick();
-        }
-#endif
         reptype = 0;
         segoverride = 0;
         useseg = CPU_DS;
