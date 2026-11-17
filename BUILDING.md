@@ -139,7 +139,7 @@ cmake --preset m2p2-hdmi-pio
 cmake --build --preset m2p2-hdmi-pio
 ```
 
-Its output ends in `-504MHz-HDMI-PIO-PWM.uf2`. Normal M2P2 presets remain HSTX.
+Its output ends in `-C504MHz-HDMI-PIO-PWM.uf2`. Normal M2P2 presets remain HSTX.
 The PIO test includes USB diagnostics and the 1200-baud BOOTSEL reset.
 Send one command at a time: `c` for clocks and memory timing, `s` for emulation
 and audio progress plus guest CS:IP/PIC state, `v` for PIO frame/IRQ progress,
@@ -184,6 +184,9 @@ PSRAM or core 1 starts. See [flash setup](drivers/flash-config/README.md).
 The flash timing now preserves the ROM boot profile's physical intervals
 and maximum rate when SYS changes. On the tested board, 50 MHz stock flash
 becomes about 45.45 MHz at 500 MHz SYS. This also retains the ROM QSPI pad settings.
+RP2350 filenames omit the flash speed field. The old `F100` label was the
+configured speed limit, not the actual flash clock. On M2P2, the actual rate
+depends on the boot profile, CPU clock, and saved timing settings.
 
 For the HDMI-only file:
 
@@ -192,7 +195,7 @@ cmake --preset m2p2-hdmi
 cmake --build --preset m2p2-hdmi
 ```
 
-Output: `bin/rp2350-arm-s/Release/m2p2-286-F100-P166-500MHz-HDMI-HSTX-PWM.uf2`.
+Output: `bin/rp2350-arm-s/Release/m2p2-286-P166-C500MHz-HDMI-HSTX-PWM.uf2`.
 For HDMI audio, turn off the other sound outputs:
 
 ```sh
@@ -200,7 +203,7 @@ cmake --preset m2p2-hdmi -DENABLE_PWM_SOUND=OFF -DENABLE_I2S_SOUND=OFF -DENABLE_
 cmake --build --preset m2p2-hdmi
 ```
 
-That output ends in `-500MHz-HDMI-HSTX-HDMIAUDIO.uf2`. The independent-PLL
+That output ends in `-C500MHz-HDMI-HSTX-HDMIAUDIO.uf2`. The independent-PLL
 500 MHz profile is under board testing; earlier 504 MHz checks are recorded
 in the [historical board record](tests/graphics-perf/results/hstx-504-board.md).
 See [VIDEO_MODES.md](VIDEO_MODES.md) for layouts and the board timing test.
@@ -210,6 +213,37 @@ See [VIDEO_MODES.md](VIDEO_MODES.md) for layouts and the board timing test.
 - `ENABLE_I2S_SOUND=ON`: Use I2S for audio.
 - `ENABLE_PWM_SOUND=ON`: Use PWM for audio.
 - `ENABLE_HARDWARE_SOUND=ON`: Use a hardware sound chip.
+
+### Optional GM.DLS MIDI on RP2350
+
+`MIDI_GM_DLS=ON` selects the wavetable engine from the `midi` branch.
+The default remains the sine/noise MIDI engine. HDMI audio stays at 44,100 Hz.
+The packed bank must use that same rate; a 22,050 Hz bank is rejected.
+
+Pack your local `gm.dls` with a host C compiler:
+
+```sh
+cc -std=c11 -O2 tools/dls_pack.c -lm -o dls_pack
+./dls_pack gm.dls src/emulator/audio/gm_bank_44100.bin 44100
+```
+
+Then build M2P2 HSTX video and HDMI audio with GM.DLS:
+
+```sh
+cmake --preset m2p2-hdmi -DMIDI_GM_DLS=ON -DENABLE_PWM_SOUND=OFF -DENABLE_I2S_SOUND=OFF -DENABLE_HARDWARE_SOUND=OFF
+cmake --build --preset m2p2-hdmi
+```
+
+Output: `bin/rp2350-arm-s/Release/m2p2-286-P166-C500MHz-HDMI-HSTX-HDMIAUDIO-GMDLS.uf2`.
+`MIDI_GM_BANK` can point to another packed v4 bank at 44,100 Hz.
+The bank stays in flash; the engine has 32 voices and preserves stereo pan.
+MIDI commands go through a queue to the audio core. The engine does not
+allocate a wave cache during playback. MPU-401 reset clears its voices.
+
+RP2350 Arm builds use 16 MB flash in both SDK settings and linker scripts.
+The last 4 KB is reserved for CMOS; the launcher layout also reserves the
+first 64 KB. This requires a board with 16 MB physical flash.
+The GM.DLS option currently targets RP2350 Arm.
 
 Example of a different configuration (HDMI for rp2040):
 ```sh

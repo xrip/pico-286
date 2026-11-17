@@ -22,7 +22,11 @@ static int midi_insysex;
 
 
 #if defined(EMULATED_MIDI)
+#if defined(MIDI_GM_DLS)
+#include "general-midi-dls.c.inl"
+#else
 #include <emulator/audio/general-midi.c.inl>
+#endif
 #else
 
 static int midi_id = 0;
@@ -126,6 +130,11 @@ static INLINE void mpu401_write(uint16_t portnum, uint8_t value) {
                 printf("[MIDI] Unknown %x %x\n", portnum, value);
 #endif
             case 0xFF: // Reset
+#if defined(MIDI_GM_DLS)
+                parse_midi(&(const midi_command_t){.command = 0xff});
+                midi_pos = midi_len = midi_insysex = 0;
+                midi_command = 0;
+#endif
 #if !defined(EMULATED_MIDI)
                 midi_init_once();
 #endif

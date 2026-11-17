@@ -333,6 +333,9 @@ static INLINE int16_t speaker_sample() {
 }
 
 extern void get_sound_sample(int16_t other_sample, int16_t *samples);
+#if defined(MIDI_GM_DLS)
+extern void midi_dls_init(void);
+#endif
 #ifdef __cplusplus
 }
 #endif

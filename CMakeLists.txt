@@ -75,6 +75,9 @@ else ()
     # PICO BUILD CONFIGURATION
     # =========================
     #set(PICO_BOARD pico2 CACHE STRING "Board type") // should be early
+    if (PICO_PLATFORM STREQUAL "rp2350-arm-s")
+        set(PICO_FLASH_SIZE_BYTES 16777216 CACHE STRING "Flash size in bytes" FORCE)
+    endif ()
     pico_sdk_init()
 
     # =========================
@@ -103,6 +106,21 @@ else ()
     option(ENABLE_I2S_SOUND "Enable I2S audio output" OFF)
     option(ENABLE_PWM_SOUND "Enable PWM audio output" OFF)
     option(ENABLE_HARDWARE_SOUND "Enable hardware audio output" OFF)
+    option(MIDI_GM_DLS "Use the GM.DLS wavetable MIDI engine" OFF)
+    if (MIDI_GM_DLS)
+        if (NOT PICO_PLATFORM STREQUAL "rp2350-arm-s")
+            message(FATAL_ERROR "MIDI_GM_DLS requires the RP2350 Arm build with 16 MB flash")
+        endif ()
+        set(MIDI_GM_BANK "${CMAKE_SOURCE_DIR}/src/emulator/audio/gm_bank_44100.bin"
+                CACHE FILEPATH "Packed GM.DLS v4 bank for 44100 Hz")
+        if (NOT EXISTS "${MIDI_GM_BANK}")
+            message(FATAL_ERROR "GM.DLS bank missing: ${MIDI_GM_BANK}. See BUILDING.md.")
+        endif ()
+        file(READ "${MIDI_GM_BANK}" MIDI_GM_HEADER LIMIT 12 HEX)
+        if (NOT MIDI_GM_HEADER STREQUAL "474d57420400000044ac0000")
+            message(FATAL_ERROR "MIDI_GM_BANK must be a GMWB v4 bank packed for 44100 Hz")
+        endif ()
+    endif ()
 
     # =========================
     # VALIDATION
@@ -208,7 +226,10 @@ else ()
     endif ()
 
     # Add frequency
-    set(BUILD_NAME "${BUILD_NAME}-F${FLASH_FREQ_MHZ}-P${PSRAM_FREQ_MHZ}-${CPU_FREQ_MHZ}MHz")
+    if (PICO_PLATFORM STREQUAL "rp2040")
+        string(APPEND BUILD_NAME "-F${FLASH_FREQ_MHZ}")
+    endif ()
+    string(APPEND BUILD_NAME "-P${PSRAM_FREQ_MHZ}-C${CPU_FREQ_MHZ}MHz")
 
     # Add display type
     if (ENABLE_TFT)
@@ -237,6 +258,9 @@ else ()
     elseif (HDMI_SOUND)
         set(BUILD_NAME "${BUILD_NAME}-HDMIAUDIO")
     endif ()
+    if (MIDI_GM_DLS)
+        string(APPEND BUILD_NAME "-GMDLS")
+    endif ()
 
     # =========================
     # EXECUTABLE SETUP
@@ -258,6 +282,13 @@ else ()
     add_executable(${PROJECT_NAME} ${SRC} src/pico-main.c src/printf/printf.c src/74hc595/74hc595.c)
     target_include_directories(${PROJECT_NAME} PRIVATE src/74hc595 src src/emu8950 src/printf)
     target_sources(${PROJECT_NAME} PRIVATE src/emu8950/slot_render_pico.S)
+    if (MIDI_GM_DLS)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE MIDI_GM_DLS=1)
+        configure_file(src/emulator/audio/gm_dls_bank.S.in gm_dls_bank.S @ONLY)
+        target_sources(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gm_dls_bank.S")
+        set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/gm_dls_bank.S"
+                PROPERTIES OBJECT_DEPENDS "${MIDI_GM_BANK}")
+    endif ()
 
     # =========================
     # BOOT STAGE 2 CONFIGURATION
@@ -381,7 +412,7 @@ else ()
             CPU_FREQ_MHZ=${CPU_FREQ_MHZ}
             FLASH_FREQ_MHZ=${FLASH_FREQ_MHZ}
             PSRAM_FREQ_MHZ=${PSRAM_FREQ_MHZ}
-            PICO_FLASH_SIZE_BYTES=16777216
+            PICO_FLASH_SIZE_BYTES=${PICO_FLASH_SIZE_BYTES}
 
             # Display macros come from the selected driver targets.
             GRAPHICS_PC_EMULATOR=1

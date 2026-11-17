@@ -13,6 +13,7 @@
         "MURM20": "ON",
         "ONBOARD_PSRAM": "ON",
         "ENABLE_PWM_SOUND": "ON",
+        "MIDI_GM_DLS": "OFF",
         "ENABLE_HDMI": "OFF",
         "M2P2_PIO_HDMI_TEST": "OFF",
         "ENABLE_VGA": "OFF",

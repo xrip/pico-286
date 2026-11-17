@@ -924,6 +924,9 @@ int main(void) {
     }
 #endif
     // Mount SD card filesystem
+#if defined(MIDI_GM_DLS)
+    midi_dls_init();
+#endif
     if (FR_OK != f_mount(&fs, "0", 1)) {
         sem_init(&vga_start_semaphore, 0, 1);
         multicore_launch_core1(second_core);
