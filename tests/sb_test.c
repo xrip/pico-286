@@ -113,6 +113,31 @@ static void test_record_writes_silence(void) {
     assert(guest_memory[0] == 128 && guest_memory[1] == 128);
 }
 
+static void mixer_write(const uint8_t index, const uint8_t value) {
+    blaster_write(SB_BASE + MIXER_INDEX, index);
+    blaster_write(SB_BASE + MIXER_DATA, value);
+}
+
+static uint8_t mixer_read(const uint8_t index) {
+    blaster_write(SB_BASE + MIXER_INDEX, index);
+    return blaster_read(SB_BASE + MIXER_DATA);
+}
+
+static void test_mixer(void) {
+    setup();
+    mixer_write(0x22, 0x55);
+    assert(mixer_read(0x22) == 0x55);
+    assert(blaster_read(SB_BASE + MIXER_INDEX) == 0x22);
+
+    blaster_write(SB_BASE + DSP_RESET, 1); // a DSP reset keeps the mixer
+    assert(mixer_read(0x22) == 0x55);
+
+    mixer_write(MIXER_RESET, 0);
+    assert(mixer_read(0x22) == 0x99);
+    assert(mixer_read(0x04) == 0x99);
+    assert(mixer_read(0x0E) == 0x00);
+}
+
 int main(void) {
     test_version();
     test_time_constant();
@@ -120,6 +145,7 @@ int main(void) {
     test_auto_init_dma_uses_block_size();
     test_high_speed_dma();
     test_record_writes_silence();
+    test_mixer();
     puts("sb_test: all passed");
     return 0;
 }

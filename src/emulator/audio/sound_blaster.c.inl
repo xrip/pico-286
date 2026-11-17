@@ -29,7 +29,9 @@
 #include "../emulator.h"
 #define SB_READ_BUFFER 16
 
-// Sound Blaster DSP I/O port offsets
+// Sound Blaster I/O port offsets
+#define MIXER_INDEX         0x4
+#define MIXER_DATA          0x5
 #define DSP_RESET           0x6
 #define DSP_READ            0xA
 #define DSP_WRITE           0xC
@@ -81,6 +83,13 @@ typedef  struct sound_blaster_s {
 } sound_blaster_s;
 
 static sound_blaster_s sound_blaster = { 0 };
+
+// SB Pro mixer (CT1345). Its own chip: a DSP reset does not touch it.
+#define MIXER_RESET         0x00
+#define MIXER_DEFAULTS { [0x04] = 0x99, [0x22] = 0x99, [0x26] = 0x99, [0x28] = 0x11, [0x2E] = 0x11 }
+static const uint8_t mixer_defaults[256] = MIXER_DEFAULTS;
+static uint8_t mixer_registers[256] = MIXER_DEFAULTS;
+static uint8_t mixer_index;
 
 uint16_t timeconst = 22;
 
@@ -286,6 +295,15 @@ static INLINE void blaster_write(const uint16_t port, const uint8_t value) {
         case DSP_WRITE: //DSP write (command/data)
             blaster_command(value);
             break;
+        case MIXER_INDEX:
+            mixer_index = value;
+            break;
+        case MIXER_DATA:
+            if (mixer_index == MIXER_RESET)
+                memcpy(mixer_registers, mixer_defaults, sizeof(mixer_registers));
+            else
+                mixer_registers[mixer_index] = value;
+            break;
     }
 }
 
@@ -296,6 +314,10 @@ static INLINE uint8_t blaster_read(const uint16_t port) {
 #endif
 
     switch (port & 0xF) {
+        case MIXER_INDEX:
+            return mixer_index;
+        case MIXER_DATA:
+            return mixer_registers[mixer_index];
         case DSP_READ:
             return blaster_read_buffer();
         case DSP_WRITE_STATUS:
