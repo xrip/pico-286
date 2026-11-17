@@ -4,7 +4,6 @@
 
 //#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
 //#define CPU_NO_SALC
-//#define CPU_SET_HIGH_FLAGS
 #define CPU_286_STYLE_PUSH_SP
 #if PICO_ON_DEVICE
 
@@ -1484,21 +1483,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
 
             case 0x27: { /* 27 DAA: the second step tests the old AL and CF */
                 const uint8_t old_al = CPU_AL;
-                const uint8_t old_cf = cf;
-                cf = 0;
-                if ((CPU_AL & 0x0F) > 9 || af) {
-                    cf = old_cf || CPU_AL > 0xF9;
-                    CPU_AL += 6;
-                    af = 1;
-                } else {
-                    af = 0;
-                }
-                if (old_al > 0x99 || old_cf) {
-                    CPU_AL += 0x60;
-                    cf = 1;
-                } else {
-                    cf = 0;
-                }
+                af = (CPU_AL & 0x0F) > 9 || af;
+                if (af) CPU_AL += 6;
+                cf = old_al > 0x99 || cf;
+                if (cf) CPU_AL += 0x60;
                 flag_szp8(CPU_AL);
                 break;
             }
@@ -2512,11 +2500,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
                 break;
 
             case 0x9D: /* 9D POPF */
-#ifdef CPU_SET_HIGH_FLAGS
-                decodeflagsword(pop() | 0xF800);
-#else
-                decodeflagsword(pop() & 0x0FFF);
-#endif
+                decodeflagsword(pop()); // the 386 keeps IOPL and NT: this is how programs tell it from a 286
                 break;
 
             case 0x9E: /* 9E SAHF */
@@ -3095,11 +3079,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
             case 0xCF: /* CF IRET */
                 CPU_IP = pop();
                 load_segment(regcs, pop());
-#ifdef CPU_SET_HIGH_FLAGS
-                decodeflagsword(pop() | 0xF000);
-#else
-                decodeflagsword(pop() & 0x0FFF);
-#endif
+                decodeflagsword(pop());
 
 
                 /*

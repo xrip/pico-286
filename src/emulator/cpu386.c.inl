@@ -315,10 +315,6 @@ static void string_step(uint8_t opcode, uint8_t size) {
     ip = firstip;
 }
 
-// Far pointer m16:32 at ea: offset, then selector.
-static uint32_t far_offset32(void) { return readdw86(ea); }
-static uint16_t far_selector32(void) { return readw86(ea + 4); }
-
 // Condition codes of Jcc and SETcc, by the low four bits of the opcode.
 static bool condition(uint8_t code) {
     bool result;
@@ -513,7 +509,7 @@ static bool exec386(uint8_t opcode) {
             return true;
         }
         case 0xD7: // XLAT
-            CPU_AL = read86(useseg + address_register(regbx) + CPU_AL);
+            CPU_AL = read86(useseg + (addrsize32 ? dwordregs[regbx] + CPU_AL : (uint16_t) (CPU_BX + CPU_AL)));
             return true;
         case 0xE0: case 0xE1: case 0xE2: { // LOOPNE, LOOPE, LOOP
             const int8_t displacement = (int8_t) fetch8();
@@ -570,11 +566,9 @@ static bool exec386(uint8_t opcode) {
         case 0x50: case 0x51: case 0x52: case 0x53: case 0x54: case 0x55: case 0x56: case 0x57:
             push32(dwordregs[opcode & 7]); // PUSH ESP pushes the value before the push
             return true;
-        case 0x58: case 0x59: case 0x5A: case 0x5B: case 0x5C: case 0x5D: case 0x5E: case 0x5F: {
-            const uint32_t value = pop32();
-            dwordregs[opcode & 7] = value;
+        case 0x58: case 0x59: case 0x5A: case 0x5B: case 0x5C: case 0x5D: case 0x5E: case 0x5F:
+            dwordregs[opcode & 7] = pop32(); // POP ESP: the popped value wins over the SP step
             return true;
-        }
         case 0x60: { // PUSHAD
             const uint32_t original_esp = dwordregs[regsp];
             for (uint8_t id = regax; id <= regdi; id++) push32(id == regsp ? original_esp : dwordregs[id]);
@@ -700,8 +694,8 @@ static bool exec386(uint8_t opcode) {
                 return true;
             }
             getea(rm);
-            dwordregs[reg] = far_offset32();
-            load_segment(opcode == 0xC4 ? reges : regds, far_selector32());
+            dwordregs[reg] = readdw86(ea); // m16:32: offset, then selector
+            load_segment(opcode == 0xC4 ? reges : regds, readw86(ea + 4));
             return true;
         case 0xC7: // MOV r/m32, imm32
             modregrm();
@@ -781,8 +775,8 @@ static bool exec386(uint8_t opcode) {
                 }
                 case 3: { // CALL far m16:32
                     getea(rm);
-                    const uint32_t offset = far_offset32();
-                    const uint16_t selector = far_selector32();
+                    const uint32_t offset = readdw86(ea);
+                    const uint16_t selector = readw86(ea + 4);
                     push32(CPU_CS);
                     push32(ip);
                     load_segment(regcs, selector);
@@ -792,8 +786,8 @@ static bool exec386(uint8_t opcode) {
                 case 4: ip = (uint16_t) readrm32(rm); return true;
                 case 5: // JMP far m16:32
                     getea(rm);
-                    ip = (uint16_t) far_offset32();
-                    load_segment(regcs, far_selector32());
+                    ip = (uint16_t) readdw86(ea);
+                    load_segment(regcs, readw86(ea + 4));
                     return true;
                 case 6: push32(readrm32(rm)); return true;
                 default: cpu_fault(6); return true;
