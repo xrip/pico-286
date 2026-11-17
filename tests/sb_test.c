@@ -113,6 +113,16 @@ static void test_record_writes_silence(void) {
     assert(guest_memory[0] == 128 && guest_memory[1] == 128);
 }
 
+static void test_silence_dma(void) {
+    setup();
+    guest_memory[0] = 0xFF;
+    dsp_write_length(DSP_DMA_SILENCE, 3);
+    assert(blaster_sample() == 0); // silence: memory is not read
+    assert(dma_channels[SB_DMA_CHANNEL].address == 0);
+    assert(samples_till_irq(10) == 2);
+    assert(!sound_blaster.dma_transfer_enabled);
+}
+
 static void mixer_write(const uint8_t index, const uint8_t value) {
     blaster_write(SB_BASE + MIXER_INDEX, index);
     blaster_write(SB_BASE + MIXER_DATA, value);
@@ -145,6 +155,7 @@ int main(void) {
     test_auto_init_dma_uses_block_size();
     test_high_speed_dma();
     test_record_writes_silence();
+    test_silence_dma();
     test_mixer();
     puts("sb_test: all passed");
     return 0;
