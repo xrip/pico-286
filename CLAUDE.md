@@ -4,53 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Pico-286 is a PC emulator targeting Intel 8086/8088/80186/286 CPUs, designed to run on Raspberry Pi Pico (RP2040/RP2350) microcontrollers. The project emulates classic PC hardware including various graphics cards (CGA, TGA, EGA, VGA), sound cards (PC Speaker, Adlib, Sound Blaster, MPU-401), and peripherals.
+Pico-286 is a PC emulator targeting Intel 8086/8088/80186/286 CPUs, designed to run on the RP2350 (M2P2 board: HSTX HDMI, HDMI audio, 8 MB onboard QMI PSRAM). The CPU is being upgraded to a 386SX: see `386-migration.md`. The project emulates classic PC hardware including various graphics cards (CGA, TGA, EGA, VGA), sound cards (PC Speaker, Adlib, Sound Blaster, MPU-401), and peripherals.
 
 ## Build System
 
-The project uses CMake with two main build targets:
+The project uses CMake with two targets. There is only one firmware configuration: RP2350 M2P2 with HSTX HDMI, HDMI audio and 8 MB onboard QMI PSRAM. RP2040, VGA, TFT, NTSC, PIO HDMI, PWM/I2S/hardware sound, SPI PSRAM and the swap file were removed.
 
-### Cross-platform builds:
-- **Host build (Windows/Linux)**: `cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=host`
-- **Pico RP2040**: `cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2040`  
-- **Pico RP2350**: `cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2350`
-
-### Essential build options:
-All builds require exactly one display and one audio option:
-
-**Display options (mutually exclusive):**
-- `-DENABLE_TFT=ON` - TFT display via ST7789
-- `-DENABLE_VGA=ON` - VGA output
-- `-DENABLE_HDMI=ON` - HDMI output (forces CPU to 378MHz)
-
-**Audio options (mutually exclusive):**
-- `-DENABLE_I2S_SOUND=ON` - I2S audio output
-- `-DENABLE_PWM_SOUND=ON` - PWM audio output  
-- `-DENABLE_HARDWARE_SOUND=ON` - Hardware audio output
-
-### Memory configuration:
-- **PSRAM**: Default for RP2350. Use `-DONBOARD_PSRAM=ON -DONBOARD_PSRAM_GPIO=19` for onboard PSRAM
-- **Virtual Memory**: Use `-DTOTAL_VIRTUAL_MEMORY_KBS=512` to enable virtual memory instead of PSRAM
-- **CPU Frequency**: Set with `-DCPU_FREQ_MHZ=378` (default varies by platform)
-
-### Example build commands:
 ```bash
-# RP2350 with VGA and PWM audio
-cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2350 -DENABLE_VGA=ON -DENABLE_PWM_SOUND=ON
-make -j$(nproc)
+# RP2350 firmware (M2P2)
+cmake --preset m2p2
+cmake --build --preset m2p2
 
-# Windows/Linux host build (Linux requires X11 development libraries)  
-cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=host
-make -j$(nproc)
-
-# RP2040 with TFT and I2S
-cmake -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2040 -DENABLE_TFT=ON -DENABLE_I2S_SOUND=ON
-make -j$(nproc)
+# Windows/Linux host build (Linux requires X11 development libraries)
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=host
+cmake --build build -j
 ```
 
-### Batch build scripts:
-- `./build_all_firmwares.sh` - Automated build script for all firmware variations across platforms, display/audio combinations, and memory configurations
-- `./merge_firmwares.sh` - Merges RP2040/RP2350 firmware pairs into single .uf2 files
+Options: `MIDI_GM_DLS=ON` (GM.DLS wavetable MIDI, RP2350 and Win32), `MIDI_WINMM=ON` (Win32 only: MIDI to the Windows MIDI device). See `BUILDING.md`.
 
 ## Architecture
 
@@ -68,20 +38,16 @@ make -j$(nproc)
 - `src/linux-main.cpp` - Linux host build entry point with X11-based MiniFB graphics
 
 **Memory Layout**:
-- `RAM[RAM_SIZE]` - Main system RAM (size varies by platform, see `README.md` for details).
+- `RAM[RAM_SIZE]` - 640 KB conventional memory.
 - `VIDEORAM[64KB]` - Video memory buffer at 0xA0000-0xC0000.
-- See the "Platform-specific Details" and "Extended Memory (EMS/XMS)" sections in `README.md` for a full breakdown.
-
-**Extended Memory Systems**:
-- **PSRAM**: High-speed hardware-based extended memory using an external PSRAM chip. This is the default and recommended option. It uses a custom PIO and DMA driver.
-- **Virtual Memory**: A slower, file-based fallback for systems without PSRAM. It uses a `pagefile.sys` on the SD card. Enabled with `-DTOTAL_VIRTUAL_MEMORY_KBS > 0`.
+- On the RP2350, RAM, UMB, HMA, EMS (2 MB) and XMS (4 MB) are all in the memory-mapped onboard PSRAM (`.psram` section).
 
 ### Video System
 
-**Graphics Drivers** (`drivers/graphics/`):
-- Abstracted graphics interface supporting multiple output types
-- Hardware-specific implementations: VGA, HDMI, TFT (ST7789)
-- Font rendering with multiple font sizes (4x6, 6x8, 8x8, 8x16)
+**Graphics Drivers** (`drivers/graphics/`, `drivers/hdmi-hstx/`):
+- Shared PC mode renderers (`graphics_modes.c`) and text (`graphics_text.c`)
+- HSTX HDMI output with HDMI audio data islands (`drivers/hdmi-hstx/`)
+- Fonts (4x6, 6x8, 8x8, 8x16)
 
 **Video Mode Support**:
 - Text modes: 40x25, 80x25 (both color and monochrome)
@@ -93,9 +59,7 @@ make -j$(nproc)
 
 ### Audio System
 
-**Sound Drivers** (`drivers/audio/`):
-- Multi-platform audio abstraction (I2S, PWM, hardware DAC)
-- Real-time audio mixing and output
+**Sound output**: on the RP2350 the mixed samples go over HDMI (`drivers/hdmi-hstx/hstx_audio.c`) at 44,100 Hz.
 
 **Sound Card Emulation** (`src/emulator/audio/`):
 - PC Speaker/System Beeper
@@ -134,22 +98,17 @@ See `README.md` for a more detailed explanation.
 
 **Hardware Drivers** (`drivers/`):
 - `ps2/` - PS/2 keyboard and mouse support
-- `sdcard/` - SD card filesystem (FAT32 via FatFS)
-- `psram/` - External PSRAM via SPI
+- `sdcard/`, `fatfs/` - SD card filesystem (FAT32 via FatFS)
 - `nespad/` - NES gamepad for mouse emulation
-- `hdmi/`, `vga-nextgen/`, `st7789/` - Display outputs
-- `audio/` - Audio output drivers
+- `graphics/`, `hdmi-hstx/` - HSTX HDMI video and audio
+- `flash-config/` - M2P2 flash Quad Enable and timing setup
 
-**Driver Architecture**:
-- Each driver has its own CMakeLists.txt and can be conditionally compiled.
-- PIO (Programmable I/O) extensively used for hardware interfaces.
-- Drivers provide hardware abstraction for the emulator core.
-- **Note**: Default hardware pinouts are now documented in the main `README.md`.
+Each driver has its own CMakeLists.txt. Pinouts are in `CMakeLists.txt` and `README.md`.
 
 ## Development Workflow
 
 ### Testing
-No automated test framework is present. Testing relies on running actual DOS software and games.
+Host tests are in `tests/` (each file gives its build line): CPU (`sst_test.c` with SingleStepTests, `cpu_bench.c`), sound (`sb_test.c`, `mpu401_test.c`), chips (`i82_controllers_test.c`), video (`graphics_modes_test.c`, `graphics_raster_test.c`, `hstx_packet_test.c`, `vga_palette_port_test.c`). Real DOS software is the final check.
 
 ### Debugging
 - Serial debug output available via printf (redirected on Pico)
@@ -158,20 +117,17 @@ No automated test framework is present. Testing relies on running actual DOS sof
 - Linux build outputs to terminal/console for debugging
 
 ### Memory Optimization
-- Optimized for limited RAM environments  
-- Virtual memory swapping available for RP2040
-- PSRAM support for extended applications
+- Hot code in SRAM (`__not_in_flash`); PSRAM and flash share the 16 KB XIP cache
 - Aggressive compiler optimizations (`-O2`, `-flto`)
 
 ## Important Notes
 
-- Build system enforces exactly one display and one audio option
-- HDMI builds lock CPU frequency to 378MHz
-- RP2350 builds have access to more RAM and faster operation
+- The RP2350 runs at 500 MHz; HSTX uses a separate 126 MHz PLL_USB, so USB is stopped
+- At least 8 MB onboard PSRAM is required; the firmware stops at boot without it
 - Font and video data is embedded in headers, not external files
 
 ### Disk Image Paths:
-- **Pico builds**: `\XT\fdd0.img`, `\XT\hdd.img` (on SD card)
+- **RP2350 firmware**: `\XT\fdd0.img`, `\XT\hdd.img` (on SD card)
 - **Host builds**: `../fdd0.img`, `../hdd.img` (relative to executable, i.e., project root directory)
 
 ### Linux Build Requirements:

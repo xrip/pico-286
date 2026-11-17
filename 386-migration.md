@@ -12,7 +12,7 @@ So the job needs protected mode, 32-bit operations, paging and V86 mode.
 **Rules:**
 - Speed over exactness. YAGNI, KISS, DRY.
 - One 386 core, with no CPU switch.
-- **Targets: RP2350 (M2P2 board) and the host builds. RP2040 is not supported.**
+- **Targets: one firmware configuration, RP2350 M2P2 with HSTX HDMI, HDMI audio and 8 MB onboard QMI PSRAM, plus the host builds.** RP2040, VGA, TFT, NTSC, PIO HDMI, PWM/I2S/hardware sound, SPI PSRAM and the swap file are removed.
 - We write the code ourselves from the Intel documents in `docs/`, so the MIT license stays. We do not read the PCulator, 86Box or Bochs source while writing; their programs may be used only as black boxes for comparing results. Note: I have already seen parts of PCulator in the earlier check.
 - The old branch `origin/386-exp` is not used.
 
@@ -44,9 +44,9 @@ From the data sheet we use what is different from a 386DX: the 24-bit address (1
 - SingleStepTests/80386 (real mode, MOO format, ~576 MB) and SingleStepTests/80286;
 - the test386.asm ROM.
 
-## Limits we design for (RP2350, M2P2 build `build/gm-dls/firmware.elf`)
+## Limits we design for (RP2350 M2P2 firmware)
 
-- **SRAM:** ~360 KB of 512 KB in use. VIDEORAM is 256 KB of it, and `exec86` is 24.6 KB. About 150 KB is free for new code and data.
+- **SRAM:** 364,424 B of 512 KB in use (369,720 B with GM.DLS). VIDEORAM is 256 KB of it, and `exec86` is 24.6 KB. About 145 KB is free for new code and data.
 - **PSRAM:** 8 MB, of which 7.19 MB is in use:
   - RAM 640 KB;
   - HMA 64 KB;
@@ -106,9 +106,9 @@ From the data sheet we use what is different from a 386DX: the 24-bit address (1
 
 Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Each step must keep the Win32 and RP2350 (M2P2) builds working.
 
-0. **Documents, RP2040 removal, base line.**
+0. **Documents, one configuration, base line.**
    - Download and convert the documents and write `docs/README.md` (table above), then commit.
-   - **Remove RP2040**: in `CMakeLists.txt`, `PICO_PLATFORM=rp2040` stops with a clear `FATAL_ERROR`. RP2040-only code (the `rp2040` branches in CMake, the `_sw` swap memory path if only RP2040 uses it) is listed first. We remove it in a separate commit only after you agree to the list.
+   - **One configuration**: everything except RP2350 M2P2 + HSTX HDMI + HDMI audio + QMI PSRAM is removed (RP2040, swap/virtual memory, SPI PSRAM, VGA, TFT, NTSC, PIO HDMI, PWM/I2S/hardware sound, M1P2 pins, the launcher layout). The memory functions now have one backend (`_ob`).
    - Add a host test runner `tests/sst_test.c` with its own small MOO reader (the format is simple chunks, see github.com/dbalsom/moo), and a host speed check `tests/cpu_bench.c`. Both use `tests/cpu_host.h`: the CPU alone with flat 16 MB memory.
    - Write down the pass count for SingleStepTests/80286 on the current CPU.
    - Write down the speed on host (`cpu_bench`) and of one fixed DOS benchmark on the M2P2 board.
@@ -158,7 +158,7 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
 ## Files to change
 
 - `docs/intel/`, `docs/specs/`, `docs/README.md`: new, committed.
-- `CMakeLists.txt`: RP2040 stop, and later the RP2040 clean-up after you agree to it.
+- `CMakeLists.txt`: one firmware configuration (step 0, done).
 - `src/emulator/cpu.c`, `cpu.h`: decoder, segment cache, 32-bit ops, `intcall86` real-mode guard.
 - New `src/emulator/protected.c.inl` (descriptors, gates, protected-mode and V86 interrupts, TSS) and `src/emulator/paging.c.inl` (TLB, walk), in the same `.c.inl` way the audio code uses.
 - `src/emulator/emulator.h`: flag names, CR registers, memory map constants.
@@ -171,8 +171,8 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
 
 - **SingleStepTests/80286, real mode** (`tests/sst_test.exe <folder>`): 1,367,098 passed, 110,792 failed, 110 skipped (92.50%); 196 of 326 files with no failures. The same every run. Most failures are undefined flags (shifts, IMUL, AAD, DAS), missing #UD (`MOV CS`, `BOUND`/`LEA`/`LES` with a register), ESC, and far JMP/CALL through memory. Per-file numbers: run the tool again on master.
 - **Host speed** (`tests/cpu_bench.exe`, MinGW gcc 15.2 -O2): 205–218 M steps/s. One run can be ~6% off, so for the 5% gate take the highest of 5 runs.
-- **M2P2 board**: not measured yet (needs the board).
-- **M2P2 HDMI HSTX PWM firmware**: SRAM 360,424 B of 512 KB (68.75%), PSRAM 7,192,560 B (85.74%).
+- **M2P2 board, CheckIt v3 Main System Benchmark** (the board gate for real-mode speed): CPU 3,584 Dhrystones = 10.42 times IBM PC-XT, shown as "80286, 46.25 MHz"; math 1,785.5K Whetstones = 270.52 times PC-XT (80287). Measured by the user on the firmware before the one-configuration clean-up.
+- **M2P2 firmware after the clean-up** (`286-P166-C500MHz`): SRAM 364,424 B of 512 KB (69.51%), PSRAM 7,192,560 B (85.74%).
 
 ## Checks for each step
 
