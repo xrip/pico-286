@@ -284,20 +284,17 @@ static void far_return(bool size32, uint16_t release);
 static void interrupt_return(bool size32);
 
 // BIOS calls that do not come through intcall86(): INT n in V86 mode (EMM386 and Windows send it
-// to the vector themselves), or a far call to the vector. These vectors point to 0000:03F0 + n,
-// where the byte is IRET; bios_stub() runs the C hook there first. The XMS entry is 0000:03FF (RETF).
-#define BIOS_STUB_IP 0x3F0
-static const uint8_t stub_vectors[] = {0x10, 0x13, 0x15, 0x1A, 0x2F};
+// to the vector themselves), or a far call to the vector. These vectors point to the IRET stubs at
+// BIOS_STUBS (emulator.h); bios_stub() runs the C hook there first.
+static const uint8_t stub_vectors[BIOS_STUB_COUNT - 1] = {0x10, 0x13, 0x15, 0x1A, 0x2F};
 static uint32_t original_vectors[sizeof stub_vectors]; // segment:offset, as in the IVT
 
 static void install_bios_stubs(void) {
     for (unsigned i = 0; i < sizeof stub_vectors; i++) {
-        const uint32_t vector = stub_vectors[i] * 4u, stub = BIOS_STUB_IP + i;
+        const uint32_t vector = stub_vectors[i] * 4u, stub = 0xF0000000u | (BIOS_STUBS - 0xF0000 + i);
         if (readdw86(vector) != stub) original_vectors[i] = readdw86(vector); // not again on a warm boot
         writedw86(vector, stub);
-        write86(stub, 0xCF); // IRET
     }
-    write86(XMS_FN_IP, 0xCB); // RETF
 }
 
 // The BIOS functions done in C. True if the call is done; false: the BIOS code at the vector runs.
@@ -561,12 +558,13 @@ static bool bios_hook(uint8_t intnum) {
 }
 
 static __attribute__((noinline)) void bios_stub(void) {
-    if (ip == XMS_FN_IP) {
+    if (protected_mode) return; // only real and V86 mode code calls the BIOS
+    const unsigned i = CS_BASE + ip - BIOS_STUBS;
+    if (i == sizeof stub_vectors) {
         xms_handler();
         return;
     }
-    const unsigned i = ip - BIOS_STUB_IP;
-    if (i >= sizeof stub_vectors || !original_vectors[i]) return; // not installed yet
+    if (!original_vectors[i]) return; // not installed yet
     if (bios_hook(stub_vectors[i])) {
         const uint32_t flags = SS_BASE + stack_top() + 4; // the caller's FLAGS get the new CF
         writew86(flags, (readw86(flags) & ~1u) | cf);
@@ -1155,7 +1153,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
         uint8_t docontinue = 0;
         firstip = CPU_IP;
         first_esp = dwordregs[regsp];
-        if (unlikely(CPU_CS == 0 && ip >= BIOS_STUB_IP)) { // a BIOS stub or the XMS entry
+        if (unlikely(CS_BASE + ip - BIOS_STUBS < BIOS_STUB_COUNT)) { // a BIOS stub or the XMS entry
             bios_stub();
             firstip = CPU_IP;
         }

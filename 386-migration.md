@@ -145,7 +145,7 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
    - still to do: DOS extenders (DOS/4GW, PMODE/W, DOS32A, CWSDPMI) and Windows 3.1 on the board or host.
 6. **V86 mode: the BIOS part.** Done, not yet checked with EMM386 or Windows:
    - `intcall86()` is split: `bios_hook()` has the C BIOS functions (true if done), and real mode calls it first as before.
-   - At INT 19h the vectors 10h, 13h, 15h, 1Ah and 2Fh are pointed to 0000:03F0 + n, where the byte is IRET (the old vectors are kept). When an instruction starts there (CS = 0), `bios_stub()` runs the C hook; if it is done, the new CF goes into the caller's FLAGS on the stack and the IRET runs (a V86 monitor with IOPL < 3 then emulates it); if not, CS:IP goes to the old vector. The XMS entry 0000:03FF (RETF) uses the same check, once per instruction instead of once per fetched byte.
+   - At INT 19h the vectors 10h, 13h, 15h, 1Ah and 2Fh are pointed to F000:C100 + n, where the byte is IRET (the old vectors are kept). `read86_ob()` gives these bytes from empty ROM space, so no program can write over them (DR-DOS writes vectors FCh-FFh, so the end of the IVT is not safe). When an instruction starts there, `bios_stub()` runs the C hook; if it is done, the new CF goes into the caller's FLAGS on the stack and the IRET runs (a V86 monitor with IOPL < 3 then emulates it); if not, CS:IP goes to the old vector. The XMS entry moves to F000:C105 (RETF) and uses the same check, once per instruction instead of once per fetched byte.
    - `move_linear()` (XMS 0Bh, INT 15h 87h) uses the physical memory functions, so it works while paging is on.
    - Gate:
      - EMM386 (MS-DOS 6.22) loads, `MEM` shows UMBs, and games run under it;
