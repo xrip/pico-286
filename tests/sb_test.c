@@ -29,7 +29,7 @@ static void dsp_write_length(const uint8_t command, const uint16_t length) {
 }
 
 static bool take_irq(void) {
-    const bool raised = i8259.interrupt_request_register & (1u << SB_IRQ);
+    const bool raised = i8259.interrupt_request_register & (1u << 5); // SB Pro: IRQ 5
     i8259.interrupt_request_register = 0;
     return raised;
 }
@@ -58,8 +58,8 @@ static int samples_till_irq(const int limit) {
 static void test_version(void) {
     setup();
     dsp_write(DSP_VERSION);
+    assert(dsp_read() == 3);
     assert(dsp_read() == 2);
-    assert(dsp_read() == 1);
 }
 
 static void test_time_constant(void) {
@@ -95,7 +95,7 @@ static void test_high_speed_dma(void) {
     dsp_write_length(DSP_DMA_BLOCK_SIZE, 3);
     dsp_write(DSP_DMA_HS_SINGLE); // no length bytes: the next byte is a new command
     dsp_write(DSP_VERSION);
-    assert(dsp_read() == 2);
+    assert(dsp_read() == 3);
     assert(samples_till_irq(10) == 3);
     assert(!sound_blaster.dma_transfer_enabled);
 

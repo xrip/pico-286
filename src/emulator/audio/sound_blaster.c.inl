@@ -21,7 +21,7 @@
 */
 
 /*
-	Emulation of the Sound Blaster 2.0
+	Emulation of the Sound Blaster Pro 2 (DSP 3.02, CT1345 mixer)
 */
 
 // #define DEBUG_BLASTER
@@ -93,7 +93,7 @@ static uint8_t mixer_index;
 
 uint16_t timeconst = 22;
 
-#define SB_IRQ 3
+#define SB_IRQ 5
 #define SB_DMA_CHANNEL 1
 
 static const int16_t dma_identification_lookup_table[9] = { 0x01, -0x02, -0x04, 0x08, -0x10, 0x20, 0x40, -0x80, -106 };
@@ -257,9 +257,9 @@ static INLINE void blaster_command(const uint8_t command_byte) {
             break;
         case DSP_IDENTIFICATION: //DSP identification (returns bitwise NOT of data byte)
             break;
-        case DSP_VERSION: //DSP version (SB 2.0 is DSP 2.01)
+        case DSP_VERSION: //DSP version (SB Pro 2 is DSP 3.02)
+            blaster_write_buffer(3);
             blaster_write_buffer(2);
-            blaster_write_buffer(1);
             break;
         case DSP_DMA_IDENTIFICATION:
             break;
