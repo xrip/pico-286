@@ -320,7 +320,6 @@ INLINE void _putchar(char character) {
     }
 }
 
-volatile int16_t last_sb_sample = 0;
 volatile bool ask_to_blast = false;
 
 void __time_critical_func(graphics_pc_snapshot)(graphics_pc_state_t *state) {
@@ -455,7 +454,7 @@ void __time_critical_func() second_core(void) {
         // Sound Blaster sampling
         if (tick >= last_sb_tick + timeconst) {
             if (butter_psram_size || PSRAM_AVAILABLE)
-                last_sb_sample = blaster_sample();
+                blaster_tick();
             else
                 ask_to_blast = true; // protect swap from using from seconf core
             last_sb_tick += timeconst;
@@ -470,7 +469,7 @@ void __time_critical_func() second_core(void) {
         if (tick > last_sound_tick + (1000000 / SOUND_FREQUENCY)) {
 #endif
             int16_t samples[2];
-            get_sound_sample(last_dss_sample + last_sb_sample, samples);
+            get_sound_sample(last_dss_sample, samples);
 
 #if I2S_SOUND
             i2s_dma_write(&i2s_config, samples);

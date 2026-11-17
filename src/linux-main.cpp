@@ -678,7 +678,6 @@ void *ticks_thread(void *arg) {
     uint64_t last_sound_tick = 0;
 
     int16_t last_dss_sample = 0;
-    int16_t last_sb_sample = 0;
 
     const uint64_t hostfreq = 1000000000; // nanoseconds
 
@@ -702,14 +701,14 @@ void *ticks_thread(void *arg) {
         // Sound Blaster
         const uint64_t sb_period = hostfreq * timeconst / 1000000;
         if (elapsedTime - last_sb_tick >= sb_period) {
-            last_sb_sample = blaster_sample();
+            blaster_tick();
             last_sb_tick += sb_period;
             if (elapsedTime - last_sb_tick > 4 * sb_period) last_sb_tick = elapsedTime; // too far behind: no catch-up
         }
 
         // Audio samples
         if (elapsedTime - last_sound_tick >= hostfreq / SOUND_FREQUENCY) {
-            get_sound_sample(last_dss_sample + last_sb_sample, &audio_buffer[sample_index]);
+            get_sound_sample(last_dss_sample, &audio_buffer[sample_index]);
             sample_index += 2;
             
 

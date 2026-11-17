@@ -270,7 +270,7 @@ void blaster_reset();
 
 // uint8_t blaster_read(uint16_t portnum);
 // void blaster_write(uint16_t portnum, uint8_t value);
-int16_t blaster_sample();
+void blaster_tick(void);
 
 void outadlib(uint16_t portnum, uint8_t value);
 

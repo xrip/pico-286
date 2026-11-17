@@ -572,13 +572,16 @@ uint16_t portin16(uint16_t portnum) {
 
 void get_sound_sample(const int16_t other_sample, int16_t *samples) {
 #if HARDWARE_SOUND
-    const int32_t sample = (speaker_sample() + other_sample + covox_sample + midi_sample());
+    int16_t sb_samples[2] = { 0, 0 };
+    blaster_samples(sb_samples);
+    const int32_t sample = (speaker_sample() + other_sample + covox_sample + midi_sample() + (sb_samples[0] + sb_samples[1]) / 2);
     pwm_set_gpio_level(PCM_PIN, (uint16_t) ((int32_t) sample + 0x8000L) >> 4);
 #else
     OPL_calc_buffer_linear(emu8950_opl, (int32_t *)samples, 1);
 
     samples[1] = samples[0] += (int32_t)(speaker_sample() + other_sample + covox_sample + sn76489_sample() + midi_sample());
     cms_samples(samples);
+    blaster_samples(samples);
 #endif
 
 }

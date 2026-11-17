@@ -533,7 +533,6 @@ DWORD WINAPI TicksThread(LPVOID lpParam) {
     uint32_t last_sound_tick = 0;
 
     int16_t last_dss_sample = 0;
-    int16_t last_sb_sample = 0;
     int16_t last_cms_samples[2];
 
 
@@ -558,13 +557,13 @@ DWORD WINAPI TicksThread(LPVOID lpParam) {
         // Sound Blaster
         const uint32_t sb_period = (uint64_t) hostfreq * timeconst / 1000000;
         if (elapsedTime - last_sb_tick >= sb_period) {
-            last_sb_sample = blaster_sample();
+            blaster_tick();
             last_sb_tick += sb_period;
             if (elapsedTime - last_sb_tick > 4 * sb_period) last_sb_tick = elapsedTime; // too far behind: no catch-up
         }
 
         if (elapsedTime - last_sound_tick >= hostfreq / SOUND_FREQUENCY) {
-            get_sound_sample(last_dss_sample + last_sb_sample, &audio_buffer[sample_index]);
+            get_sound_sample(last_dss_sample, &audio_buffer[sample_index]);
             sample_index += 2;
 
             if (sample_index >= AUDIO_BUFFER_LENGTH) {

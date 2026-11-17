@@ -64,7 +64,10 @@
 #define DSP_UNDOCUMENTED_F8     0xF8
 
 typedef  struct sound_blaster_s {
-    int16_t current_audio_sample;
+    int16_t current_audio_sample;    // direct DAC (0x10)
+    int16_t dma_sample_left;
+    int16_t dma_sample_right;
+    uint8_t next_dma_byte_is_right;  // stereo: bytes go left, right, left, ...
 
     uint8_t speaker_enabled;
 
@@ -86,6 +89,8 @@ static sound_blaster_s sound_blaster = { 0 };
 
 // SB Pro mixer (CT1345). Its own chip: a DSP reset does not touch it.
 #define MIXER_RESET         0x00
+#define MIXER_OUTPUT        0x0E
+#define MIXER_STEREO        0x02    // bit in MIXER_OUTPUT
 #define MIXER_DEFAULTS { [0x04] = 0x99, [0x22] = 0x99, [0x26] = 0x99, [0x28] = 0x11, [0x2E] = 0x11 }
 static const uint8_t mixer_defaults[256] = MIXER_DEFAULTS;
 static uint8_t mixer_registers[256] = MIXER_DEFAULTS;
@@ -138,6 +143,7 @@ static INLINE bool take_length_byte(uint32_t *length, const uint8_t byte_value) 
 
 static INLINE void start_dma(const bool auto_init, const bool recording, const bool silence) {
     sound_blaster.dma_bytes_processed = 0;
+    sound_blaster.next_dma_byte_is_right = 0;
     sound_blaster.auto_init_mode_enabled = auto_init;
     sound_blaster.recording_mode_active = recording;
     sound_blaster.silence_mode_active = silence;
@@ -311,10 +317,10 @@ static INLINE uint8_t blaster_read(const uint16_t port) {
     return 0xff;
 }
 
-// TODO: Consider renaming to generate_audio_sample for clarity - this function generates the audio sample for DMA mode
-inline int16_t blaster_sample() { //for DMA mode
+// Called once per time constant period: moves one DMA byte.
+inline void blaster_tick(void) {
+    if (!sound_blaster.dma_transfer_enabled) return;
     int16_t generated_sample = 0;
-    if (!sound_blaster.dma_transfer_enabled) return sound_blaster.speaker_enabled ? sound_blaster.current_audio_sample : 0;
     if (sound_blaster.silence_mode_active == 0) {
         if (sound_blaster.recording_mode_active == 0) {
             generated_sample = (i8237_read(SB_DMA_CHANNEL) - 128) << 6;
@@ -323,11 +329,30 @@ inline int16_t blaster_sample() { //for DMA mode
         }
     }
 
+    if (!(mixer_registers[MIXER_OUTPUT] & MIXER_STEREO)) {
+        sound_blaster.dma_sample_left = sound_blaster.dma_sample_right = generated_sample;
+    } else if (sound_blaster.next_dma_byte_is_right) {
+        sound_blaster.dma_sample_right = generated_sample;
+    } else {
+        sound_blaster.dma_sample_left = generated_sample;
+    }
+    sound_blaster.next_dma_byte_is_right ^= 1;
+
     if (++sound_blaster.dma_bytes_processed == sound_blaster.dma_transfer_length) {
         sound_blaster.dma_bytes_processed = 0;
         doirq(SB_IRQ);
         sound_blaster.dma_transfer_enabled = sound_blaster.auto_init_mode_enabled;
     }
+}
 
-    return sound_blaster.speaker_enabled ? generated_sample : 0;
+// Adds the SB output to a left/right sample pair.
+static INLINE void blaster_samples(int16_t *samples) {
+    if (!sound_blaster.speaker_enabled) return;
+    if (sound_blaster.dma_transfer_enabled) {
+        samples[0] += sound_blaster.dma_sample_left;
+        samples[1] += sound_blaster.dma_sample_right;
+    } else {
+        samples[0] += sound_blaster.current_audio_sample;
+        samples[1] += sound_blaster.current_audio_sample;
+    }
 }
