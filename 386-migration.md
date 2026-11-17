@@ -112,9 +112,11 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
    - Add a host test runner `tests/sst_test.c` with its own small MOO reader (the format is simple chunks, see github.com/dbalsom/moo), and a host speed check `tests/cpu_bench.c`. Both use `tests/cpu_host.h`: the CPU alone with flat 16 MB memory.
    - Write down the pass count for SingleStepTests/80286 on the current CPU.
    - Write down the speed on host (`cpu_bench`) and of one fixed DOS benchmark on the M2P2 board.
-1. **Segment descriptor cache, real mode only.**
-   - `useseg` becomes an index, EIP is 32-bit inside the CPU, and the stub is removed.
-   - Gate: the 80286 pass count does not go down, speed is within 5%, and DOS and some games run.
+1. **Segment descriptor cache, real mode only.** Done:
+   - each segment register has a cached base (`segment_base[]`); every load goes through `load_segment()`; `getmem*`/`putmem*` and `useseg` take a base. Limit and access rights wait for step 4, a 32-bit EIP for step 2 (YAGNI);
+   - nothing from the old 32-bit attempts is kept: the `CPU_386_EXTENDED_OPS` stub, the unused 32-bit helpers and macros, the AC/VIF/VIP/ID flag fields, FS/GS and the 64h/65h prefixes are gone;
+   - `MOV Sreg` with reg 4–7, and `MOV CS`, raise #UD;
+   - gate: 80286 tests 1,370,634 → 1,372,115 (only 8C/8E changed, both up); host speed equal or better (see the base line note); `exec86` 24.6 → 23.6 KB of SRAM. DOS and games on the board: to be checked with CheckIt.
 2. **32-bit instruction set in real mode.**
    - 66h/67h prefixes, FS/GS, SIB addressing.
    - New 0F instructions: Jcc near, SETcc, MOVZX/MOVSX, BT/BTS/BTR/BTC, BSF/BSR, SHLD/SHRD, IMUL r,rm, LFS/LGS/LSS, MOV CRx/DRx.
@@ -170,7 +172,8 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
 ## Base line (step 0, master `efe313e`, 2026-11-17)
 
 - **SingleStepTests/80286, real mode** (`tests/sst_test.exe <folder>`): 1,367,098 passed, 110,792 failed, 110 skipped (92.50%); 196 of 326 files with no failures. The same every run. Most failures are undefined flags (shifts, IMUL, AAD, DAS), missing #UD (`MOV CS`, `BOUND`/`LEA`/`LES` with a register), ESC, and far JMP/CALL through memory. Per-file numbers: run the tool again on master.
-- **Host speed** (`tests/cpu_bench.exe`, MinGW gcc 15.2 -O2): 205–218 M steps/s. One run can be ~6% off, so for the 5% gate take the highest of 5 runs.
+- **Host speed** (`tests/cpu_bench.exe`, MinGW gcc 15.2 -O2): 205–218 M steps/s. One run can be ~6% off, and code layout alone moves it by ±5%, so compare old and new in turns, built with `-falign-functions=64 -falign-jumps=32 -falign-loops=32 -falign-labels=16`. With these flags step 1 gives 250 M steps/s against 222–235 for step 0.
+- **Since step 1 the runners link the real `fpu.c`** (the stub let failed ESC tests run into random bytes). The step 0 count with `fpu.c` is 1,370,634 passed.
 - **M2P2 board, CheckIt v3 Main System Benchmark** (the board gate for real-mode speed): CPU 3,584 Dhrystones = 10.42 times IBM PC-XT, shown as "80286, 46.25 MHz"; math 1,785.5K Whetstones = 270.52 times PC-XT (80287). Measured by the user on the firmware before the one-configuration clean-up.
 - **M2P2 firmware after the clean-up** (`286-P166-C500MHz`): SRAM 364,424 B of 512 KB (69.51%), PSRAM 7,192,560 B (85.74%).
 

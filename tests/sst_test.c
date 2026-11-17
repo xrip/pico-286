@@ -1,7 +1,7 @@
 // Runs the SingleStepTests real-mode CPU tests (MOO files) against our CPU and counts passes.
 // The tests are not in git; see docs/README.md. Unpack the .MOO.gz files first (gzip -d).
 // Build and run from the project root (Windows, MinGW):
-//   gcc -std=gnu17 -fms-extensions -O2 -Isrc -Isrc/emulator -Isrc/emu8950 -Isrc/printf tests/sst_test.c src/emulator/cpu.c src/printf/printf.c -o tests/sst_test.exe
+//   gcc -std=gnu17 -fms-extensions -O2 -Isrc -Isrc/emulator -Isrc/emu8950 -Isrc/printf tests/sst_test.c src/emulator/cpu.c src/emulator/fpu.c src/printf/printf.c -o tests/sst_test.exe
 //   tests/sst_test.exe <folder with .MOO files> [-v]
 // -v prints the first failing test of each file.
 #include <dirent.h>
@@ -110,6 +110,7 @@ static int run_test(chunk_t test, const uint16_t file_masks[REGISTER_COUNT]) {
     find_chunk(init.data, init.length, "REGS", &regs);
     read_registers(regs, values);
     for (int i = 0; i < REGISTER_COUNT - 1; i++) *register_pointer(i) = values[i];
+    for (uint8_t segment = reges; segment <= regds; segment++) load_segment(segment, segregs[segment]);
     x86_flags.value = values[FLAGS];
     find_chunk(init.data, init.length, "RAM ", &ram);
     for (uint32_t i = 0, count = u32(ram.data); i < count; i++) {

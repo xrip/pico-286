@@ -45,7 +45,6 @@ uint16_t portin16(uint16_t port) { return 0xFFFF; }
 void portout(uint16_t port, uint16_t value) {}
 void portout16(uint16_t port, uint16_t value) {}
 void keyboard_pump(void) {}
-void OpFpu(uint8_t opcode) {}
 uint8_t xms_handler() { return 0xCB; }
 void init_umb() {}
 void vga_init(void) {}

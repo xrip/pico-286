@@ -18,8 +18,6 @@ void init_umb();
 #define regcs 1
 #define regss 2
 #define regds 3
-#define regfs 4
-#define reggs 5
 
 // eax
 #define regal 0
@@ -44,24 +42,18 @@ void init_umb();
 
 #define StepIP(x)  ip += x
 
-#define segregs ((uint16_t*)segregs32)
-#define getmem8(x, y) read86(segbase(x) + (y))
-#define getmem16(x, y)  readw86(segbase(x) + (y))
-#define getmem32(x, y)  readdw86(segbase(x) + (y))
-#define putmem8(x, y, z)  write86(segbase(x) + (y), z)
-#define putmem16(x, y, z) writew86(segbase(x) + (y), z)
-#define putmem32(x, y, z) writedw86(segbase(x) + (y), z)
+// Memory at a linear segment base plus an offset
+#define getmem8(base, offset)  read86((base) + (offset))
+#define getmem16(base, offset) readw86((base) + (offset))
+#define putmem8(base, offset, value)  write86((base) + (offset), value)
+#define putmem16(base, offset, value) writew86((base) + (offset), value)
 #define signext(value)  (int16_t)(int8_t)(value)
 #define signext32(value)  (int32_t)(int16_t)(value)
 #define getreg16(regid) wordregs[(regid) << 1]
-#define getreg32(regid) dwordregs[regid]
 #define getreg8(regid)  byteregs[byteregtable[regid]]
 #define putreg16(regid, writeval) wordregs[(regid) << 1] = writeval
-#define putreg32(regid, writeval) dwordregs[regid] = writeval
 #define putreg8(regid, writeval)  byteregs[byteregtable[regid]] = writeval
-#define getsegreg(regid)            segregs[(regid) << 1]
-#define putsegreg(regid, writeval)  segregs[(regid) << 1] = writeval
-#define segbase(x)  ((uint32_t) (x) << 4)
+#define getsegreg(regid)            segregs[regid]
 
 #define cf  x86_flags.bits.CF
 #define pf  x86_flags.bits.PF
@@ -86,21 +78,16 @@ void init_umb();
 #define FLAG_CF_OF_MASK ((1u << 11) | 1)
 #define FLAG_CF_AF_MASK ((1u << 4) | 1)
 
-#define CPU_CS    segregs[regcs << 1]
-#define CPU_DS    segregs[regds << 1]
-#define CPU_ES    segregs[reges << 1]
-#define CPU_SS    segregs[regss << 1]
-#define CPU_FS    segregs[regfs << 1]
-#define CPU_GS    segregs[reggs << 1]
+#define CPU_CS    segregs[regcs]
+#define CPU_DS    segregs[regds]
+#define CPU_ES    segregs[reges]
+#define CPU_SS    segregs[regss]
 
-#define CPU_EAX   dwordregs[regax]
-#define CPU_EBX   dwordregs[regbx]
-#define CPU_ECX   dwordregs[regcx]
-#define CPU_EDX   dwordregs[regdx]
-#define CPU_ESI   dwordregs[regsi]
-#define CPU_EDI   dwordregs[regdi]
-#define CPU_EBP   dwordregs[regbp]
-#define CPU_ESP   dwordregs[regsp]
+// The base address the CPU keeps for each segment register (real mode: selector * 16)
+#define CS_BASE   segment_base[regcs]
+#define DS_BASE   segment_base[regds]
+#define ES_BASE   segment_base[reges]
+#define SS_BASE   segment_base[regss]
 
 #define CPU_AX    wordregs[regax << 1]
 #define CPU_BX    wordregs[regbx << 1]

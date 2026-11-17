@@ -1,7 +1,7 @@
 // Host speed check of the CPU core: runs a fixed real-mode loop and prints the best of 10 runs.
 // Use it to compare two versions of cpu.c on the same machine; the number means nothing alone.
 // Build and run from the project root (Windows, MinGW):
-//   gcc -std=gnu17 -fms-extensions -O2 -Isrc -Isrc/emulator -Isrc/emu8950 -Isrc/printf tests/cpu_bench.c src/emulator/cpu.c src/printf/printf.c -o tests/cpu_bench.exe && tests/cpu_bench.exe
+//   gcc -std=gnu17 -fms-extensions -O2 -Isrc -Isrc/emulator -Isrc/emu8950 -Isrc/printf tests/cpu_bench.c src/emulator/cpu.c src/emulator/fpu.c src/printf/printf.c -o tests/cpu_bench.exe && tests/cpu_bench.exe
 #include <stdio.h>
 #include <time.h>
 #include "cpu_host.h"
@@ -41,10 +41,11 @@ int main(void) {
     memcpy(memory + 0x10000, loop_code, sizeof loop_code);
     double best = 1e9;
     for (int run = 0; run < 10; run++) {
-        CPU_CS = 0x1000;
+        load_segment(regcs, 0x1000);
         CPU_IP = 0;
-        CPU_DS = CPU_ES = 0x2000;
-        CPU_SS = 0x3000;
+        load_segment(regds, 0x2000);
+        load_segment(reges, 0x2000);
+        load_segment(regss, 0x3000);
         CPU_SP = 0xFFFE;
         x86_flags.value = 2;
         const clock_t start = clock();
