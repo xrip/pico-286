@@ -24,6 +24,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(286 C CXX ASM)
+if (PICO_PLATFORM STREQUAL "rp2040")
+    message(FATAL_ERROR "RP2040 is not supported: the 386 CPU needs an RP2350 (PICO_PLATFORM=rp2350-arm-s) or a host build (PICO_PLATFORM=host)")
+endif ()
 SET(BUILD_NAME "${PROJECT_NAME}")
 
 #set(MURM20 ON)
