@@ -457,7 +457,6 @@ static INLINE void renderer() {
     }
 }
 
-extern "C" uint64_t sb_samplerate;
 HANDLE updateEvent;
 
 DWORD WINAPI SoundThread(LPVOID lpParam) {
@@ -557,10 +556,11 @@ DWORD WINAPI TicksThread(LPVOID lpParam) {
         }
 
         // Sound Blaster
-        if (elapsedTime - last_sb_tick >= hostfreq / sb_samplerate) {
-
+        const uint32_t sb_period = (uint64_t) hostfreq * timeconst / 1000000;
+        if (elapsedTime - last_sb_tick >= sb_period) {
             last_sb_sample = blaster_sample();
-            last_sb_tick = elapsedTime;
+            last_sb_tick += sb_period;
+            if (elapsedTime - last_sb_tick > 4 * sb_period) last_sb_tick = elapsedTime; // too far behind: no catch-up
         }
 
         if (elapsedTime - last_sound_tick >= hostfreq / SOUND_FREQUENCY) {

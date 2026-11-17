@@ -24,6 +24,7 @@ static int16_t audio_buffer[AUDIO_BUFFER_LENGTH * 2] = {};
 static int sample_index = 0;
 
 extern "C" void adlib_getsample(int16_t *sndptr, intptr_t numsamples);
+extern "C" uint16_t timeconst;
 
 extern "C" void _putchar(char character) {
     putchar(character);
@@ -699,9 +700,11 @@ void *ticks_thread(void *arg) {
         }
 
         // Sound Blaster
-        if (elapsedTime - last_sb_tick >= hostfreq / 22050) {
+        const uint64_t sb_period = hostfreq * timeconst / 1000000;
+        if (elapsedTime - last_sb_tick >= sb_period) {
             last_sb_sample = blaster_sample();
-            last_sb_tick = elapsedTime;
+            last_sb_tick += sb_period;
+            if (elapsedTime - last_sb_tick > 4 * sb_period) last_sb_tick = elapsedTime; // too far behind: no catch-up
         }
 
         // Audio samples

@@ -83,7 +83,6 @@ typedef  struct sound_blaster_s {
 static sound_blaster_s sound_blaster = { 0 };
 
 uint16_t timeconst = 22;
-uint64_t sb_samplerate = 22050;
 
 #define SB_IRQ 3
 #define SB_DMA_CHANNEL 1
@@ -145,10 +144,9 @@ static INLINE void blaster_command(const uint8_t command_byte) {
             return;
         case DSP_SET_TIME_CONSTANT:
             timeconst = 256 - command_byte;
-            sb_samplerate = 1000000 / timeconst;
             sound_blaster.current_dsp_command = 0;
 #ifdef DEBUG_BLASTER
-            printf("[BLASTER] Set time constant: %u (Sample rate: %u Hz)\r\n", command_byte, (unsigned) sb_samplerate);
+            printf("[BLASTER] Set time constant: %u (Sample rate: %u Hz)\r\n", command_byte, 1000000u / timeconst);
 #endif
             return;
         case DSP_DMA_BLOCK_SIZE:

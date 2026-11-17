@@ -453,12 +453,13 @@ void __time_critical_func() second_core(void) {
 
 #if !PICO_RP2040
         // Sound Blaster sampling
-        if (tick > last_sb_tick + timeconst) {
+        if (tick >= last_sb_tick + timeconst) {
             if (butter_psram_size || PSRAM_AVAILABLE)
                 last_sb_sample = blaster_sample();
             else
                 ask_to_blast = true; // protect swap from using from seconf core
-            last_sb_tick = tick;
+            last_sb_tick += timeconst;
+            if (tick - last_sb_tick > 4 * timeconst) last_sb_tick = tick; // too far behind: no catch-up
         }
 #endif
 
