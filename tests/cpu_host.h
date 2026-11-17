@@ -48,7 +48,7 @@ void portout(uint16_t port, uint16_t value) {
 }
 void portout16(uint16_t port, uint16_t value) {}
 void keyboard_pump(void) {}
-uint8_t xms_handler() { return 0xCB; }
+void xms_handler() {}
 void xms_reset() {}
 void vga_init(void) {}
 void vga_set_cpu_page_offset(uint32_t offset) {}

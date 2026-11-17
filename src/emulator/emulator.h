@@ -217,7 +217,7 @@ extern void sn76489_reset();
 #define XMS_FN_CS 0x0000
 #define XMS_FN_IP 0x03FF
 
-extern uint8_t xms_handler();
+void xms_handler();
 void move_linear(uint32_t destination, uint32_t source, uint32_t length);
 
 #include "i8237.h"

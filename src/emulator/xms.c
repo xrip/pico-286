@@ -159,15 +159,16 @@ umb_t *get_free_umb_block(const uint16_t size) {
     }
     return best;
 }
-// Copies words between linear addresses with A20 open; INT 15h 87h and XMS 0Bh use it.
+// Copies words between physical addresses (not through paging) with A20 open; INT 15h 87h and
+// XMS 0Bh use it.
 // With an overlap and the destination above the source it copies from the end.
 void move_linear(const uint32_t destination, const uint32_t source, const uint32_t length) {
     const int saved_a20 = a20_enabled;
     a20_enabled = 1;
     if (destination > source && destination < source + length) {
-        for (uint32_t i = length; i >= 2; i -= 2) writew86(destination + i - 2, readw86(source + i - 2));
+        for (uint32_t i = length; i >= 2; i -= 2) writew86_ob(destination + i - 2, readw86_ob(source + i - 2));
     } else {
-        for (uint32_t i = 0; i < length; i += 2) writew86(destination + i, readw86(source + i));
+        for (uint32_t i = 0; i < length; i += 2) writew86_ob(destination + i, readw86_ob(source + i));
     }
     a20_enabled = saved_a20;
 }
@@ -219,7 +220,7 @@ static uint8_t move_address(const uint16_t handle, const uint32_t offset, const 
     return 0;
 }
 
-uint8_t xms_handler() { // in flash: XMS calls are rare
+void xms_handler() { // in flash: XMS calls are rare
     switch (CPU_AH) {
         case XMS_VERSION: {
             // Get XMS Version
@@ -412,7 +413,7 @@ uint8_t xms_handler() { // in flash: XMS calls are rare
                     }
                     CPU_AX = 0x0001; // Success
                     CPU_BL = 0;
-                    return 0xCB; // Early return to avoid fall-through
+                    return;
                 }
 
             CPU_AX = 0x0000; // Failure
@@ -428,5 +429,4 @@ uint8_t xms_handler() { // in flash: XMS calls are rare
             break;
         }
     }
-    return 0xCB; // RETF opcode
 }

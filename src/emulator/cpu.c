@@ -1,6 +1,5 @@
 #include <time.h>
 #include <stdbool.h>
-#include <setjmp.h>
 #include "emulator.h"
 
 //#define CPU_ALLOW_ILLEGAL_OP_EXCEPTION
@@ -284,11 +283,25 @@ static void far_call(uint16_t selector, uint32_t offset, bool size32);
 static void far_return(bool size32, uint16_t release);
 static void interrupt_return(bool size32);
 
-void intcall86(uint8_t intnum) {
-    if (unlikely(cr0 & CR0_PE)) { // the C BIOS hooks only run in real mode
-        protected_interrupt(intnum, NO_ERROR_CODE, true);
-        return;
+// BIOS calls that do not come through intcall86(): INT n in V86 mode (EMM386 and Windows send it
+// to the vector themselves), or a far call to the vector. These vectors point to 0000:03F0 + n,
+// where the byte is IRET; bios_stub() runs the C hook there first. The XMS entry is 0000:03FF (RETF).
+#define BIOS_STUB_IP 0x3F0
+static const uint8_t stub_vectors[] = {0x10, 0x13, 0x15, 0x1A, 0x2F};
+static uint32_t original_vectors[sizeof stub_vectors]; // segment:offset, as in the IVT
+
+static void install_bios_stubs(void) {
+    for (unsigned i = 0; i < sizeof stub_vectors; i++) {
+        const uint32_t vector = stub_vectors[i] * 4u, stub = BIOS_STUB_IP + i;
+        if (readdw86(vector) != stub) original_vectors[i] = readdw86(vector); // not again on a warm boot
+        writedw86(vector, stub);
+        write86(stub, 0xCF); // IRET
     }
+    write86(XMS_FN_IP, 0xCB); // RETF
+}
+
+// The BIOS functions done in C. True if the call is done; false: the BIOS code at the vector runs.
+static bool bios_hook(uint8_t intnum) {
     switch (intnum) {
         case 0x10: {
             switch (CPU_AH) {
@@ -298,7 +311,7 @@ void intcall86(uint8_t intnum) {
                         // TODO: char attr?
                         tga_draw_char(CPU_AL, CURSOR_X, CURSOR_Y, 9);
                         printf("%c", CPU_AL);
-                        return;
+                        return true;
                     }
                     break;
                 case 0x0f:
@@ -306,7 +319,7 @@ void intcall86(uint8_t intnum) {
                     CPU_AL = videomode;
                     CPU_AH = 80;
                     CPU_BH = 0;
-                    return;
+                    return true;
                 case 0x00:
                     // http://www.techhelpmanual.com/114-video_modes.html
                     // http://www.techhelpmanual.com/89-video_memory_layouts.html
@@ -346,7 +359,7 @@ void intcall86(uint8_t intnum) {
                         }
                         tga_portout(0x3df, CRTCPU);
                         FIRST_RAM_PAGE[BIOS_CRTCPU_PAGE] = CRTCPU;
-                        return;
+                        return true;
                     }
 
                     break;
@@ -369,7 +382,7 @@ void intcall86(uint8_t intnum) {
                                 graphics_set_palette(color_index, vga_palette[color_index]);
 #endif
                             }
-                            return;
+                            return true;
                         }
                         case 0x02: {
                             uint32_t memloc = CPU_ES * 16 + CPU_DX;
@@ -385,13 +398,13 @@ void intcall86(uint8_t intnum) {
 #endif
                             }
                             // TODO: Overscan/Border 17th color
-                            return;
+                            return true;
                         }
                         case 0x03: {
                             cga_blinking = CPU_BL ? 0x7F : 0xFF;
                             cga_blinking_lock = !CPU_BL;
                             //printf("[CPU] INT BL 0x%02x\r\n", CPU_BL);
-                            return;
+                            return true;
                         }
                         case 0x10: {
                             // Set One DAC Color Register
@@ -400,7 +413,7 @@ void intcall86(uint8_t intnum) {
 #if PICO_ON_DEVICE
                             graphics_set_palette(CPU_BL, vga_palette[CPU_BL]);
 #endif
-                            return;
+                            return true;
                         }
                         case 0x12: {
                             // set block of DAC color registers               VGA
@@ -412,7 +425,7 @@ void intcall86(uint8_t intnum) {
                                 graphics_set_palette(color_index, vga_palette[color_index]);
 #endif
                             }
-                            return;
+                            return true;
                         }
                         case 0x15: {
                             // Read One DAC Color Register
@@ -420,7 +433,7 @@ void intcall86(uint8_t intnum) {
                             CPU_CL = ((vga_palette[color_index] >> 2)) & 63;
                             CPU_CH = ((vga_palette[color_index] >> 10)) & 63;
                             CPU_DH = ((vga_palette[color_index] >> 18)) & 63;
-                            return;
+                            return true;
                         }
                         case 0x17: {
                             // Read a Block of DAC Color Registers
@@ -430,7 +443,7 @@ void intcall86(uint8_t intnum) {
                                 write86(memloc++, ((vga_palette[color_index] >> 10)) & 63);
                                 write86(memloc++, ((vga_palette[color_index] >> 18)) & 63);
                             }
-                            return;
+                            return true;
                         }
                     }
                     //printf("Unhandled 10h CPU_AL: 0x%x\r\n", CPU_AL);
@@ -442,12 +455,13 @@ void intcall86(uint8_t intnum) {
                     } else {
                         CPU_BL = 0x05; // MCGA
                     }
-                    return;
+                    return true;
             }
             break;
         }
         case 0x13:
-            return diskhandler();
+            diskhandler();
+            return true;
         case 0x15: /* XMS */
             switch (CPU_AH) {
                 case 0x87: {
@@ -458,25 +472,26 @@ void intcall86(uint8_t intnum) {
                     if (bytes > readw86(src_descriptor) + 1u || bytes > readw86(dst_descriptor) + 1u) {
                         CPU_AH = 2; // exception: past the segment limit
                         CPU_FL_CF = 1;
-                        return;
+                        return true;
                     }
                     uint32_t src = readdw86(src_descriptor + 2) & 0xFFFFFF;
                     uint32_t dst = readdw86(dst_descriptor + 2) & 0xFFFFFF;
                     move_linear(dst, src, bytes);
                     CPU_AH = 0;
                     CPU_FL_CF = 0;
-                    return;
+                    return true;
                 }
                 case 0x88: {
                     // KB above 1 MB: 0, as with HIMEM.SYS, because our XMS driver owns that memory
                     CPU_AX = 0;
                     CPU_FL_CF = 0;
-                    return;
+                    return true;
                 }
             }
             break;
         /**/
         case 0x19:
+            install_bios_stubs();
 #if PICO_ON_DEVICE
             insertdisk(0, "\\XT\\fdd0.img");
             insertdisk(1, "\\XT\\fdd1.img");
@@ -515,13 +530,13 @@ void intcall86(uint8_t intnum) {
                     CPU_CX = 0x2259;
                     CPU_DX = 0x0001;
                     CPU_FL_CF = 0;
-                    return;
+                    return true;
                 case 0x04: /* 04H: Read Date from Real-Time Clock */
                     CPU_CX = 0x2024;
                     CPU_DX = 0x1024;
                     CPU_AH = 0;
                     CPU_FL_CF = 0;
-                    return;
+                    return true;
             }
             break;
         case 0x2F: /* Multiplex Interrupt */
@@ -529,20 +544,44 @@ void intcall86(uint8_t intnum) {
                 /* XMS */
                 case 0x4300:
                     CPU_AL = 0x80;
-                    return;
+                    return true;
                 case 0x4310: {
                     load_segment(reges, XMS_FN_CS); // to be handled by DOS memory manager using
                     CPU_BX = XMS_FN_IP; // CALL FAR ES:BX
-                    return;
+                    return true;
                 default:
                     if (redirector_handler()) {
-                        return;
+                        return true;
                     }
                 }
             }
             break;
     }
+    return false;
+}
 
+static __attribute__((noinline)) void bios_stub(void) {
+    if (ip == XMS_FN_IP) {
+        xms_handler();
+        return;
+    }
+    const unsigned i = ip - BIOS_STUB_IP;
+    if (i >= sizeof stub_vectors || !original_vectors[i]) return; // not installed yet
+    if (bios_hook(stub_vectors[i])) {
+        const uint32_t flags = SS_BASE + stack_top() + 4; // the caller's FLAGS get the new CF
+        writew86(flags, (readw86(flags) & ~1u) | cf);
+        return; // then the IRET runs
+    }
+    load_segment(regcs, original_vectors[i] >> 16);
+    ip = original_vectors[i] & 0xFFFF;
+}
+
+void intcall86(uint8_t intnum) {
+    if (unlikely(cr0 & CR0_PE)) { // the C BIOS hooks only run in real mode
+        protected_interrupt(intnum, NO_ERROR_CODE, true);
+        return;
+    }
+    if (bios_hook(intnum)) return;
     push(makeflagsword());
     push(CPU_CS);
     push(ip);
@@ -874,15 +913,16 @@ static uint32_t firstip; // EIP of the current instruction, with its prefixes
 static uint32_t first_esp; // ESP before the current instruction: a fault puts it back
 
 // A protected-mode fault goes back to exec86() with longjmp; exec86() puts back EIP and ESP
-// of the instruction and delivers the exception through the IDT.
-static jmp_buf fault_point;
+// of the instruction and delivers the exception through the IDT. The GCC builtins need no
+// library code (newlib's setjmp pulls in the C++ unwinder on the RP2350).
+static void *fault_point[5];
 static uint8_t fault_vector;
 static int32_t fault_error;
 
 static __attribute__((noreturn)) void raise_fault(uint8_t vector, int32_t error_code) {
     fault_vector = vector;
     fault_error = error_code;
-    longjmp(fault_point, 1);
+    __builtin_longjmp(fault_point, 1);
 }
 
 // PUSHF, POPF (and INT n, IRET) in V86 mode need IOPL 3, else #GP(0)
@@ -1098,7 +1138,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
     static bool was_TF;
 
     keyboard_pump();
-    if (setjmp(fault_point)) { // a protected-mode fault: deliver it and end this run
+    if (__builtin_setjmp(fault_point)) { // a protected-mode fault: deliver it and end this run
         deliver_fault();
         return;
     }
@@ -1115,6 +1155,10 @@ void __not_in_flash() exec86(uint32_t execloops) {
         uint8_t docontinue = 0;
         firstip = CPU_IP;
         first_esp = dwordregs[regsp];
+        if (unlikely(CPU_CS == 0 && ip >= BIOS_STUB_IP)) { // a BIOS stub or the XMS entry
+            bios_stub();
+            firstip = CPU_IP;
+        }
         register uint8_t opcode;
 
         while (!docontinue) {
@@ -1122,13 +1166,7 @@ void __not_in_flash() exec86(uint32_t execloops) {
             ///         CPU_IP &= 0xFFFF;
             //            savecs = CPU_CS;
             //            saveip = ip;
-            // W/A-hack: last byte of interrupts table (actually should not be ever used as CS:IP)
-            if (unlikely(CPU_CS == XMS_FN_CS && ip == XMS_FN_IP)) {
-                // hook for XMS
-                opcode = xms_handler(); // always returns RET TODO: far/short ret?
-            } else {
-                opcode = getmem8(CS_BASE, CPU_IP);
-            }
+            opcode = getmem8(CS_BASE, CPU_IP);
 
             StepIP(1);
 

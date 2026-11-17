@@ -135,7 +135,7 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
    - EIP is 32-bit (`ip32`); 16-bit near jumps wrap at 64K through `jump_relative()`. `opsize32`/`addrsize32` start from the CS D bit; the stack uses ESP when the SS B bit is set (`stack_top()`, `stack_add()`).
    - Segment loads in protected mode read the GDT/LDT (`load_segment()` calls `load_segment_protected()` only when `protected_mode` is set) with the type, privilege and present checks, and set the accessed bit. Real-mode and V86 loads only change the base.
    - Far JMP/CALL/RET and IRET with privilege changes, call gates (with parameter copy), the TSS stack switch, and null data segments on a return to an outer level. IDT interrupts and exceptions (286 and 386 gates), error codes, #DF, and a reset on a triple fault.
-   - Faults: `raise_fault()` does a `longjmp` back to `exec86()`, which puts back EIP and ESP of the instruction, delivers the exception and ends the run. Real-mode faults keep the direct path.
+   - Faults: `raise_fault()` does a `__builtin_longjmp` (newlib's `setjmp` pulls in the C++ unwinder, which does not link on the RP2350) back to `exec86()`, which puts back EIP and ESP of the instruction, delivers the exception and ends the run. Real-mode faults keep the direct path.
    - System instructions: LGDT/LIDT/SGDT/SIDT, LLDT/SLDT, LTR/STR, LAR/LSL, VERR/VERW, ARPL, LMSW/SMSW, CLTS, MOV CR0/CR2/CR3 and DR0-7 (only stored). CPL > 0 gives #GP for the privileged ones, HLT included; CLI/STI need CPL <= IOPL.
    - I/O: with CPL > IOPL, and always in V86 mode, IN/OUT/INS/OUTS go through the I/O permission bitmap of the 386 TSS. All port instructions use `port_read_sized()`/`port_write_sized()`.
    - Paging: two-level walk, A and D bits, U/S and R/W checks, #PF with CR2, a 64-entry direct-mapped TLB flushed on CR3 and CR0.PG writes. When CR0.PG changes, `read86`..`writedw86` switch to the `paged_` functions, so paging costs nothing while it is off. DMA (`i8237.h`) uses the physical functions (`read86_ob`/`write86_ob`).
@@ -143,8 +143,10 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
    - Left out (fast, not exact): segment limit and write-protect checks on memory access, LOCK #UD, the ENTER page-fault probe of the final ESP, task switches (a printf and #GP), debug traps.
    - gate: `tests/test386_test.c` runs test386.asm to **POST FF**, with test 12 (limits, write protect, LOCK) and the ENTER page-fault probe left out of the ROM build (see `docs/README.md`). SingleStepTests 80386 92.0% (EIP past FFFFh passes now), 80286 98.25% (the same). Board: CheckIt v3 3,400 Dhrystones, the same as step 3. RP2350 SRAM +9.9 KB (exec86 grew; there is room).
    - still to do: DOS extenders (DOS/4GW, PMODE/W, DOS32A, CWSDPMI) and Windows 3.1 on the board or host.
-6. **V86 mode: the BIOS part.**
-   - The BIOS stub ROM with the escape opcode, so INT 13h and the other C hooks work when EMM386 or Windows send them to the vector in V86 mode. `move_linear()` (XMS 0Bh, INT 15h 87h) must then use physical addresses while paging is on.
+6. **V86 mode: the BIOS part.** Done, not yet checked with EMM386 or Windows:
+   - `intcall86()` is split: `bios_hook()` has the C BIOS functions (true if done), and real mode calls it first as before.
+   - At INT 19h the vectors 10h, 13h, 15h, 1Ah and 2Fh are pointed to 0000:03F0 + n, where the byte is IRET (the old vectors are kept). When an instruction starts there (CS = 0), `bios_stub()` runs the C hook; if it is done, the new CF goes into the caller's FLAGS on the stack and the IRET runs (a V86 monitor with IOPL < 3 then emulates it); if not, CS:IP goes to the old vector. The XMS entry 0000:03FF (RETF) uses the same check, once per instruction instead of once per fetched byte.
+   - `move_linear()` (XMS 0Bh, INT 15h 87h) uses the physical memory functions, so it works while paging is on.
    - Gate:
      - EMM386 (MS-DOS 6.22) loads, `MEM` shows UMBs, and games run under it;
      - Windows 3.1 starts in 386 enhanced mode and opens a DOS box.
