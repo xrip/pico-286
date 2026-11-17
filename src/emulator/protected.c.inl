@@ -1,8 +1,8 @@
 // Protected mode and paging of the 386, from the Intel 80386 Programmer's Reference Manual
 // (docs/intel/i386-prm-1986.txt): chapters 5 (segments, paging), 6 (protection), 9 (interrupts)
 // 15 (V86 mode) and 17 (instructions). Included by cpu.c after cpu386.c.inl.
-// Fast, not exact: no segment limit or write-protect checks on memory access, no task switch,
-// no debug traps.
+// Fast, not exact: no segment limit or write-protect checks on memory access, task switches
+// only with a 386 TSS, no debug traps.
 #pragma once
 
 static uint32_t cr2, cr3;
@@ -170,6 +170,12 @@ static uint16_t system_read16(uint32_t linear) {
     return value;
 }
 
+static void system_write16(uint32_t linear, uint16_t value) {
+    supervisor_access = 1;
+    writew86(linear, value);
+    supervisor_access = 0;
+}
+
 static void system_write32(uint32_t linear, uint32_t value) {
     supervisor_access = 1;
     writedw86(linear, value);
@@ -289,9 +295,91 @@ static void check_gate(uint16_t selector, descriptor_t gate) {
     if (!is_present(gate)) raise_fault(11, selector & ~3u);
 }
 
-static __attribute__((noreturn)) void task_switch_fault(uint16_t selector) {
-    printf("[CPU] task switch to %04X is not emulated\r\n", selector);
-    raise_fault(13, selector & ~3u);
+// LLDT and task switches: a null selector leaves no LDT.
+static void load_ldtr(uint16_t selector) {
+    descriptor_t d;
+    ldtr_selector = selector;
+    ldtr = (table_register_t) {0, 0};
+    if (!(selector & ~3u)) return;
+    if (!read_descriptor(selector, &d) || is_segment(d) || system_type(d) != 2) raise_fault(13, selector & ~3u);
+    if (!is_present(d)) raise_fault(11, selector & ~3u);
+    ldtr = (table_register_t) {descriptor_base(d), descriptor_limit(d)};
+}
+
+static void set_tss_busy(uint16_t selector, bool busy) {
+    const uint32_t address = descriptor_address(selector) + 4;
+    const uint32_t high = system_read32(address);
+    system_write32(address, busy ? high | 0x200 : high & ~0x200u);
+}
+
+// ---- Task switch (chapter 7), 386 TSS only ----------------------------------------------------
+// The current state goes into the current TSS, the new one comes from the TSS (or task gate) at
+// selector. EIP must already be the return address. CALL (and INT through a task gate) links the
+// new task back to the old one and sets NT; IRET with NT goes back along that link.
+
+enum { TASK_JMP, TASK_CALL, TASK_IRET };
+
+// The 386 TSS: EIP at 20h, EFLAGS 24h, EAX..EDI 28h-44h, ES CS SS DS FS GS 48h-5Ch, LDT 60h, CR3 1Ch
+static void task_switch(uint16_t selector, uint8_t reason, int32_t error_code) {
+    descriptor_t d;
+    if (!read_descriptor(selector, &d) || is_segment(d)) raise_fault(13, selector & ~3u);
+    if (system_type(d) == 5) { // a task gate in the GDT or LDT
+        if (!is_present(d)) raise_fault(11, selector & ~3u);
+        selector = d.low >> 16;
+        if ((selector & 4) || !read_descriptor(selector, &d) || is_segment(d)) raise_fault(13, selector & ~3u);
+    }
+    if (system_type(d) != (reason == TASK_IRET ? 0xB : 9)) { // a busy, or an available, 386 TSS
+        if ((system_type(d) & 7) == 1 || (system_type(d) & 7) == 3) printf("[CPU] 286 TSS is not emulated\r\n");
+        raise_fault(13, selector & ~3u);
+    }
+    if (!is_present(d)) raise_fault(11, selector & ~3u);
+    if (descriptor_limit(d) < 0x67 || !tss32) raise_fault(10, selector & ~3u);
+
+    uint32_t flags = makeflagsword() | (x86_flags.value & 0x30000);
+    if (reason == TASK_IRET) flags &= ~0x4000u; // the old task leaves its nested state
+    system_write32(tr.base + 0x20, ip);
+    system_write32(tr.base + 0x24, flags);
+    for (int r = 0; r < 8; r++) system_write32(tr.base + 0x28 + r * 4, dwordregs[r]);
+    static const uint8_t order[6] = {reges, regcs, regss, regds, regfs, reggs};
+    for (int i = 0; i < 6; i++) system_write16(tr.base + 0x48 + i * 4, segregs[order[i]]);
+    if (reason != TASK_CALL) set_tss_busy(tr_selector, false);
+    if (reason != TASK_IRET) set_tss_busy(selector, true);
+
+    const uint32_t base = descriptor_base(d);
+    if (reason == TASK_CALL) system_write16(base, tr_selector); // back link
+    // read the whole new state before CR3 changes the address space
+    const uint32_t new_cr3 = system_read32(base + 0x1C), new_eip = system_read32(base + 0x20);
+    uint32_t new_flags = system_read32(base + 0x24), registers[8];
+    uint16_t segments[6];
+    for (int r = 0; r < 8; r++) registers[r] = system_read32(base + 0x28 + r * 4);
+    for (int i = 0; i < 6; i++) segments[i] = system_read16(base + 0x48 + i * 4);
+    const uint16_t ldt = system_read16(base + 0x60);
+
+    tr_selector = selector;
+    tr = (table_register_t) {base, descriptor_limit(d)};
+    cr0 |= 8; // TS
+    if (cr0 & CR0_PG) {
+        cr3 = new_cr3;
+        flush_tlb();
+    }
+    if (reason == TASK_CALL) new_flags |= 0x4000; // NT
+    x86_flags.value = (new_flags & 0x37FD5) | 2;
+    memcpy(dwordregs, registers, sizeof registers);
+    load_ldtr(ldt);
+    protected_mode = !v86;
+    if (v86) { // a V86 task: segments as in real mode
+        cpl = 3;
+        code32 = stack32 = 0;
+        for (int i = 0; i < 6; i++) load_segment(order[i], segments[i]);
+        ip = new_eip & 0xFFFF;
+    } else {
+        const uint16_t cs = segments[1];
+        set_code_segment(cs, code_descriptor(cs), cs & 3, new_eip);
+        for (int i = 0; i < 6; i++) {
+            if (order[i] != regcs) load_segment_protected(order[i], segments[i]);
+        }
+    }
+    if (error_code != NO_ERROR_CODE) push32(error_code);
 }
 
 static void far_jump(uint16_t selector, uint32_t offset) {
@@ -304,7 +392,10 @@ static void far_jump(uint16_t selector, uint32_t offset) {
     if (!read_descriptor(selector, &d)) raise_fault(13, selector & ~3u);
     if (!is_segment(d)) { // a call gate, to the same privilege level
         const uint8_t type = system_type(d);
-        if (type != 4 && type != 0xC) task_switch_fault(selector);
+        if (type != 4 && type != 0xC) {
+            task_switch(selector, TASK_JMP, NO_ERROR_CODE);
+            return;
+        }
         check_gate(selector, d);
         selector = d.low >> 16;
         offset = gate_offset(d);
@@ -337,7 +428,10 @@ static void far_call(uint16_t selector, uint32_t offset, bool size32) {
         return;
     }
     const uint8_t type = system_type(d);
-    if (type != 4 && type != 0xC) task_switch_fault(selector);
+    if (type != 4 && type != 0xC) {
+        task_switch(selector, TASK_CALL, NO_ERROR_CODE);
+        return;
+    }
     check_gate(selector, d);
     const bool gate32 = type == 0xC;
     const uint16_t target = d.low >> 16;
@@ -410,7 +504,12 @@ static void protected_interrupt(uint8_t vector, int32_t error_code, bool softwar
     if (vector * 8u + 7 > idtr.limit) raise_fault(13, idt_error);
     const descriptor_t gate = {system_read32(idtr.base + vector * 8), system_read32(idtr.base + vector * 8 + 4)};
     const uint8_t type = system_type(gate);
-    if (type == 5) task_switch_fault(gate.low >> 16);
+    if (type == 5) { // a task gate: the TSS selector is in it
+        if (software && descriptor_dpl(gate) < cpl) raise_fault(13, idt_error);
+        if (!is_present(gate)) raise_fault(11, idt_error);
+        task_switch(gate.low >> 16, TASK_CALL, error_code);
+        return;
+    }
     if (is_segment(gate) || (type & 7) < 6) raise_fault(13, idt_error); // 286/386 interrupt and trap gates
     if (software && descriptor_dpl(gate) < cpl) raise_fault(13, idt_error);
     if (!is_present(gate)) raise_fault(11, idt_error);
@@ -472,7 +571,10 @@ static void interrupt_return(bool size32) {
         set_flags(pop_sized(size32), size32 ? 0x17FD5 : 0x7FD5);
         return;
     }
-    if (nt) task_switch_fault(system_read16(tr.base)); // back link
+    if (nt) { // return to the task in the back link
+        task_switch(system_read16(tr.base), TASK_IRET, NO_ERROR_CODE);
+        return;
+    }
     const uint32_t offset = pop_sized(size32);
     const uint16_t selector = pop_sized(size32);
     const uint32_t flags = pop_sized(size32);
@@ -567,21 +669,10 @@ static bool group6(void) {
     switch (reg) {
         case 0: writerm16(rm, ldtr_selector); return true;
         case 1: writerm16(rm, tr_selector); return true;
-        case 2: { // LLDT
+        case 2: // LLDT
             privileged();
-            const uint16_t selector = readrm16(rm);
-            descriptor_t d;
-            if (!(selector & ~3u)) {
-                ldtr_selector = selector;
-                ldtr = (table_register_t) {0, 0};
-                return true;
-            }
-            if (!read_descriptor(selector, &d) || is_segment(d) || system_type(d) != 2) raise_fault(13, selector & ~3u);
-            if (!is_present(d)) raise_fault(11, selector & ~3u);
-            ldtr_selector = selector;
-            ldtr = (table_register_t) {descriptor_base(d), descriptor_limit(d)};
+            load_ldtr(readrm16(rm));
             return true;
-        }
         case 3: { // LTR: an available TSS, which becomes busy
             privileged();
             const uint16_t selector = readrm16(rm);
@@ -626,8 +717,9 @@ static bool group7(void) {
             table->base = readdw86(ea + 2) & (opsize32 ? 0xFFFFFFFFu : 0x00FFFFFFu);
             return true;
         }
-        case 4: // SMSW
-            writerm16(rm, (uint16_t) cr0);
+        case 4: // SMSW: a 32-bit register gets all of CR0
+            if (mode == 3 && opsize32) dwordregs[rm] = cr0;
+            else writerm16(rm, (uint16_t) cr0);
             return true;
         case 6: { // LMSW: PE, MP, EM, TS; PE cannot be cleared this way
             privileged();

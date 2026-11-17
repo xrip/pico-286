@@ -104,9 +104,6 @@ uint8_t read86_ob(const uint32_t address) {
     if (address == 0xFC000) {
         return 0x21;
     }
-    if (address - BIOS_STUBS < BIOS_STUB_COUNT) {
-        return address - BIOS_STUBS < BIOS_STUB_COUNT - 1 ? 0xCF : 0xCB; // IRET, or RETF for XMS
-    }
     if (address >= BIOS_START && address < HMA_START) {
         return BIOS[address - BIOS_START];
     }

@@ -214,12 +214,11 @@ extern void sn76489_reset();
 
 // extern void cms_samples(int16_t *output);
 
-// BIOS stubs (cpu.c) in otherwise empty ROM space: F000:C100 + n is IRET for the hooked vector n,
-// F000:C105 is the XMS entry (RETF). read86_ob() gives these bytes, so DOS cannot write over them.
-#define BIOS_STUBS 0xFC100 // linear
-#define BIOS_STUB_COUNT 6
+// BIOS stubs (cpu.c) in the last 16 bytes of UMB space, F000:BFF0, which no UMB block gives out:
+// IRET for each hooked vector, then the XMS entry with the hookable header of the XMS spec.
+#define BIOS_STUBS 0xFBFF0 // linear
 #define XMS_FN_CS 0xF000
-#define XMS_FN_IP 0xC105
+#define XMS_FN_IP 0xBFF5
 
 void xms_handler();
 void move_linear(uint32_t destination, uint32_t source, uint32_t length);

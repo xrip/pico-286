@@ -143,15 +143,15 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
    - Left out (fast, not exact): segment limit and write-protect checks on memory access, LOCK #UD, the ENTER page-fault probe of the final ESP, task switches (a printf and #GP), debug traps.
    - gate: `tests/test386_test.c` runs test386.asm to **POST FF**, with test 12 (limits, write protect, LOCK) and the ENTER page-fault probe left out of the ROM build (see `docs/README.md`). SingleStepTests 80386 92.0% (EIP past FFFFh passes now), 80286 98.25% (the same). Board: CheckIt v3 3,400 Dhrystones, the same as step 3. RP2350 SRAM +9.9 KB (exec86 grew; there is room).
    - still to do: DOS extenders (DOS/4GW, PMODE/W, DOS32A, CWSDPMI) and Windows 3.1 on the board or host.
-6. **V86 mode: the BIOS part.** Done, not yet checked with EMM386 or Windows:
+6. **V86 mode: the BIOS part.** Done:
    - `intcall86()` is split: `bios_hook()` has the C BIOS functions (true if done), and real mode calls it first as before.
-   - At INT 19h the vectors 10h, 13h, 15h, 1Ah and 2Fh are pointed to F000:C100 + n, where the byte is IRET (the old vectors are kept). `read86_ob()` gives these bytes from empty ROM space, so no program can write over them (DR-DOS writes vectors FCh-FFh, so the end of the IVT is not safe). When an instruction starts there, `bios_stub()` runs the C hook; if it is done, the new CF goes into the caller's FLAGS on the stack and the IRET runs (a V86 monitor with IOPL < 3 then emulates it); if not, CS:IP goes to the old vector. The XMS entry moves to F000:C105 (RETF) and uses the same check, once per instruction instead of once per fetched byte.
+   - At INT 19h the vectors 10h, 13h, 15h, 1Ah and 2Fh are pointed to IRET stubs at F000:BFF0 + n (the old vectors are kept). These are the last 16 bytes of UMB space; the last UMB block is one paragraph shorter, so DOS never gets them (DR-DOS writes vectors FCh-FFh, so the end of the IVT is not safe). When an instruction starts at a stub, `bios_stub()` runs the C hook; if it is done, the new CF goes into the caller's FLAGS on the stack and the IRET runs (a V86 monitor with IOPL < 3 then emulates it); if not, CS:IP goes to the old vector.
+   - The XMS entry is F000:BFF5 with the hookable header of the XMS spec (`JMP SHORT $+5`, three NOPs) and the RETF at F000:BFFA, where `bios_stub()` runs `xms_handler()`. EMM386 does not install without this header. The XMS function 00h gives driver revision 3.07 (HIMEM.SYS of Windows 3.1); with 2.06 EMM386 warns.
    - `move_linear()` (XMS 0Bh, INT 15h 87h) uses the physical memory functions, so it works while paging is on.
-   - Gate:
-     - EMM386 (MS-DOS 6.22) loads, `MEM` shows UMBs, and games run under it;
-     - Windows 3.1 starts in 386 enhanced mode and opens a DOS box.
-7. **Hardware task switch: only if a target fails without it.**
-   - JMP/CALL/INT to a TSS or task gate, and IRET with NT.
+   - Host checks (Win32 build, a copy of the boot floppy): EMM386 4.40 (`DEVICE=...EMM386.EXE NOEMS`) installs, "EMM386 Active", and `DIR C:` works from V86 mode. FastDoom (`FDOOM13H.EXE`, from H: through MAPDRIVE) plays.
+   - Gate still open: Windows 3.1 in 386 enhanced mode with a DOS box; `MEM` with UMBs and games under EMM386 on the board.
+7. **Hardware task switch.** Done, because CWSDPMI needs it: JMP/CALL to a TSS or task gate, task gates in the IDT (with the error code), IRET with NT. Only the 386 TSS; a 286 TSS gives a printf and #GP. test386 in the 128 KB build passes the 386 TSS part of test 22 and stops at its 286 TSS part. SMSW into a 32-bit register gives all of CR0 (test 22 checks it).
+   - Open: `DOOM32DJ.EXE` with CWSDPR0 runs into the BIOS Print Screen routine (INT 05h in real mode, about 100 times, CS = 000Ch); not known yet if this build works on other PCs.
 8. **Speed pass on the M2P2 board.**
    - Profile.
    - Move only the measured hot 386 code to SRAM.

@@ -84,7 +84,7 @@ static umb_t umb_blocks[] = {
 
     // 0xF8000–0xFBFFF (16 KB)
     {0xF800, 0x0080, 0}, {0xF880, 0x0080, 0}, {0xF900, 0x0080, 0}, {0xF980, 0x0080, 0},
-    {0xFA00, 0x0080, 0}, {0xFA80, 0x0080, 0}, {0xFB00, 0x0080, 0}, {0xFB80, 0x0080, 0},
+    {0xFA00, 0x0080, 0}, {0xFA80, 0x0080, 0}, {0xFB00, 0x0080, 0}, {0xFB80, 0x007F, 0}, // FBFF0: BIOS stubs
 };
 #define UMB_BLOCKS_COUNT (sizeof(umb_blocks) / sizeof(umb_t))
 
@@ -225,7 +225,7 @@ void xms_handler() { // in flash: XMS calls are rare
         case XMS_VERSION: {
             // Get XMS Version
             CPU_AX = 0x0200; // We are himem 2.06
-            CPU_BX = 0x0206; // driver version
+            CPU_BX = 0x0307; // driver revision of HIMEM.SYS 3.07 (Windows 3.1): EMM386 rejects old ones
             CPU_DX = 0x0001; // HMA Exist
             break;
         }

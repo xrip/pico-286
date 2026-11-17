@@ -8,9 +8,13 @@
 #include "cpu_host.h"
 
 int main(int argc, char **argv) {
+    // The 64 KB ROM goes at F0000, the 128 KB one (ROM128: more tests) at E0000
     FILE *rom = argc > 1 ? fopen(argv[1], "rb") : NULL;
-    if (!rom || fread(memory + 0xF0000, 1, 0x10000, rom) != 0x10000) {
-        fprintf(stderr, "usage: %s <test386.bin> (a 64 KB ROM)\n", argv[0]);
+    const size_t size = rom ? fread(memory + 0xE0000, 1, 0x20000, rom) : 0;
+    if (size == 0x10000) {
+        memmove(memory + 0xF0000, memory + 0xE0000, size);
+    } else if (size != 0x20000) {
+        fprintf(stderr, "usage: %s <test386.bin> (a 64 or 128 KB ROM)\n", argv[0]);
         return 2;
     }
     load_segment(regcs, 0xF000);
