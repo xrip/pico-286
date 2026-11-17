@@ -3,5 +3,3 @@
     .global gm_bank_blob
 gm_bank_blob:
     .incbin "@MIDI_GM_BANK@"
-    .global gm_bank_blob_end
-gm_bank_blob_end:

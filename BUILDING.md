@@ -237,8 +237,7 @@ cmake --build --preset m2p2-hdmi
 Output: `bin/rp2350-arm-s/Release/m2p2-286-P166-C500MHz-HDMI-HSTX-HDMIAUDIO-GMDLS.uf2`.
 `MIDI_GM_BANK` can point to another packed v4 bank at 44,100 Hz.
 The bank stays in flash; the engine has 32 voices and preserves stereo pan.
-MIDI commands go through a queue to the audio core. The engine does not
-allocate a wave cache during playback. MPU-401 reset clears its voices.
+MIDI commands go through a queue to the audio core. MPU-401 reset clears its voices.
 
 RP2350 Arm builds use 16 MB flash in both SDK settings and linker scripts.
 The last 4 KB is reserved for CMOS; the launcher layout also reserves the

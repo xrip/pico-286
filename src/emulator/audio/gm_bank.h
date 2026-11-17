@@ -15,12 +15,7 @@
 
 #include <stdint.h>
 
-// DLS drum-kit marker in gm_instrument_t.bank (high bit). Defined here so the
-// real-time engine needs only gm_bank.h, not the host RIFF parser; dls_parse.inl
-// defines the same value, which is a harmless identical redefinition.
-#ifndef DLS_DRUM_BANK
-#define DLS_DRUM_BANK 0x80000000u
-#endif
+#define DLS_DRUM_BANK 0x80000000u // drum-kit bit in gm_instrument_t.bank
 
 #define GM_BANK_MAGIC0 'G'
 #define GM_BANK_MAGIC1 'M'
@@ -28,10 +23,7 @@
 #define GM_BANK_MAGIC3 'B'
 #define GM_BANK_VERSION 4u  // v4: region tremolo (LFO->gain) + EG2 pitch envelope
 
-// Fixed-point scales.
-#define GM_Q16 16          // gain, envelope coeffs, sustain: Q16 (65536 = 1.0)
-#define GM_STEP_Q 16       // playback step: Q16.16 frames-per-output-sample
-#define GM_ONE_Q16 65536
+#define GM_ONE_Q16 65536 // 1.0 in Q16
 
 typedef struct {
     uint32_t pcm_offset;    // first sample index into the PCM block

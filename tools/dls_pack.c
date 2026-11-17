@@ -2,17 +2,13 @@
 //
 //   dls_pack <gm.dls> <out.bin> <output_rate>
 //
-// Reuses the shared DLS parser (dls_parse.c.inl), then bakes everything the
-// real-time fixed-point engine needs into a position-independent blob
-// (see gm_bank.h):
-//   * waves downmixed to mono int16 PCM at native rate, with
-//     base playback step
-//   * regions with resolved wsmp tuning/attenuation/loop and EG1 coefficients
-//     baked at <output_rate> so the device never does float math
-//   * instruments preserving bank/program order for dls_find_instrument()
-#include <math.h>
-
-#include "../src/emulator/audio/dls_parse.inl"
+// Bakes everything the fixed-point engine needs into a position-independent
+// blob (see gm_bank.h), so the device does no float math:
+//   * waves downmixed to mono int16 PCM at native rate, with a base playback step
+//   * regions with resolved wsmp tuning, attenuation, loops, EG1/EG2 and LFO
+//     baked at <output_rate>
+//   * instruments in bank/program order
+#include "dls_parse.inl"
 #include "../src/emulator/audio/gm_bank.h"
 
 // ---- growable output buffers -------------------------------------------------
@@ -79,22 +75,10 @@ static double clampd(double v, double lo, double hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// Validation stat for the wsmp gain field. We interpret it as SIGNED GAIN
-// (positive = boost), like DLS2 lGain; other DLS implementations read it as
-// attenuation (positive = quieter). If GM.DLS values turn out mostly positive,
-// our sign is suspect.
-static void att_stat(int32_t att, int32_t *mn, int32_t *mx, uint32_t *pos, uint32_t *neg) {
-    if (att < *mn) *mn = att;
-    if (att > *mx) *mx = att;
-    if (att > 0) (*pos)++;
-    if (att < 0) (*neg)++;
-}
-
 // Bake the DLS LFO modulators (per-instrument articulation) into a region:
 // LFO->pitch vibrato (with CC1-scaled extra depth) and LFO->attenuation
-// tremolo. Pitch depth is kept at full DLS range (some SFX like "Wind" use
-// ~725 cents on purpose); the engine gates the LFO with a proper per-note
-// delay rather than the reference's broken global-age gate.
+// tremolo. Pitch depth keeps the full DLS range (some SFX like "Wind" use
+// ~725 cents).
 static void bake_lfo(const dls_articulation_t *art, uint32_t rate, gm_region_t *out) {
     int pitch = art->lfo_pitch_cents != 0.0 || art->mod_lfo_pitch_cents != 0.0;
     int gain = art->has_lfo_gain && art->lfo_gain_scale != 0;
@@ -117,95 +101,6 @@ static void bake_lfo(const dls_articulation_t *art, uint32_t rate, gm_region_t *
     out->flags |= GM_RGN_HAS_LFO;
 }
 
-// ---- art1 connection census report --------------------------------------------
-
-static const char *conn_src_name(uint16_t s, char buf[16]) {
-    switch (s) {
-        case CONN_SRC_NONE: return "NONE";
-        case CONN_SRC_LFO: return "LFO";
-        case CONN_SRC_KEYONVELOCITY: return "VEL";
-        case CONN_SRC_KEYNUMBER: return "KEY";
-        case CONN_SRC_EG1: return "EG1";
-        case CONN_SRC_EG2: return "EG2";
-        case CONN_SRC_PITCHWHEEL: return "BEND";
-        case CONN_SRC_CC1: return "CC1";
-        case CONN_SRC_CC7: return "CC7";
-        case CONN_SRC_CC10: return "CC10";
-        case CONN_SRC_CC11: return "CC11";
-        case CONN_SRC_RPN0: return "RPN0";
-        default: snprintf(buf, 16, "0x%03x", s); return buf;
-    }
-}
-
-static const char *conn_dst_name(uint16_t d, char buf[16]) {
-    switch (d) {
-        case CONN_DST_ATTENUATION: return "GAIN";
-        case CONN_DST_PITCH: return "PITCH";
-        case CONN_DST_PAN: return "PAN";
-        case CONN_DST_LFO_FREQUENCY: return "LFO_FREQ";
-        case CONN_DST_LFO_STARTDELAY: return "LFO_DELAY";
-        case CONN_DST_EG1_ATTACKTIME: return "EG1_ATTACK";
-        case CONN_DST_EG1_DECAYTIME: return "EG1_DECAY";
-        case CONN_DST_EG1_RELEASETIME: return "EG1_RELEASE";
-        case CONN_DST_EG1_SUSTAINLEVEL: return "EG1_SUSTAIN";
-        case CONN_DST_EG2_ATTACKTIME: return "EG2_ATTACK";
-        case CONN_DST_EG2_DECAYTIME: return "EG2_DECAY";
-        case CONN_DST_EG2_RELEASETIME: return "EG2_RELEASE";
-        case CONN_DST_EG2_SUSTAINLEVEL: return "EG2_SUSTAIN";
-        case CONN_DST_FILTER_CUTOFF: return "FLT_CUTOFF";
-        case CONN_DST_FILTER_Q: return "FLT_Q";
-        case CONN_DST_CHORUS: return "CHORUS";
-        case CONN_DST_REVERB: return "REVERB";
-        default: snprintf(buf, 16, "0x%03x", d); return buf;
-    }
-}
-
-// Mirrors exactly what parse_lart + the bakers consume today. Anything the
-// census reports as DROP is GM.DLS metadata we do not yet extract.
-static bool conn_is_consumed(uint16_t src, uint16_t ctl, uint16_t dst) {
-    if (src == CONN_SRC_NONE && ctl == CONN_SRC_NONE) {
-        switch (dst) {
-            case CONN_DST_PAN:
-            case CONN_DST_LFO_FREQUENCY:
-            case CONN_DST_LFO_STARTDELAY:
-            case CONN_DST_EG1_ATTACKTIME:
-            case CONN_DST_EG1_DECAYTIME:
-            case CONN_DST_EG1_RELEASETIME:
-            case CONN_DST_EG1_SUSTAINLEVEL:
-            case CONN_DST_EG2_ATTACKTIME:
-            case CONN_DST_EG2_DECAYTIME:
-            case CONN_DST_EG2_RELEASETIME:
-            case CONN_DST_EG2_SUSTAINLEVEL:
-                return true;
-            default:
-                return false;
-        }
-    }
-    if (src == CONN_SRC_LFO && dst == CONN_DST_PITCH &&
-        (ctl == CONN_SRC_NONE || ctl == CONN_SRC_CC1)) return true;
-    if (src == CONN_SRC_LFO && ctl == CONN_SRC_NONE && dst == CONN_DST_ATTENUATION) return true;
-    if (src == CONN_SRC_EG2 && ctl == CONN_SRC_NONE && dst == CONN_DST_PITCH) return true;
-    if (src == CONN_SRC_KEYNUMBER && ctl == CONN_SRC_NONE &&
-        (dst == CONN_DST_EG1_DECAYTIME || dst == CONN_DST_EG1_ATTACKTIME ||
-         dst == CONN_DST_EG2_DECAYTIME)) return true;
-    if (src == CONN_SRC_KEYONVELOCITY && ctl == CONN_SRC_NONE &&
-        (dst == CONN_DST_EG1_ATTACKTIME || dst == CONN_DST_EG2_ATTACKTIME)) return true;
-    return false;
-}
-
-static void print_conn_census(void) {
-    fprintf(stderr, "art1 connection census (DROP = present in DLS, not extracted yet):\n");
-    for (size_t i = 0; i < g_dls_conn_census_count; ++i) {
-        const dls_conn_stat_t *s = &g_dls_conn_census[i];
-        char sb[16], cb[16], db[16];
-        fprintf(stderr, "  %-4s %5s x %-5s -> %-11s n=%-5u scale=%.1f..%.1f\n",
-                conn_is_consumed(s->source, s->control, s->destination) ? "USED" : "DROP",
-                conn_src_name(s->source, sb), conn_src_name(s->control, cb),
-                conn_dst_name(s->destination, db), s->count,
-                (double) s->scale_min / 65536.0, (double) s->scale_max / 65536.0);
-    }
-}
-
 // ---- packing -----------------------------------------------------------------
 
 // DLS connection sources are normalized to value/128, so a KEYNUMBER/VELOCITY
@@ -224,9 +119,8 @@ static int32_t eg_time_tc(int32_t base_tc, int32_t keyscale_tc, int key,
 
 // Bake the region's DLS EG1 (amplitude envelope) with key/velocity time scaling
 // resolved at (key, vel) — exact for drums (single-note regions), region-midpoint
-// approximation for melodic ones. The census shows every GM.DLS region carries
-// an EG1, so missing pieces just take the DLS defaults (instant attack/decay,
-// sustain 100%); release falls back to a short 50ms anti-click ramp.
+// approximation for melodic ones. Missing pieces take the DLS defaults (instant
+// attack/decay, sustain 100%); release falls back to a short 50ms anti-click ramp.
 static void bake_eg1(const dls_articulation_t *art, uint32_t rate,
                      int key, int vel, gm_region_t *out) {
     double attack_s = art->has_attack
@@ -297,16 +191,6 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    uint32_t regions_no_eg1 = 0;
-    uint32_t regions_timescaled = 0; // regions with key/vel-scaled EG1 times
-    uint32_t regions_panned = 0;     // regions with a DLS art1 pan offset
-    uint32_t regions_tremolo = 0;    // regions with LFO->gain tremolo
-    uint32_t regions_eg2 = 0;        // regions with an EG2 pitch envelope
-    int32_t att_min = INT32_MAX, att_max = INT32_MIN; // wsmp gain field range
-    uint32_t att_pos = 0, att_neg = 0;
-    uint32_t att_sentinel = 0; // wsmp gain == 0x80000000: intended mute or "no value"?
-    uint32_t waves_native_rate = 0; // waves whose rate == output_rate (no resample)
-    uint32_t drum_loop_total = 0, drum_loop_sustained = 0;
     vec_t waves, regions, instruments, pcm;
     vec_init(&waves, sizeof(gm_wave_t));
     vec_init(&regions, sizeof(gm_region_t));
@@ -325,7 +209,6 @@ int main(int argc, char **argv) {
         }
         gw->frame_count = w->frame_count;
         gw->base_step_q16 = (uint32_t) llround((double) w->sample_rate / (double) output_rate * (double) GM_ONE_Q16);
-        if (w->sample_rate == output_rate) waves_native_rate++;
         for (uint32_t f = 0; f < w->frame_count; ++f) {
             double mono = 0.0;
             for (uint16_t ch = 0; ch < w->channels; ++ch) mono += wave_read_channel(w, f, ch);
@@ -361,12 +244,10 @@ int main(int argc, char **argv) {
                 out->root_key = (uint8_t) rg->unity_note;
                 out->fine_cents = rg->fine_tune;
                 out->gain_q16 = gain_to_q16(rg->attenuation);
-                att_stat(rg->attenuation, &att_min, &att_max, &att_pos, &att_neg);
             } else if (w->has_wsmp) {
                 out->root_key = (uint8_t) w->unity_note;
                 out->fine_cents = w->fine_tune;
                 out->gain_q16 = gain_to_q16(w->attenuation);
-                att_stat(w->attenuation, &att_min, &att_max, &att_pos, &att_neg);
             } else {
                 out->root_key = 60;
                 out->fine_cents = 0;
@@ -374,22 +255,7 @@ int main(int argc, char **argv) {
                 out->flags |= GM_RGN_ROOT_FROM_NOTE;
             }
 
-            // 0x80000000 in the wsmp gain field bakes to gain 0 (silence). List
-            // the affected regions so we can judge from the data whether these
-            // are intended mutes or a "no value" sentinel that should mean 0 dB.
-            if (rg->has_wsmp || w->has_wsmp) {
-                int32_t a = rg->has_wsmp ? rg->attenuation : w->attenuation;
-                if (a == INT32_MIN) {
-                    if (att_sentinel < 8) {
-                        fprintf(stderr, "  silent region: '%s' (bank 0x%x prog %u keys %u..%u vel %u..%u)\n",
-                                ins->name, ins->bank, ins->program,
-                                rg->key_low, rg->key_high, rg->vel_low, rg->vel_high);
-                    }
-                    att_sentinel++;
-                }
-            }
-
-            // loop precedence (mirrors synth_render_one selection).
+            // loop precedence: region, then wave (only if the region has no wsmp).
             uint32_t ls = 0, ll = 0;
             int looped = 0;
             if (rg->looped) {
@@ -418,10 +284,7 @@ int main(int argc, char **argv) {
             int rep_vel = ((int) rg->vel_low + (int) rg->vel_high) / 2;
             bake_eg1(art, output_rate, rep_key, rep_vel, out);
             bake_eg2(art, output_rate, rep_key, rep_vel, out);
-            if (out->flags & GM_RGN_HAS_EG2) regions_eg2++;
-            if (art->decay_keyscale || art->attack_keyscale || art->attack_velscale) regions_timescaled++;
             bake_lfo(art, output_rate, out);
-            if (out->lfo_gain_depth_q8) regions_tremolo++;
             // DLS art1 pan (0.1% units, 16.16): -500..500 spans full L..R, i.e.
             // a -64..+64 offset on the 0..127 MIDI pan scale.
             if (art->has_pan) {
@@ -429,12 +292,6 @@ int main(int argc, char **argv) {
                 if (p < -64) p = -64;
                 if (p > 63) p = 63;
                 out->pan = (int8_t) p;
-                regions_panned++;
-            }
-            if (!art->has_eg1) regions_no_eg1++;
-            if ((ins->bank & DLS_DRUM_BANK) && (out->flags & GM_RGN_LOOPED)) {
-                drum_loop_total++;
-                if (out->sustain_q16 > (GM_ONE_Q16 / 20)) drum_loop_sustained++; // >5%
             }
             region_count++;
         }
@@ -478,44 +335,10 @@ int main(int argc, char **argv) {
     ok &= fwrite(pcm.data, sizeof(int16_t), pcm.count, f) == pcm.count;
     if (fclose(f) != 0) ok = 0;
 
-    print_conn_census();
-
-    // Diagnostic: how prevalent are DLS modulators we currently drop?
-    uint32_t ins_lfo = 0, ins_modlfo = 0, ins_filter = 0;
-    double lfo_min = 1e9, lfo_max = -1e9;
-    for (size_t i = 0; i < bank.instrument_count; ++i) {
-        const dls_instrument_t *in = &bank.instruments[i];
-        const dls_articulation_t *a = &in->articulation;
-        if (a->lfo_pitch_cents != 0.0) {
-            ins_lfo++;
-            if (a->lfo_pitch_cents < lfo_min) lfo_min = a->lfo_pitch_cents;
-            if (a->lfo_pitch_cents > lfo_max) lfo_max = a->lfo_pitch_cents;
-        }
-        if (a->mod_lfo_pitch_cents != 0.0) ins_modlfo++;
-        if (a->has_filter_cutoff) ins_filter++;
-    }
-    fprintf(stderr, "  modulators: %u/%zu LFO vibrato (depth %.1f..%.1f cents), %u mod-wheel LFO, %u filter\n",
-            ins_lfo, bank.instrument_count, lfo_min, lfo_max, ins_modlfo, ins_filter);
-    fprintf(stderr, "  drum loops: %u looped drum regions, %u of them with sustain>5%% (would ring without note-off)\n",
-            drum_loop_total, drum_loop_sustained);
-    fprintf(stderr, "  EG1 time scaling: %u regions with KEYNUMBER/VELOCITY-scaled attack/decay baked in\n",
-            regions_timescaled);
-    fprintf(stderr, "  pan: %u regions with DLS art1 pan baked in\n", regions_panned);
-    fprintf(stderr, "  tremolo: %u regions, EG2 pitch envelope: %u regions baked in\n",
-            regions_tremolo, regions_eg2);
-    if (att_min <= att_max) {
-        fprintf(stderr, "  wsmp gain field: %.1f..%.1f dB as signed gain (%u boost / %u cut, "
-                        "%u sentinel 0x80000000 baked silent)\n",
-                (double) att_min / 655360.0, (double) att_max / 655360.0, att_pos, att_neg, att_sentinel);
-    }
-
     double pcm_mb = (double) (pcm.count * sizeof(int16_t)) / (1024.0 * 1024.0);
     double total_mb = (double) (hdr.off_pcm + pcm.count * sizeof(int16_t)) / (1024.0 * 1024.0);
-    fprintf(stderr,
-            "GMWB: %u instruments, %u regions (%u without EG1), %u waves (%u at native %u Hz), "
-            "%u samples (%.2f MB PCM, %.2f MB total) @ %u Hz -> %s\n",
-            hdr.instrument_count, hdr.region_count, regions_no_eg1, hdr.wave_count, waves_native_rate,
-            output_rate, hdr.pcm_samples, pcm_mb, total_mb, output_rate, out_path);
+    fprintf(stderr, "GMWB: %u instruments, %u regions, %u waves, %.2f MB PCM, %.2f MB total @ %u Hz -> %s\n",
+            hdr.instrument_count, hdr.region_count, hdr.wave_count, pcm_mb, total_mb, output_rate, out_path);
 
     free(waves.data);
     free(regions.data);

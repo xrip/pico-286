@@ -1,7 +1,4 @@
-// Shared RIFF DLS parser + DLS-domain conversions.
-// Included (not linked) by both gm_dls_player.c (golden reference) and
-// dls_pack.c (offline soundbank packer) so the parsing logic has a single
-// source of truth. All symbols are static; include exactly once per TU.
+// RIFF DLS parser and DLS unit conversions for dls_pack.c.
 #pragma once
 
 #include <errno.h>
@@ -13,25 +10,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define DLS_DRUM_BANK 0x80000000u
-
 #define CONN_SRC_NONE 0x000
 #define CONN_SRC_LFO 0x001
 #define CONN_SRC_KEYONVELOCITY 0x002
 #define CONN_SRC_KEYNUMBER 0x003
-#define CONN_SRC_EG1 0x004
 #define CONN_SRC_EG2 0x005
-#define CONN_SRC_PITCHWHEEL 0x006
 #define CONN_SRC_CC1 0x081
-#define CONN_SRC_CC7 0x087
-#define CONN_SRC_CC10 0x08a
-#define CONN_SRC_CC11 0x08b
-#define CONN_SRC_RPN0 0x100
 #define CONN_DST_ATTENUATION 0x001
 #define CONN_DST_PITCH 0x003
 #define CONN_DST_PAN 0x004
-#define CONN_DST_CHORUS 0x080
-#define CONN_DST_REVERB 0x081
 #define CONN_DST_LFO_FREQUENCY 0x104
 #define CONN_DST_LFO_STARTDELAY 0x105
 #define CONN_DST_EG1_ATTACKTIME 0x206
@@ -42,42 +29,6 @@
 #define CONN_DST_EG2_DECAYTIME 0x30B
 #define CONN_DST_EG2_RELEASETIME 0x30D
 #define CONN_DST_EG2_SUSTAINLEVEL 0x30E
-#define CONN_DST_FILTER_CUTOFF 0x500
-#define CONN_DST_FILTER_Q 0x501
-
-// ---- art1 connection census ----------------------------------------------
-// Records every (source, control, destination) triple seen while parsing, so
-// offline tools can report which GM.DLS metadata the pipeline consumes and
-// which it silently drops. Guides extraction work with data, not guesses.
-typedef struct {
-    uint16_t source, control, destination;
-    uint32_t count;
-    int32_t scale_min, scale_max;
-} dls_conn_stat_t;
-
-static dls_conn_stat_t g_dls_conn_census[96];
-static size_t g_dls_conn_census_count;
-
-static void dls_census_connection(uint16_t source, uint16_t control, uint16_t destination, int32_t scale) {
-    for (size_t i = 0; i < g_dls_conn_census_count; ++i) {
-        dls_conn_stat_t *s = &g_dls_conn_census[i];
-        if (s->source == source && s->control == control && s->destination == destination) {
-            s->count++;
-            if (scale < s->scale_min) s->scale_min = scale;
-            if (scale > s->scale_max) s->scale_max = scale;
-            return;
-        }
-    }
-    if (g_dls_conn_census_count < sizeof(g_dls_conn_census) / sizeof(g_dls_conn_census[0])) {
-        dls_conn_stat_t *s = &g_dls_conn_census[g_dls_conn_census_count++];
-        s->source = source;
-        s->control = control;
-        s->destination = destination;
-        s->count = 1;
-        s->scale_min = scale;
-        s->scale_max = scale;
-    }
-}
 
 typedef struct {
     uint8_t *data;
@@ -105,31 +56,23 @@ typedef struct {
 } dls_wave_t;
 
 typedef struct {
-    bool has_eg1;
     bool has_attack;
     bool has_decay;
     bool has_release;
     bool has_sustain;
     bool has_lfo_frequency;
     bool has_lfo_delay;
-    bool has_filter_cutoff;
-    bool has_filter_q;
     int32_t attack_time;
     int32_t decay_time;
     int32_t release_time;
     int32_t sustain_level;
     // Key-number scaling of EG1 times (timecents across the 0..128 key range).
     int32_t decay_keyscale;
-    int32_t hold_keyscale;
     int32_t attack_keyscale;
     // Key-on velocity scaling of EG1 attack (timecents across 0..128 velocity).
     int32_t attack_velscale;
     int32_t lfo_frequency;
     int32_t lfo_delay;
-    int32_t filter_cutoff;
-    int32_t filter_q;
-    int32_t reverb_send;
-    int32_t chorus_send;
     bool has_pan;
     int32_t pan;                 // DLS pan, 0.1% units in 16.16 (-500..500 = full L..R)
     double lfo_pitch_cents;
@@ -150,7 +93,6 @@ typedef struct {
     uint16_t key_high;
     uint16_t vel_low;
     uint16_t vel_high;
-    uint16_t options;
     uint16_t key_group;
     uint32_t wave_index;
 
@@ -169,7 +111,6 @@ typedef struct {
 typedef struct {
     uint32_t bank;
     uint32_t program;
-    char name[64];
     dls_articulation_t articulation;
     dls_region_t *regions;
     size_t region_count;
@@ -201,14 +142,6 @@ static uint32_t rd_u32le(const uint8_t *p) {
 
 static int32_t rd_i32le(const uint8_t *p) {
     return (int32_t) rd_u32le(p);
-}
-
-static uint16_t rd_u16be(const uint8_t *p) {
-    return ((uint16_t) p[0] << 8) | (uint16_t) p[1];
-}
-
-static uint32_t rd_u32be(const uint8_t *p) {
-    return ((uint32_t) p[0] << 24) | ((uint32_t) p[1] << 16) | ((uint32_t) p[2] << 8) | (uint32_t) p[3];
 }
 
 static bool fourcc_is(const uint8_t *p, const char id[4]) {
@@ -358,7 +291,6 @@ static bool parse_region(const uint8_t *file, size_t file_size, size_t region_of
             region.key_high = rd_u16le(file + payload + 2);
             region.vel_low = rd_u16le(file + payload + 4);
             region.vel_high = rd_u16le(file + payload + 6);
-            region.options = rd_u16le(file + payload + 8);
             region.key_group = rd_u16le(file + payload + 10);
         } else if (fourcc_is(file + off, "wsmp")) {
             if (!parse_wsmp(file + payload, size, &region, NULL)) return false;
@@ -376,37 +308,6 @@ static bool parse_region(const uint8_t *file, size_t file_size, size_t region_of
     if (!reserve_region(instrument)) return false;
     instrument->regions[instrument->region_count++] = region;
     return true;
-}
-
-static void parse_info_name(const uint8_t *file, size_t file_size, size_t info_off, char out[64]) {
-    if (info_off + 12 > file_size || !fourcc_is(file + info_off, "LIST")) return;
-    uint32_t list_size = rd_u32le(file + info_off + 4);
-    size_t data_off = info_off + 8u;
-    size_t end = data_off + list_size;
-    if (end > file_size || list_size < 4 || !fourcc_is(file + data_off, "INFO")) return;
-
-    for (size_t off = data_off + 4u; off + 8u <= end;) {
-        uint32_t size = rd_u32le(file + off + 4);
-        size_t payload = off + 8u;
-        size_t next = riff_next(off, size);
-        if (payload + size > file_size || payload + size > end || next <= off) return;
-
-        if (fourcc_is(file + off, "INAM")) {
-            size_t copy_len = size;
-            if (copy_len >= 64) copy_len = 63;
-            memcpy(out, file + payload, copy_len);
-            out[copy_len] = '\0';
-            for (size_t i = 0; out[i]; ++i) {
-                if ((unsigned char) out[i] < 32) {
-                    out[i] = '\0';
-                    break;
-                }
-            }
-            return;
-        }
-
-        off = next;
-    }
 }
 
 static void parse_lart(const uint8_t *file, size_t file_size, size_t lart_off, dls_articulation_t *articulation) {
@@ -432,7 +333,6 @@ static void parse_lart(const uint8_t *file, size_t file_size, size_t lart_off, d
                 uint16_t destination = rd_u16le(file + connection_off + 4);
                 int32_t scale = rd_i32le(file + connection_off + 8);
                 connection_off += 12u;
-                dls_census_connection(source, control, destination, scale);
 
                 if (source == CONN_SRC_NONE && control == CONN_SRC_NONE) {
                     switch (destination) {
@@ -451,22 +351,18 @@ static void parse_lart(const uint8_t *file, size_t file_size, size_t lart_off, d
                         case CONN_DST_EG1_ATTACKTIME:
                             articulation->attack_time = scale;
                             articulation->has_attack = true;
-                            articulation->has_eg1 = true;
                             break;
                         case CONN_DST_EG1_DECAYTIME:
                             articulation->decay_time = scale;
                             articulation->has_decay = true;
-                            articulation->has_eg1 = true;
                             break;
                         case CONN_DST_EG1_RELEASETIME:
                             articulation->release_time = scale;
                             articulation->has_release = true;
-                            articulation->has_eg1 = true;
                             break;
                         case CONN_DST_EG1_SUSTAINLEVEL:
                             articulation->sustain_level = scale;
                             articulation->has_sustain = true;
-                            articulation->has_eg1 = true;
                             break;
                         case CONN_DST_EG2_ATTACKTIME:
                             articulation->eg2_attack_time = scale;
@@ -487,20 +383,6 @@ static void parse_lart(const uint8_t *file, size_t file_size, size_t lart_off, d
                             articulation->eg2_sustain_level = scale;
                             articulation->has_eg2_sustain = true;
                             articulation->has_eg2 = true;
-                            break;
-                        case CONN_DST_FILTER_CUTOFF:
-                            articulation->filter_cutoff = scale;
-                            articulation->has_filter_cutoff = true;
-                            break;
-                        case CONN_DST_FILTER_Q:
-                            articulation->filter_q = scale;
-                            articulation->has_filter_q = true;
-                            break;
-                        case CONN_DST_REVERB:
-                            articulation->reverb_send = scale;
-                            break;
-                        case CONN_DST_CHORUS:
-                            articulation->chorus_send = scale;
                             break;
                         default:
                             break;
@@ -575,8 +457,6 @@ static bool parse_instrument(const uint8_t *file, size_t file_size, size_t ins_o
                 }
                 r = next_region;
             }
-        } else if (fourcc_is(file + off, "LIST") && size >= 4 && fourcc_is(file + payload, "INFO")) {
-            parse_info_name(file, file_size, off, instrument.name);
         } else if (fourcc_is(file + off, "LIST") && size >= 4 && fourcc_is(file + payload, "lart")) {
             parse_lart(file, file_size, off, &instrument.articulation);
         }
@@ -776,49 +656,6 @@ static bool dls_bank_load(const char *path, dls_bank_t *bank) {
     fprintf(stderr, "DLS: %zu instruments, %zu waves loaded from %s\n",
             bank->instrument_count, bank->wave_count, path);
     return true;
-}
-
-static const dls_instrument_t *dls_find_instrument(const dls_bank_t *bank, uint32_t dls_bank, uint32_t program) {
-    const dls_instrument_t *fallback_program = NULL;
-    const dls_instrument_t *fallback_piano = NULL;
-    for (size_t i = 0; i < bank->instrument_count; ++i) {
-        const dls_instrument_t *instrument = &bank->instruments[i];
-        if (instrument->bank == dls_bank && instrument->program == program) return instrument;
-        if (instrument->bank == 0 && instrument->program == program) fallback_program = instrument;
-        if (instrument->bank == 0 && instrument->program == 0) fallback_piano = instrument;
-    }
-
-    if (dls_bank & DLS_DRUM_BANK) {
-        for (size_t i = 0; i < bank->instrument_count; ++i) {
-            const dls_instrument_t *instrument = &bank->instruments[i];
-            if (instrument->bank == DLS_DRUM_BANK && instrument->program == 0) return instrument;
-        }
-    }
-
-    return fallback_program ? fallback_program : fallback_piano;
-}
-
-static const dls_region_t *dls_find_region(const dls_instrument_t *instrument, uint8_t note, uint8_t velocity) {
-    const dls_region_t *nearest = NULL;
-    int nearest_distance = 1000;
-
-    for (size_t i = 0; i < instrument->region_count; ++i) {
-        const dls_region_t *region = &instrument->regions[i];
-        if (note >= region->key_low && note <= region->key_high &&
-            velocity >= region->vel_low && velocity <= region->vel_high) {
-            return region;
-        }
-
-        int distance = 0;
-        if (note < region->key_low) distance = (int) region->key_low - note;
-        if (note > region->key_high) distance = note - (int) region->key_high;
-        if (!nearest || distance < nearest_distance) {
-            nearest = region;
-            nearest_distance = distance;
-        }
-    }
-
-    return nearest;
 }
 
 static double dls_attenuation_gain(int32_t attenuation) {
