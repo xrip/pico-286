@@ -54,7 +54,6 @@ void vga_init(void) {}
 void vga_set_cpu_page_offset(uint32_t offset) {}
 void tga_portout(uint16_t port, uint16_t value) {}
 void tga_draw_char(uint8_t ch, int x, int y, uint8_t color) {}
-int a20_enabled;
 uint8_t cga_blinking, cga_blinking_lock, crt_controller[32], tga_palette_map[16], vga_planar_mode, i8237_byte_flipflop;
 uint32_t tga_offset, vga_palette[256], VIDEORAM[VIDEORAM_SIZE];
 uint8_t RAM[RAM_SIZE], UMB[UMB_END - UMB_START], EXTENDED[EXTENDED_END - HMA_START];

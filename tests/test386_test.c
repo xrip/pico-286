@@ -17,8 +17,11 @@ int main(int argc, char **argv) {
         fprintf(stderr, "usage: %s <test386.bin> (a 64 or 128 KB ROM)\n", argv[0]);
         return 2;
     }
-    fast_memory = memory; // the low 640 KB without the read86/write86 call, as in the emulator
+    fast_memory = memory; // the low 640 KB and the memory from 1 MB without read86/write86, as in the emulator
     fast_memory_size = RAM_SIZE;
+    extended_memory = memory + HMA_START;
+    extended_memory_size = sizeof memory - HMA_START;
+    a20_enabled = 1; // the flat memory has no A20 gate
     load_segment(regcs, 0xF000);
     CPU_IP = 0xFFF0;
 

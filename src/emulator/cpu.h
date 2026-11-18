@@ -3,7 +3,6 @@
 #include <string.h>
 #include <inttypes.h>
 
-extern int a20_enabled;
 void xms_reset();
 
 #define regax 0
@@ -114,6 +113,8 @@ typedef struct {
     uint32_t ip32;
     uint8_t *fast_memory; // conventional RAM, read and written directly below fast_memory_size
     uint32_t fast_memory_size; // 0 (while paging is on, and in sst_test): always read86/write86
+    uint8_t *extended_memory; // the memory from 1 MB (HMA_START), the same way while A20 is on
+    uint32_t extended_memory_size; // 0 (while paging is on, and in sst_test): always read86/write86
     uint32_t useseg; // base of the segment used for memory operands
     uint32_t ea; // linear address of the memory operand
     uint32_t firstip; // EIP of the current instruction, with its prefixes
@@ -126,11 +127,15 @@ typedef struct {
     uint8_t code32, stack32; // D bit of CS (default size) and B bit of SS (the stack uses ESP)
     uint8_t flags_op; // kind and size of that operation; 0: x86_flags has all the flags
     uint8_t flags_cf; // its CF
+    uint8_t a20_enabled;
 } cpu_state_t;
 extern cpu_state_t cpu_state;
 #define ip32 cpu_state.ip32
 #define fast_memory cpu_state.fast_memory
 #define fast_memory_size cpu_state.fast_memory_size
+#define extended_memory cpu_state.extended_memory
+#define extended_memory_size cpu_state.extended_memory_size
+#define a20_enabled cpu_state.a20_enabled
 #define CPU_IP    ip32
 #define ip        ip32
 

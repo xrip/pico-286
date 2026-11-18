@@ -90,7 +90,6 @@ static umb_t umb_blocks[] = {
 
 static int umb_blocks_allocated = 0;
 
-int a20_enabled = 0;
 
 void xms_reset() {
     for (int i = 0; i < UMB_BLOCKS_COUNT; ++i) {

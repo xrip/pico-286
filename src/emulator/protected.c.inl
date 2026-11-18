@@ -40,16 +40,16 @@ static write86_t physical_write8;
 static write86w_t physical_write16;
 static write86dw_t physical_write32;
 
-static void flush_tlb(void) {
+static __not_in_flash() void flush_tlb(void) {
     for (int i = 0; i < TLB_SIZE; i++) tlb[i].page = ~0u;
 }
 
-static __attribute__((noreturn)) void page_fault(uint32_t linear, uint8_t error_code) {
+static __not_in_flash() __attribute__((noreturn)) void page_fault(uint32_t linear, uint8_t error_code) {
     cr2 = linear;
     raise_fault(14, error_code);
 }
 
-static __attribute__((noinline)) uint32_t page_walk(uint32_t linear, bool write) {
+static __not_in_flash() __attribute__((noinline)) uint32_t page_walk(uint32_t linear, bool write) {
     const bool user = cpl == 3 && !supervisor_access;
     const uint8_t error_code = (write ? 2 : 0) | (user ? 4 : 0);
     const uint32_t directory_address = (cr3 & 0xFFFFF000u) + (linear >> 22) * 4;
@@ -69,7 +69,7 @@ static __attribute__((noinline)) uint32_t page_walk(uint32_t linear, bool write)
     return entry->frame | (linear & 0xFFF);
 }
 
-static INLINE uint32_t translate(uint32_t linear, bool write) {
+static __not_in_flash() INLINE uint32_t translate(uint32_t linear, bool write) {
     const tlb_entry_t *entry = &tlb[(linear >> 12) & (TLB_SIZE - 1)];
     const bool user = cpl == 3 && !supervisor_access;
     if (entry->page == linear >> 12 && (!write || entry->dirty) &&
@@ -80,17 +80,17 @@ static INLINE uint32_t translate(uint32_t linear, bool write) {
 }
 
 // A word or dword that crosses a page goes in parts
-static uint8_t paged_read8(uint32_t a) { return physical_read8(translate(a, false)); }
-static uint16_t paged_read16(uint32_t a) {
+static __not_in_flash() uint8_t paged_read8(uint32_t a) { return physical_read8(translate(a, false)); }
+static __not_in_flash() uint16_t paged_read16(uint32_t a) {
     if ((a & 0xFFF) == 0xFFF) return paged_read8(a) | paged_read8(a + 1) << 8;
     return physical_read16(translate(a, false));
 }
-static uint32_t paged_read32(uint32_t a) {
+static __not_in_flash() uint32_t paged_read32(uint32_t a) {
     if ((a & 0xFFF) > 0xFFC) return paged_read16(a) | (uint32_t) paged_read16(a + 2) << 16;
     return physical_read32(translate(a, false));
 }
-static void paged_write8(uint32_t a, uint8_t v) { physical_write8(translate(a, true), v); }
-static void paged_write16(uint32_t a, uint16_t v) {
+static __not_in_flash() void paged_write8(uint32_t a, uint8_t v) { physical_write8(translate(a, true), v); }
+static __not_in_flash() void paged_write16(uint32_t a, uint16_t v) {
     if ((a & 0xFFF) == 0xFFF) {
         paged_write8(a, (uint8_t) v);
         paged_write8(a + 1, v >> 8);
@@ -98,7 +98,7 @@ static void paged_write16(uint32_t a, uint16_t v) {
         physical_write16(translate(a, true), v);
     }
 }
-static void paged_write32(uint32_t a, uint32_t v) {
+static __not_in_flash() void paged_write32(uint32_t a, uint32_t v) {
     if ((a & 0xFFF) > 0xFFC) {
         paged_write16(a, (uint16_t) v);
         paged_write16(a + 2, v >> 16);
@@ -107,25 +107,27 @@ static void paged_write32(uint32_t a, uint32_t v) {
     }
 }
 
-static void set_paging(bool on) {
-    static uint32_t fast_size; // the direct RAM path is only right without paging
+static __not_in_flash() void set_paging(bool on) {
+    static uint32_t fast_size, extended_size; // the direct memory paths are only right without paging
     if (on == (read86 == paged_read8)) return;
     if (on) {
         fast_size = fast_memory_size;
-        fast_memory_size = 0;
+        extended_size = extended_memory_size;
+        fast_memory_size = extended_memory_size = 0;
         physical_read8 = read86, physical_read16 = readw86, physical_read32 = readdw86;
         physical_write8 = write86, physical_write16 = writew86, physical_write32 = writedw86;
         read86 = paged_read8, readw86 = paged_read16, readdw86 = paged_read32;
         write86 = paged_write8, writew86 = paged_write16, writedw86 = paged_write32;
     } else {
         fast_memory_size = fast_size;
+        extended_memory_size = extended_size;
         read86 = physical_read8, readw86 = physical_read16, readdw86 = physical_read32;
         write86 = physical_write8, writew86 = physical_write16, writedw86 = physical_write32;
     }
     flush_tlb();
 }
 
-static void set_cr0(uint32_t value) {
+static __not_in_flash() void set_cr0(uint32_t value) {
     value |= CR0_ET;
     const uint32_t changed = cr0 ^ value;
     cr0 = value;
@@ -140,61 +142,61 @@ typedef struct {
     uint32_t low, high;
 } descriptor_t;
 
-static INLINE uint32_t descriptor_base(descriptor_t d) {
+static __not_in_flash() INLINE uint32_t descriptor_base(descriptor_t d) {
     return d.low >> 16 | (d.high & 0xFF) << 16 | (d.high & 0xFF000000u);
 }
 
-static INLINE uint32_t descriptor_limit(descriptor_t d) {
+static __not_in_flash() INLINE uint32_t descriptor_limit(descriptor_t d) {
     const uint32_t limit = (d.low & 0xFFFF) | (d.high & 0xF0000);
     return d.high & (1u << 23) ? limit << 12 | 0xFFF : limit; // G: 4K units
 }
 
-static INLINE bool is_present(descriptor_t d) { return d.high >> 15 & 1; }
-static INLINE uint8_t descriptor_dpl(descriptor_t d) { return d.high >> 13 & 3; }
-static INLINE bool is_segment(descriptor_t d) { return d.high >> 12 & 1; } // code or data, not system
-static INLINE bool is_code(descriptor_t d) { return is_segment(d) && (d.high >> 11 & 1); }
-static INLINE bool is_conforming(descriptor_t d) { return is_code(d) && (d.high >> 10 & 1); }
-static INLINE uint8_t system_type(descriptor_t d) { return d.high >> 8 & 0xF; }
-static INLINE bool is_big(descriptor_t d) { return d.high >> 22 & 1; } // D/B: 32-bit
-static INLINE uint32_t gate_offset(descriptor_t d) { // 286 gates (type < 8) have a 16-bit offset
+static __not_in_flash() INLINE bool is_present(descriptor_t d) { return d.high >> 15 & 1; }
+static __not_in_flash() INLINE uint8_t descriptor_dpl(descriptor_t d) { return d.high >> 13 & 3; }
+static __not_in_flash() INLINE bool is_segment(descriptor_t d) { return d.high >> 12 & 1; } // code or data, not system
+static __not_in_flash() INLINE bool is_code(descriptor_t d) { return is_segment(d) && (d.high >> 11 & 1); }
+static __not_in_flash() INLINE bool is_conforming(descriptor_t d) { return is_code(d) && (d.high >> 10 & 1); }
+static __not_in_flash() INLINE uint8_t system_type(descriptor_t d) { return d.high >> 8 & 0xF; }
+static __not_in_flash() INLINE bool is_big(descriptor_t d) { return d.high >> 22 & 1; } // D/B: 32-bit
+static __not_in_flash() INLINE uint32_t gate_offset(descriptor_t d) { // 286 gates (type < 8) have a 16-bit offset
     return (d.low & 0xFFFF) | (system_type(d) & 8 ? d.high & 0xFFFF0000u : 0);
 }
 
-static uint32_t system_read32(uint32_t linear) {
+static __not_in_flash() uint32_t system_read32(uint32_t linear) {
     supervisor_access = 1;
-    const uint32_t value = readdw86(linear);
+    const uint32_t value = mem_read32(linear);
     supervisor_access = 0;
     return value;
 }
 
-static uint16_t system_read16(uint32_t linear) {
+static __not_in_flash() uint16_t system_read16(uint32_t linear) {
     supervisor_access = 1;
-    const uint16_t value = readw86(linear);
+    const uint16_t value = mem_read16(linear);
     supervisor_access = 0;
     return value;
 }
 
-static void system_write16(uint32_t linear, uint16_t value) {
+static __not_in_flash() void system_write16(uint32_t linear, uint16_t value) {
     supervisor_access = 1;
-    writew86(linear, value);
+    mem_write16(linear, value);
     supervisor_access = 0;
 }
 
-static void system_write32(uint32_t linear, uint32_t value) {
+static __not_in_flash() void system_write32(uint32_t linear, uint32_t value) {
     supervisor_access = 1;
-    writedw86(linear, value);
+    mem_write32(linear, value);
     supervisor_access = 0;
 }
 
 // Linear address of a selector's descriptor in the GDT or LDT; 0 if it is outside the table.
-static uint32_t descriptor_address(uint16_t selector) {
+static __not_in_flash() uint32_t descriptor_address(uint16_t selector) {
     const table_register_t *table = selector & 4 ? &ldtr : &gdtr;
     if ((selector | 7u) > table->limit) return 0;
     return table->base + (selector & ~7u);
 }
 
 // Reads a descriptor; false for a null selector or one outside its table.
-static bool read_descriptor(uint16_t selector, descriptor_t *d) {
+static __not_in_flash() bool read_descriptor(uint16_t selector, descriptor_t *d) {
     const uint32_t address = descriptor_address(selector);
     if (!(selector & ~3u) || !address) return false;
     d->low = system_read32(address);
@@ -202,7 +204,7 @@ static bool read_descriptor(uint16_t selector, descriptor_t *d) {
     return true;
 }
 
-static void mark_accessed(uint16_t selector, descriptor_t *d) {
+static __not_in_flash() void mark_accessed(uint16_t selector, descriptor_t *d) {
     if (!(d->high & 0x100)) {
         d->high |= 0x100;
         system_write32(descriptor_address(selector) + 4, d->high);
@@ -211,7 +213,7 @@ static void mark_accessed(uint16_t selector, descriptor_t *d) {
 
 // SS needs a writable data segment at the CPL; the others a data or readable code segment that the
 // CPL and RPL may use (DPL >= both, or conforming code).
-void load_segment_protected(uint8_t segment, uint16_t selector) {
+__not_in_flash() void load_segment_protected(uint8_t segment, uint16_t selector) {
     if (!(selector & ~3u)) { // a null selector: allowed, but not for SS
         if (segment == regss) raise_fault(13, 0);
         segregs[segment] = selector;
@@ -237,7 +239,7 @@ void load_segment_protected(uint8_t segment, uint16_t selector) {
 // ---- Control transfers (chapter 6.3) ----------------------------------------------------------
 
 // The descriptor of a far transfer target: #GP if it is not code, #NP if not present.
-static descriptor_t code_descriptor(uint16_t selector) {
+static __not_in_flash() descriptor_t code_descriptor(uint16_t selector) {
     descriptor_t d;
     if (!(selector & ~3u)) raise_fault(13, 0);
     if (!read_descriptor(selector, &d) || !is_code(d)) raise_fault(13, selector & ~3u);
@@ -245,7 +247,7 @@ static descriptor_t code_descriptor(uint16_t selector) {
     return d;
 }
 
-static void set_code_segment(uint16_t selector, descriptor_t d, uint8_t privilege, uint32_t offset) {
+static __not_in_flash() void set_code_segment(uint16_t selector, descriptor_t d, uint8_t privilege, uint32_t offset) {
     mark_accessed(selector, &d);
     segregs[regcs] = (selector & ~3u) | privilege;
     segment_base[regcs] = descriptor_base(d);
@@ -254,7 +256,7 @@ static void set_code_segment(uint16_t selector, descriptor_t d, uint8_t privileg
     ip = offset;
 }
 
-static void load_stack(uint16_t selector, uint32_t esp) {
+static __not_in_flash() void load_stack(uint16_t selector, uint32_t esp) {
     descriptor_t d;
     if (!read_descriptor(selector, &d) || !is_segment(d)) raise_fault(10, selector & ~3u); // #TS
     if (!is_present(d)) raise_fault(12, selector & ~3u);
@@ -266,7 +268,7 @@ static void load_stack(uint16_t selector, uint32_t esp) {
 }
 
 // The stack for a more privileged level comes from the TSS: SS0:ESP0 and so on.
-static void load_inner_stack(uint8_t level) {
+static __not_in_flash() void load_inner_stack(uint8_t level) {
     if (tss32) {
         const uint32_t esp = system_read32(tr.base + 4 + level * 8);
         load_stack(system_read16(tr.base + 8 + level * 8), esp);
@@ -276,31 +278,31 @@ static void load_inner_stack(uint8_t level) {
     }
 }
 
-static void push_sized(uint32_t value, bool size32) {
+static __not_in_flash() void push_sized(uint32_t value, bool size32) {
     if (size32) push32(value);
     else push((uint16_t) value);
 }
 
-static uint32_t pop_sized(bool size32) {
+static __not_in_flash() uint32_t pop_sized(bool size32) {
     return size32 ? pop32() : pop();
 }
 
 // A far JMP or CALL straight to a code segment keeps the CPL: the segment must be conforming with
 // DPL <= CPL, or non-conforming with DPL = CPL and RPL <= CPL.
-static void check_direct_code(uint16_t selector, descriptor_t code) {
+static __not_in_flash() void check_direct_code(uint16_t selector, descriptor_t code) {
     const bool allowed = is_conforming(code) ? descriptor_dpl(code) <= cpl
                                              : descriptor_dpl(code) == cpl && (selector & 3) <= cpl;
     if (!allowed) raise_fault(13, selector & ~3u);
 }
 
 // A call gate must be visible from the CPL and the RPL of its selector.
-static void check_gate(uint16_t selector, descriptor_t gate) {
+static __not_in_flash() void check_gate(uint16_t selector, descriptor_t gate) {
     if (descriptor_dpl(gate) < cpl || descriptor_dpl(gate) < (selector & 3)) raise_fault(13, selector & ~3u);
     if (!is_present(gate)) raise_fault(11, selector & ~3u);
 }
 
 // LLDT and task switches: a null selector leaves no LDT.
-static void load_ldtr(uint16_t selector) {
+static __not_in_flash() void load_ldtr(uint16_t selector) {
     descriptor_t d;
     ldtr_selector = selector;
     ldtr = (table_register_t) {0, 0};
@@ -310,7 +312,7 @@ static void load_ldtr(uint16_t selector) {
     ldtr = (table_register_t) {descriptor_base(d), descriptor_limit(d)};
 }
 
-static void set_tss_busy(uint16_t selector, bool busy) {
+static __not_in_flash() void set_tss_busy(uint16_t selector, bool busy) {
     const uint32_t address = descriptor_address(selector) + 4;
     const uint32_t high = system_read32(address);
     system_write32(address, busy ? high | 0x200 : high & ~0x200u);
@@ -324,7 +326,7 @@ static void set_tss_busy(uint16_t selector, bool busy) {
 enum { TASK_JMP, TASK_CALL, TASK_IRET };
 
 // The 386 TSS: EIP at 20h, EFLAGS 24h, EAX..EDI 28h-44h, ES CS SS DS FS GS 48h-5Ch, LDT 60h, CR3 1Ch
-static void task_switch(uint16_t selector, uint8_t reason, int32_t error_code) {
+static __not_in_flash() void task_switch(uint16_t selector, uint8_t reason, int32_t error_code) {
     descriptor_t d;
     if (!read_descriptor(selector, &d) || is_segment(d)) raise_fault(13, selector & ~3u);
     if (system_type(d) == 5) { // a task gate in the GDT or LDT
@@ -386,7 +388,7 @@ static void task_switch(uint16_t selector, uint8_t reason, int32_t error_code) {
     if (error_code != NO_ERROR_CODE) push32(error_code);
 }
 
-static void far_jump(uint16_t selector, uint32_t offset) {
+static __not_in_flash() void far_jump(uint16_t selector, uint32_t offset) {
     if (!protected_mode) {
         ip = offset;
         load_segment(regcs, selector);
@@ -413,7 +415,7 @@ static void far_jump(uint16_t selector, uint32_t offset) {
     set_code_segment(selector, code, cpl, offset);
 }
 
-static void far_call(uint16_t selector, uint32_t offset, bool size32) {
+static __not_in_flash() void far_call(uint16_t selector, uint32_t offset, bool size32) {
     if (!protected_mode) {
         push_sized(CPU_CS, size32);
         push_sized(ip, size32);
@@ -449,7 +451,7 @@ static void far_call(uint16_t selector, uint32_t offset, bool size32) {
         uint32_t parameters[32];
         for (uint8_t i = 0; i < count; i++) {
             const uint32_t address = old_base + old_esp + i * (gate32 ? 4 : 2);
-            parameters[i] = gate32 ? readdw86(address) : readw86(address);
+            parameters[i] = gate32 ? mem_read32(address) : mem_read16(address);
         }
         cpl = privilege;
         load_inner_stack(privilege);
@@ -463,7 +465,7 @@ static void far_call(uint16_t selector, uint32_t offset, bool size32) {
 }
 
 // After a return to an outer level, ES, DS, FS and GS that the new level may not use become null.
-static void null_inner_segments(void) {
+static __not_in_flash() void null_inner_segments(void) {
     static const uint8_t data_registers[4] = {reges, regds, regfs, reggs};
     for (int i = 0; i < 4; i++) {
         const uint8_t segment = data_registers[i];
@@ -475,7 +477,7 @@ static void null_inner_segments(void) {
     }
 }
 
-static void far_return(bool size32, uint16_t release) {
+static __not_in_flash() void far_return(bool size32, uint16_t release) {
     const uint32_t offset = pop_sized(size32);
     const uint16_t selector = pop_sized(size32);
     stack_add(release);
@@ -501,7 +503,7 @@ static void far_return(bool size32, uint16_t release) {
 
 // ---- Interrupts and exceptions (chapter 9) ------------------------------------------------------
 
-static void protected_interrupt(uint8_t vector, int32_t error_code, bool software) {
+static __not_in_flash() void protected_interrupt(uint8_t vector, int32_t error_code, bool software) {
     const bool from_v86 = v86;
     if (from_v86 && software && iopl < 3) raise_fault(13, 0);
     const uint16_t idt_error = vector * 8 + 2 + !software; // bit 0 (EXT): not caused by INT n
@@ -550,7 +552,7 @@ static void protected_interrupt(uint8_t vector, int32_t error_code, bool softwar
 }
 
 // IRETD at CPL 0 with VM set in the popped EFLAGS: the V86 task's ESP, SS, ES, DS, FS, GS follow.
-static void enter_v86(uint32_t offset, uint16_t selector, uint32_t flags) {
+static __not_in_flash() void enter_v86(uint32_t offset, uint16_t selector, uint32_t flags) {
     const uint32_t esp = pop32();
     const uint16_t ss = pop32(), es = pop32(), ds = pop32(), fs = pop32(), gs = pop32();
     flags_now()->value = flags & 0x37FD5;
@@ -567,7 +569,7 @@ static void enter_v86(uint32_t offset, uint16_t selector, uint32_t flags) {
     ip = offset & 0xFFFF;
 }
 
-static void interrupt_return(bool size32) {
+static __not_in_flash() void interrupt_return(bool size32) {
     if (v86) check_v86_iopl(); // with IOPL 3 it works as in real mode
     if (!protected_mode) {
         ip = pop_sized(size32);
@@ -602,14 +604,14 @@ static void interrupt_return(bool size32) {
 }
 
 // An interrupt that does not come from INT n: an IRQ or the single-step trap.
-static void external_interrupt(uint8_t vector) {
+static __not_in_flash() void external_interrupt(uint8_t vector) {
     if (cr0 & CR0_PE) protected_interrupt(vector, NO_ERROR_CODE, false);
     else intcall86(vector);
 }
 
 // exec86() comes here after raise_fault(): the instruction is undone (EIP, ESP) and the exception
 // goes through the IDT. A fault while delivering one is a double fault; one more resets the CPU.
-static void deliver_fault(void) {
+static __not_in_flash() void deliver_fault(void) {
     static uint8_t depth;
     supervisor_access = 0;
     ip = firstip;
@@ -630,7 +632,7 @@ static void deliver_fault(void) {
 
 // IN, OUT, INS, OUTS: every port byte needs a 0 bit in the I/O permission bitmap of the 386 TSS
 // (its offset is at 66h); otherwise #GP(0).
-static void check_io_permission(uint16_t port, uint8_t size) {
+static __not_in_flash() void check_io_permission(uint16_t port, uint8_t size) {
     if (!tss32) raise_fault(13, 0);
     const uint32_t byte = system_read16(tr.base + 0x66) + port / 8u;
     if (byte + 1 > tr.limit) raise_fault(13, 0);
@@ -639,12 +641,12 @@ static void check_io_permission(uint16_t port, uint8_t size) {
 
 // ---- System instructions ----------------------------------------------------------------------
 
-static void privileged(void) {
+static __not_in_flash() void privileged(void) {
     if (cpl) raise_fault(13, 0);
 }
 
 // VERR and VERW: can this selector be read (or written) at the current privilege?
-static bool verify_segment(uint16_t selector, bool write) {
+static __not_in_flash() bool verify_segment(uint16_t selector, bool write) {
     descriptor_t d;
     if (!read_descriptor(selector, &d) || !is_segment(d)) return false;
     if (!is_conforming(d) && (descriptor_dpl(d) < cpl || descriptor_dpl(d) < (selector & 3))) return false;
@@ -653,7 +655,7 @@ static bool verify_segment(uint16_t selector, bool write) {
 }
 
 // LAR and LSL: ZF = 1 and the access rights or the limit, if the descriptor is visible.
-static void load_access_or_limit(bool limit) {
+static __not_in_flash() void load_access_or_limit(bool limit) {
     modregrm();
     const uint16_t selector = readrm16(rm);
     descriptor_t d;
@@ -668,7 +670,7 @@ static void load_access_or_limit(bool limit) {
 }
 
 // 0F 00 group: SLDT, STR, LLDT, LTR, VERR, VERW. Only in protected mode.
-static bool group6(void) {
+static __not_in_flash() bool group6(void) {
     modregrm();
     switch (reg) {
         case 0: writerm16(rm, ldtr_selector); return true;
@@ -699,7 +701,7 @@ static bool group6(void) {
 }
 
 // 0F 01 group: SGDT, SIDT, LGDT, LIDT, SMSW, LMSW
-static bool group7(void) {
+static __not_in_flash() bool group7(void) {
     modregrm();
     switch (reg) {
         case 0:
@@ -707,8 +709,8 @@ static bool group7(void) {
             if (mode == 3) return false;
             getea(rm);
             const table_register_t *table = reg ? &idtr : &gdtr;
-            writew86(ea, (uint16_t) table->limit);
-            writedw86(ea + 2, table->base);
+            mem_write16(ea, (uint16_t) table->limit);
+            mem_write32(ea + 2, table->base);
             return true;
         }
         case 2:
@@ -717,8 +719,8 @@ static bool group7(void) {
             privileged();
             getea(rm);
             table_register_t *table = reg == 3 ? &idtr : &gdtr;
-            table->limit = readw86(ea);
-            table->base = readdw86(ea + 2) & (opsize32 ? 0xFFFFFFFFu : 0x00FFFFFFu);
+            table->limit = mem_read16(ea);
+            table->base = mem_read32(ea + 2) & (opsize32 ? 0xFFFFFFFFu : 0x00FFFFFFu);
             return true;
         }
         case 4: // SMSW: a 32-bit register gets all of CR0
@@ -736,7 +738,7 @@ static bool group7(void) {
 }
 
 // MOV to and from CR0, CR2, CR3 and DR0-DR7. The r/m byte always names a register.
-static bool move_special(uint8_t opcode) {
+static __not_in_flash() bool move_special(uint8_t opcode) {
     modregrm();
     privileged();
     const bool to_register = !(opcode & 2), debug = opcode & 1;
@@ -759,7 +761,7 @@ static bool move_special(uint8_t opcode) {
 }
 
 // 0F system instructions; false if the opcode is not one of them (or not valid here).
-static __attribute__((noinline)) bool op_0f_system(uint8_t opcode) { // cold: stays in flash
+static __not_in_flash() __attribute__((noinline)) bool op_0f_system(uint8_t opcode) {
     switch (opcode) {
         case 0x00: return protected_mode && group6();
         case 0x01: return group7();
@@ -781,7 +783,7 @@ static __attribute__((noinline)) bool op_0f_system(uint8_t opcode) { // cold: st
 }
 
 // 63 ARPL: raise the RPL of the r/m selector to the RPL of the register. Only in protected mode.
-static void adjust_rpl(void) {
+static __not_in_flash() void adjust_rpl(void) {
     if (!protected_mode) {
         cpu_fault(6);
         return;
@@ -792,7 +794,7 @@ static void adjust_rpl(void) {
     if (zf) writerm16(rm, (selector & ~3u) | (source & 3));
 }
 
-static void reset_protected_mode(void) {
+static __not_in_flash() void reset_protected_mode(void) {
     set_cr0(CR0_ET);
     code32 = stack32 = 0;
     gdtr = (table_register_t) {0, 0xFFFF};

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include "../src/emulator/memory.c"
 #include "../src/emulator/xms.c"
+cpu_state_t cpu_state; // a20_enabled is in it (cpu.h)
 
 uint32_t dwordregs[8];
 uint16_t segregs[6];

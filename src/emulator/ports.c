@@ -130,7 +130,7 @@ static INLINE uint8_t rtc_read(uint16_t addr) {
     return ret;
 }
 
-void portout(uint16_t portnum, uint16_t value) {
+__not_in_flash() void portout(uint16_t portnum, uint16_t value) {
     switch (portnum) {
         case 0x00:
         case 0x01:
@@ -356,7 +356,7 @@ void portout(uint16_t portnum, uint16_t value) {
     }
 }
 
-uint16_t portin(uint16_t portnum) {
+__not_in_flash() uint16_t portin(uint16_t portnum) {
     switch (portnum) {
         case 0x00:
         case 0x01:
@@ -505,12 +505,12 @@ uint16_t portin(uint16_t portnum) {
 }
 
 
-void portout16(uint16_t portnum, uint16_t value) {
+__not_in_flash() void portout16(uint16_t portnum, uint16_t value) {
     portout(portnum, (uint8_t) value);
     portout(portnum + 1, (uint8_t) (value >> 8));
 }
 
-uint16_t portin16(uint16_t portnum) {
+__not_in_flash() uint16_t portin16(uint16_t portnum) {
     return portin(portnum) | portin(portnum + 1) << 8;
 }
 

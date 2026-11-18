@@ -5,60 +5,60 @@
 // for an opcode it does not handle, which then runs in the 16-bit switch of exec86().
 #pragma once
 
-static uint8_t fetch8(void) {
+static __not_in_flash() uint8_t fetch8(void) {
     const uint8_t value = getmem8(CS_BASE, CPU_IP);
     StepIP(1);
     return value;
 }
 
-static uint16_t fetch16(void) {
+static __not_in_flash() uint16_t fetch16(void) {
     const uint16_t value = getmem16(CS_BASE, CPU_IP);
     StepIP(2);
     return value;
 }
 
-static uint32_t fetch32(void) {
-    const uint32_t value = readdw86(CS_BASE + CPU_IP);
+static __not_in_flash() uint32_t fetch32(void) {
+    const uint32_t value = mem_read32(CS_BASE + CPU_IP);
     StepIP(4);
     return value;
 }
 
-static uint32_t readrm32(uint8_t rmval) {
+static __not_in_flash() uint32_t readrm32(uint8_t rmval) {
     if (mode < 3) {
         getea(rmval);
-        return readdw86(ea);
+        return mem_read32(ea);
     }
     return dwordregs[rmval];
 }
 
-static void writerm32(uint8_t rmval, uint32_t value) {
+static __not_in_flash() void writerm32(uint8_t rmval, uint32_t value) {
     if (mode < 3) {
         getea(rmval);
-        writedw86(ea, value);
+        mem_write32(ea, value);
     } else {
         dwordregs[rmval] = value;
     }
 }
 
-static void push32(uint32_t value) {
+static __not_in_flash() void push32(uint32_t value) {
     stack_add(-4);
-    writedw86(SS_BASE + stack_top(), value);
+    mem_write32(SS_BASE + stack_top(), value);
 }
 
-static uint32_t pop32(void) {
-    const uint32_t value = readdw86(SS_BASE + stack_top());
+static __not_in_flash() uint32_t pop32(void) {
+    const uint32_t value = mem_read32(SS_BASE + stack_top());
     stack_add(4);
     return value;
 }
 
-static void flag_szp32(uint32_t value) {
+static __not_in_flash() void flag_szp32(uint32_t value) {
     zf = value == 0;
     sf = value >> 31;
     pf = parity[value & 255];
 }
 
 // The ALU group by its 386 number: 0 ADD, 1 OR, 2 ADC, 3 SBB, 4 AND, 5 SUB, 6 XOR, 7 CMP.
-static uint32_t alu32(uint8_t operation, uint32_t a, uint32_t b) {
+static __not_in_flash() uint32_t alu32(uint8_t operation, uint32_t a, uint32_t b) {
     uint64_t result;
     switch (operation) {
         case 0: add_flags(32, a, b); return a + b;
@@ -85,7 +85,7 @@ static uint32_t alu32(uint8_t operation, uint32_t a, uint32_t b) {
 
 // Shift and rotate group (C1, D1, D3 /reg) on 32 bits. The count is masked to 5 bits.
 // OF comes from the last one-bit step, as on the 386 for every count.
-static uint32_t shift32(uint32_t value, uint8_t count) {
+static __not_in_flash() uint32_t shift32(uint32_t value, uint8_t count) {
     count &= 31;
     if (!count) return value;
     uint32_t result = value;
@@ -140,7 +140,7 @@ static uint32_t shift32(uint32_t value, uint8_t count) {
 }
 
 // F7 group on 32 bits: TEST, NOT, NEG, MUL, IMUL, DIV, IDIV. EDX:EAX holds the wide value.
-static void group3_32(void) {
+static __not_in_flash() void group3_32(void) {
     const uint32_t value = readrm32(rm);
     switch (reg) {
         case 0:
@@ -198,45 +198,45 @@ static void group3_32(void) {
 }
 
 // Two- and three-operand IMUL on 32 bits.
-static uint32_t imul32(uint32_t a, uint32_t b) {
+static __not_in_flash() uint32_t imul32(uint32_t a, uint32_t b) {
     const int64_t product = (int64_t) (int32_t) a * (int32_t) b;
     cf = of = product != (int32_t) product;
     return (uint32_t) product;
 }
 
-static uint32_t read_sized(uint32_t address, uint8_t size) {
-    return size == 1 ? read86(address) : size == 2 ? readw86(address) : readdw86(address);
+static __not_in_flash() uint32_t read_sized(uint32_t address, uint8_t size) {
+    return size == 1 ? mem_read8(address) : size == 2 ? mem_read16(address) : mem_read32(address);
 }
 
-static void write_sized(uint32_t address, uint32_t value, uint8_t size) {
-    if (size == 1) write86(address, (uint8_t) value);
-    else if (size == 2) writew86(address, (uint16_t) value);
-    else writedw86(address, value);
+static __not_in_flash() void write_sized(uint32_t address, uint32_t value, uint8_t size) {
+    if (size == 1) mem_write8(address, (uint8_t) value);
+    else if (size == 2) mem_write16(address, (uint16_t) value);
+    else mem_write32(address, value);
 }
 
-static uint32_t accumulator(uint8_t size) {
+static __not_in_flash() uint32_t accumulator(uint8_t size) {
     return size == 1 ? CPU_AL : size == 2 ? CPU_AX : dwordregs[regax];
 }
 
-static void set_accumulator(uint32_t value, uint8_t size) {
+static __not_in_flash() void set_accumulator(uint32_t value, uint8_t size) {
     if (size == 1) CPU_AL = (uint8_t) value;
     else if (size == 2) CPU_AX = (uint16_t) value;
     else dwordregs[regax] = value;
 }
 
 // CMP flags for 8, 16 or 32 bits.
-static void compare_sized(uint32_t a, uint32_t b, uint8_t size) {
+static __not_in_flash() void compare_sized(uint32_t a, uint32_t b, uint8_t size) {
     if (size == 1) sub_flags(8, (uint8_t) a, (uint8_t) b);
     else if (size == 2) sub_flags(16, (uint16_t) a, (uint16_t) b);
     else alu32(7, a, b);
 }
 
 // SI, DI and CX are 32-bit (ESI, EDI, ECX) with the address-size prefix.
-static uint32_t address_register(uint8_t id) {
+static __not_in_flash() uint32_t address_register(uint8_t id) {
     return addrsize32 ? dwordregs[id] : wordregs[id << 1];
 }
 
-static void add_address_register(uint8_t id, int32_t delta) {
+static __not_in_flash() void add_address_register(uint8_t id, int32_t delta) {
     if (addrsize32) dwordregs[id] += delta;
     else wordregs[id << 1] += delta;
 }
@@ -244,14 +244,14 @@ static void add_address_register(uint8_t id, int32_t delta) {
 static void check_io_permission(uint16_t port, uint8_t size); // protected.c.inl
 
 // I/O in protected mode with CPL > IOPL, and all I/O in V86 mode, goes through the TSS bitmap
-static uint32_t port_read_sized(uint16_t port, uint8_t size) {
+static __not_in_flash() uint32_t port_read_sized(uint16_t port, uint8_t size) {
     if (unlikely(cpl > iopl) || unlikely(v86)) check_io_permission(port, size);
     if (size == 1) return (uint8_t) portin(port);
     if (size == 2) return portin16(port);
     return portin16(port) | (uint32_t) portin16(port + 2) << 16;
 }
 
-static void port_write_sized(uint16_t port, uint32_t value, uint8_t size) {
+static __not_in_flash() void port_write_sized(uint16_t port, uint32_t value, uint8_t size) {
     if (unlikely(cpl > iopl) || unlikely(v86)) check_io_permission(port, size);
     if (size == 1) portout(port, (uint8_t) value);
     else if (size == 2) portout16(port, (uint16_t) value);
@@ -263,7 +263,7 @@ static void port_write_sized(uint16_t port, uint32_t value, uint8_t size) {
 
 // One step of a string instruction (6C-6F, A4-A7, AA-AF). With REP the instruction runs
 // again from its first prefix until the count ends, as in the 16-bit switch.
-static void string_step(uint8_t opcode, uint8_t size) {
+static __not_in_flash() void string_step(uint8_t opcode, uint8_t size) {
     if (reptype && address_register(regcx) == 0) return;
     const int32_t delta = df ? -(int32_t) size : size;
     const uint32_t source = useseg + address_register(regsi);
@@ -311,25 +311,25 @@ static void string_step(uint8_t opcode, uint8_t size) {
 }
 
 // Word or dword register and r/m operand, by the operand size.
-static uint32_t readrm_sized(uint8_t rmval) { return opsize32 ? readrm32(rmval) : readrm16(rmval); }
-static void writerm_sized(uint8_t rmval, uint32_t value) {
+static __not_in_flash() uint32_t readrm_sized(uint8_t rmval) { return opsize32 ? readrm32(rmval) : readrm16(rmval); }
+static __not_in_flash() void writerm_sized(uint8_t rmval, uint32_t value) {
     if (opsize32) writerm32(rmval, value);
     else writerm16(rmval, (uint16_t) value);
 }
-static uint32_t getreg_sized(uint8_t id) { return opsize32 ? dwordregs[id] : getreg16(id); }
-static void putreg_sized(uint8_t id, uint32_t value) {
+static __not_in_flash() uint32_t getreg_sized(uint8_t id) { return opsize32 ? dwordregs[id] : getreg16(id); }
+static __not_in_flash() void putreg_sized(uint8_t id, uint32_t value) {
     if (opsize32) dwordregs[id] = value;
     else putreg16(id, (uint16_t) value);
 }
 
-static void flag_szp_sized(uint32_t value) {
+static __not_in_flash() void flag_szp_sized(uint32_t value) {
     if (opsize32) flag_szp32(value);
     else flag_szp16((uint16_t) value);
 }
 
 // BT, BTS, BTR, BTC (reg 4-7 of the 0F BA group): CF gets the bit, then the bit is changed.
 // A register bit offset can reach outside the operand in memory; an immediate one cannot.
-static void bit_test(uint8_t operation, uint32_t offset, bool immediate) {
+static __not_in_flash() void bit_test(uint8_t operation, uint32_t offset, bool immediate) {
     const uint8_t bits = opsize32 ? 32 : 16;
     uint32_t value, address = 0;
     if (mode == 3) {
@@ -347,7 +347,7 @@ static void bit_test(uint8_t operation, uint32_t offset, bool immediate) {
             offset &= bits - 1;
         }
         address = ea;
-        value = opsize32 ? readdw86(address) : readw86(address);
+        value = opsize32 ? mem_read32(address) : mem_read16(address);
     }
     cf = (value >> offset) & 1;
     switch (operation & 3) {
@@ -357,14 +357,14 @@ static void bit_test(uint8_t operation, uint32_t offset, bool immediate) {
         case 3: value ^= 1u << offset; break; // BTC
     }
     if (mode == 3) putreg_sized(rm, value);
-    else if (opsize32) writedw86(address, value);
-    else writew86(address, (uint16_t) value);
+    else if (opsize32) mem_write32(address, value);
+    else mem_write16(address, (uint16_t) value);
 }
 
 // SHLD and SHRD: shift r/m, filling from a register. The count is masked to 5 bits.
 // A 16-bit operand shifts in a 48-bit window filled again with the source
 // (SHLD dest:src:src, SHRD src:src:dest), so counts 17-31 work as on the 386.
-static void double_shift(bool left, uint8_t count) {
+static __not_in_flash() void double_shift(bool left, uint8_t count) {
     count &= 31;
     const uint32_t destination = readrm_sized(rm);
     if (!count) return;
@@ -389,7 +389,7 @@ static void double_shift(bool left, uint8_t count) {
 }
 
 // 386 two-byte opcodes. Returns false for an opcode that is not one of them.
-static __attribute__((noinline)) bool op_0f_386(uint8_t opcode) { // cold: stays in flash
+static __not_in_flash() __attribute__((noinline)) bool op_0f_386(uint8_t opcode) {
     if (opcode >= 0x80 && opcode <= 0x8F) { // Jcc rel16/rel32
         const int32_t displacement = opsize32 ? (int32_t) fetch32() : (int16_t) fetch16();
         if (condition(opcode)) jump_relative(displacement);
@@ -448,8 +448,8 @@ static __attribute__((noinline)) bool op_0f_386(uint8_t opcode) { // cold: stays
                 return true;
             }
             getea(rm);
-            const uint32_t offset = opsize32 ? readdw86(ea) : readw86(ea);
-            const uint16_t selector = readw86(ea + (opsize32 ? 4 : 2));
+            const uint32_t offset = opsize32 ? mem_read32(ea) : mem_read16(ea);
+            const uint16_t selector = mem_read16(ea + (opsize32 ? 4 : 2));
             putreg_sized(reg, offset);
             load_segment(opcode == 0xB2 ? regss : opcode == 0xB4 ? regfs : reggs, selector);
             return true;
@@ -469,7 +469,7 @@ static __attribute__((noinline)) bool op_0f_386(uint8_t opcode) { // cold: stays
     return false;
 }
 
-static bool exec386(uint8_t opcode) {
+static __not_in_flash() bool exec386(uint8_t opcode) {
     const uint8_t size = opsize32 ? 4 : 2; // operand size of a word instruction
 
     // String instructions use both prefixes
@@ -488,7 +488,7 @@ static bool exec386(uint8_t opcode) {
             return true;
         }
         case 0xD7: // XLAT
-            CPU_AL = read86(useseg + (addrsize32 ? dwordregs[regbx] + CPU_AL : (uint16_t) (CPU_BX + CPU_AL)));
+            CPU_AL = mem_read8(useseg + (addrsize32 ? dwordregs[regbx] + CPU_AL : (uint16_t) (CPU_BX + CPU_AL)));
             return true;
         case 0xE0: case 0xE1: case 0xE2: { // LOOPNE, LOOPE, LOOP
             const int8_t displacement = (int8_t) fetch8();
@@ -571,7 +571,7 @@ static bool exec386(uint8_t opcode) {
             }
             getea(rm);
             const int32_t index = (int32_t) dwordregs[reg];
-            if (index < (int32_t) readdw86(ea) || index > (int32_t) readdw86(ea + 4)) cpu_fault(5);
+            if (index < (int32_t) mem_read32(ea) || index > (int32_t) mem_read32(ea + 4)) cpu_fault(5);
             return true;
         }
         case 0x68: push32(fetch32()); return true;
@@ -609,7 +609,7 @@ static bool exec386(uint8_t opcode) {
                 dwordregs[rm] = segregs[reg];
             } else {
                 getea(rm);
-                writew86(ea, segregs[reg]);
+                mem_write16(ea, segregs[reg]);
             }
             return true;
         case 0x8D: // LEA r32
@@ -669,8 +669,8 @@ static bool exec386(uint8_t opcode) {
                 return true;
             }
             getea(rm);
-            dwordregs[reg] = readdw86(ea); // m16:32: offset, then selector
-            load_segment(opcode == 0xC4 ? reges : regds, readw86(ea + 4));
+            dwordregs[reg] = mem_read32(ea); // m16:32: offset, then selector
+            load_segment(opcode == 0xC4 ? reges : regds, mem_read16(ea + 4));
             return true;
         case 0xC7: // MOV r/m32, imm32
             modregrm();
@@ -681,7 +681,7 @@ static bool exec386(uint8_t opcode) {
             if (mode < 3) getea(rm); // the displacement comes before the immediate
             {
                 const uint32_t immediate = fetch32();
-                if (mode < 3) writedw86(ea, immediate);
+                if (mode < 3) mem_write32(ea, immediate);
                 else dwordregs[rm] = immediate;
             }
             return true;
@@ -693,7 +693,7 @@ static bool exec386(uint8_t opcode) {
             for (uint8_t i = 1; i < level; i++) {
                 if (stack32) dwordregs[regbp] -= 4;
                 else CPU_BP -= 4;
-                push32(readdw86(SS_BASE + (stack32 ? dwordregs[regbp] : CPU_BP)));
+                push32(mem_read32(SS_BASE + (stack32 ? dwordregs[regbp] : CPU_BP)));
             }
             if (level) push32(frame);
             dwordregs[regbp] = frame;
@@ -744,12 +744,12 @@ static bool exec386(uint8_t opcode) {
                 }
                 case 3: // CALL far m16:32
                     getea(rm);
-                    far_call(readw86(ea + 4), readdw86(ea), true);
+                    far_call(mem_read16(ea + 4), mem_read32(ea), true);
                     return true;
                 case 4: ip = readrm32(rm); return true;
                 case 5: // JMP far m16:32
                     getea(rm);
-                    far_jump(readw86(ea + 4), readdw86(ea));
+                    far_jump(mem_read16(ea + 4), mem_read32(ea));
                     return true;
                 case 6: push32(readrm32(rm)); return true;
                 default: cpu_fault(6); return true;

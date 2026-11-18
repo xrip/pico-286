@@ -41,33 +41,90 @@ cpu_state_t cpu_state; // cpu.h
 #define stack32 cpu_state.stack32
 static uint8_t cpl; // current privilege level: 0 in real mode, 3 in V86 mode
 uint8_t protected_mode;
-// The hot memory accesses of the CPU. Below fast_memory_size (cpu.h) the linear address is an index
-// into fast_memory: no call through read86/write86. A word is one load or store: the Cortex-M33 and
-// the host take it at an odd address.
-static inline uint8_t mem_read8(uint32_t address) {
-    return address < fast_memory_size ? fast_memory[address] : read86(address);
+// The memory accesses of the CPU, by linear address. Conventional RAM is reached inline; the memory
+// from 1 MB directly too (cpu.h), from a small function; the rest goes through read86/write86.
+// A word or dword is one load or store: the Cortex-M33 and the host take it at any address.
+static __not_in_flash() inline bool in_fast_memory(uint32_t address, uint32_t last_byte) {
+    return likely(address < fast_memory_size && address + last_byte < fast_memory_size);
 }
 
-static inline uint16_t mem_read16(uint32_t address) {
-    if (address < fast_memory_size && address + 1 < fast_memory_size) {
-        uint16_t value;
-        memcpy(&value, fast_memory + address, 2);
-        return value;
-    }
-    return readw86(address);
+static __not_in_flash() inline uint8_t *extended_memory_at(uint32_t address, uint32_t last_byte) {
+    const uint32_t offset = address - HMA_START;
+    return offset < extended_memory_size && offset + last_byte < extended_memory_size && a20_enabled
+               ? extended_memory + offset
+               : NULL;
 }
 
-static inline void mem_write8(uint32_t address, uint8_t value) {
-    if (address < fast_memory_size) fast_memory[address] = value;
+static __not_in_flash() __attribute__((noinline)) uint8_t mem_read8_far(uint32_t address) {
+    const uint8_t *direct = extended_memory_at(address, 0);
+    return direct ? *direct : read86(address);
+}
+
+static __not_in_flash() __attribute__((noinline)) uint16_t mem_read16_far(uint32_t address) {
+    const uint8_t *direct = extended_memory_at(address, 1);
+    if (!direct) return readw86(address);
+    uint16_t value;
+    memcpy(&value, direct, 2);
+    return value;
+}
+
+static __not_in_flash() __attribute__((noinline)) uint32_t mem_read32_far(uint32_t address) {
+    const uint8_t *direct = extended_memory_at(address, 3);
+    if (!direct) return readdw86(address);
+    uint32_t value;
+    memcpy(&value, direct, 4);
+    return value;
+}
+
+static __not_in_flash() __attribute__((noinline)) void mem_write8_far(uint32_t address, uint8_t value) {
+    uint8_t *direct = extended_memory_at(address, 0);
+    if (direct) *direct = value;
     else write86(address, value);
 }
 
-static inline void mem_write16(uint32_t address, uint16_t value) {
-    if (address < fast_memory_size && address + 1 < fast_memory_size) {
-        memcpy(fast_memory + address, &value, 2);
-    } else {
-        writew86(address, value);
-    }
+static __not_in_flash() __attribute__((noinline)) void mem_write16_far(uint32_t address, uint16_t value) {
+    uint8_t *direct = extended_memory_at(address, 1);
+    if (direct) memcpy(direct, &value, 2);
+    else writew86(address, value);
+}
+
+static __not_in_flash() __attribute__((noinline)) void mem_write32_far(uint32_t address, uint32_t value) {
+    uint8_t *direct = extended_memory_at(address, 3);
+    if (direct) memcpy(direct, &value, 4);
+    else writedw86(address, value);
+}
+
+static __not_in_flash() inline uint8_t mem_read8(uint32_t address) {
+    return in_fast_memory(address, 0) ? fast_memory[address] : mem_read8_far(address);
+}
+
+static __not_in_flash() inline uint16_t mem_read16(uint32_t address) {
+    if (!in_fast_memory(address, 1)) return mem_read16_far(address);
+    uint16_t value;
+    memcpy(&value, fast_memory + address, 2);
+    return value;
+}
+
+static __not_in_flash() inline uint32_t mem_read32(uint32_t address) {
+    if (!in_fast_memory(address, 3)) return mem_read32_far(address);
+    uint32_t value;
+    memcpy(&value, fast_memory + address, 4);
+    return value;
+}
+
+static __not_in_flash() inline void mem_write8(uint32_t address, uint8_t value) {
+    if (in_fast_memory(address, 0)) fast_memory[address] = value;
+    else mem_write8_far(address, value);
+}
+
+static __not_in_flash() inline void mem_write16(uint32_t address, uint16_t value) {
+    if (in_fast_memory(address, 1)) memcpy(fast_memory + address, &value, 2);
+    else mem_write16_far(address, value);
+}
+
+static __not_in_flash() inline void mem_write32(uint32_t address, uint32_t value) {
+    if (in_fast_memory(address, 3)) memcpy(fast_memory + address, &value, 4);
+    else mem_write32_far(address, value);
 }
 
 #define CR0_PE 0x00000001u
@@ -104,7 +161,7 @@ static const bool __not_in_flash("cpu.pf") parity[0x100] = {
 static uint8_t sib;
 static uint32_t disp32;
 
-static __attribute__((noinline)) void modregrm32(void) { // cold: stays in flash
+static __not_in_flash() __attribute__((noinline)) void modregrm32(void) {
     if (mode == 3) return;
     uint8_t base = rm;
     if (rm == 4) {
@@ -113,7 +170,7 @@ static __attribute__((noinline)) void modregrm32(void) { // cold: stays in flash
         base = sib & 7;
     }
     if (mode == 2 || (mode == 0 && base == 5)) {
-        disp32 = readdw86(CS_BASE + CPU_IP);
+        disp32 = mem_read32(CS_BASE + CPU_IP);
         StepIP(4);
     } else if (mode == 1) {
         disp32 = (uint32_t) (int8_t) getmem8(CS_BASE, CPU_IP);
@@ -126,7 +183,7 @@ static __attribute__((noinline)) void modregrm32(void) { // cold: stays in flash
     }
 }
 
-static __attribute__((noinline)) void getea32(uint8_t rmval) {
+static __not_in_flash() __attribute__((noinline)) void getea32(uint8_t rmval) {
     uint32_t offset = disp32;
     if (rmval == 4) {
         const uint8_t base = sib & 7, index = (sib >> 3) & 7, scale = sib >> 6;
@@ -234,39 +291,39 @@ __not_in_flash() void getea(uint8_t rmval) {
 }
 
 // The stack uses SP, or ESP when SS is a 32-bit (B) segment.
-static INLINE uint32_t stack_top(void) {
+static __not_in_flash() INLINE uint32_t stack_top(void) {
     return unlikely(stack32) ? dwordregs[regsp] : CPU_SP;
 }
 
-static INLINE void stack_add(int32_t delta) {
+static __not_in_flash() INLINE void stack_add(int32_t delta) {
     if (unlikely(stack32)) dwordregs[regsp] += delta;
     else CPU_SP += delta;
 }
 
 // LEAVE: the stack pointer goes back to the frame pointer (EBP or BP, by the stack size)
-static INLINE void stack_to_frame(void) {
+static __not_in_flash() INLINE void stack_to_frame(void) {
     if (unlikely(stack32)) dwordregs[regsp] = dwordregs[regbp];
     else CPU_SP = CPU_BP;
 }
 
-static INLINE void push(uint16_t pushval) {
+static __not_in_flash() INLINE void push(uint16_t pushval) {
     stack_add(-2);
     mem_write16(SS_BASE + stack_top(), pushval);
 }
 
-static INLINE uint16_t pop() {
+static __not_in_flash() INLINE uint16_t pop() {
     const uint16_t value = mem_read16(SS_BASE + stack_top());
     stack_add(2);
     return value;
 }
 
 // Near relative jump; with a 16-bit operand size EIP wraps at 64K.
-static INLINE void jump_relative(int32_t displacement) {
+static __not_in_flash() INLINE void jump_relative(int32_t displacement) {
     ip += displacement;
     if (!opsize32) ip &= 0xFFFF;
 }
 
-static INLINE uint16_t readrm16(uint8_t rmval) {
+static __not_in_flash() INLINE uint16_t readrm16(uint8_t rmval) {
     if (mode < 3) {
         getea(rmval);
         return mem_read16(ea);
@@ -274,7 +331,7 @@ static INLINE uint16_t readrm16(uint8_t rmval) {
     return getreg16(rmval);
 }
 
-static INLINE uint8_t readrm8(uint8_t rmval) {
+static __not_in_flash() INLINE uint8_t readrm8(uint8_t rmval) {
     if (mode < 3) {
         getea(rmval);
         return mem_read8(ea);
@@ -282,7 +339,7 @@ static INLINE uint8_t readrm8(uint8_t rmval) {
     return getreg8(rmval);
 }
 
-static INLINE void writerm16(uint8_t rmval, uint16_t value) {
+static __not_in_flash() INLINE void writerm16(uint8_t rmval, uint16_t value) {
     if (mode < 3) {
         getea(rmval);
         mem_write16(ea, value);
@@ -291,7 +348,7 @@ static INLINE void writerm16(uint8_t rmval, uint16_t value) {
     }
 }
 
-static INLINE void writerm8(uint8_t rmval, uint8_t value) {
+static __not_in_flash() INLINE void writerm8(uint8_t rmval, uint8_t value) {
     if (mode < 3) {
         getea(rmval);
         mem_write8(ea, value);
@@ -300,19 +357,19 @@ static INLINE void writerm8(uint8_t rmval, uint8_t value) {
     }
 }
 
-uint16_t makeflagsword(void) {
+__not_in_flash() uint16_t makeflagsword(void) {
     return 2 | (flags_now()->value & 0x7FD5); // the 386 keeps IOPL and NT (bits 12-14) in real mode
 }
 
 // POPF, IRET, SAHF: bits outside mask keep their values. Only CPL 0 changes IOPL, and only
 // CPL <= IOPL changes IF (in real mode CPL is 0).
-static void set_flags(uint32_t value, uint32_t mask) {
+static __not_in_flash() void set_flags(uint32_t value, uint32_t mask) {
     if (cpl) mask &= ~0x3000u;
     if (cpl > iopl) mask &= ~0x0200u;
     flags_now()->value = (flags_now()->value & ~mask) | (value & mask);
 }
 
-static INLINE void decodeflagsword(uint16_t x) {
+static __not_in_flash() INLINE void decodeflagsword(uint16_t x) {
     set_flags(x, 0x7FD5);
 }
 
@@ -351,7 +408,7 @@ static void install_bios_stubs(void) {
 }
 
 // The BIOS functions done in C. True if the call is done; false: the BIOS code at the vector runs.
-static bool bios_hook(uint8_t intnum) {
+static __not_in_flash() bool bios_hook(uint8_t intnum) {
     switch (intnum) {
         case 0x10: {
             switch (CPU_AH) {
@@ -611,7 +668,7 @@ static bool bios_hook(uint8_t intnum) {
 }
 
 // 0F FF n in a stub. False (#UD, as on a 386) before the stubs exist, or in protected mode.
-static bool bios_escape(uint8_t i) {
+static __not_in_flash() bool bios_escape(uint8_t i) {
     if (!bios_stubs_installed || protected_mode || i > XMS_ESCAPE) return false;
     if (i == XMS_ESCAPE) {
         xms_handler();
@@ -627,7 +684,7 @@ static bool bios_escape(uint8_t i) {
     return true;
 }
 
-void intcall86(uint8_t intnum) {
+__not_in_flash() void intcall86(uint8_t intnum) {
     if (unlikely(cr0 & CR0_PE)) { // the C BIOS hooks only run in real mode
         // but the network redirector must come before DOS in the INT 2Fh chain, also in V86 mode
         if (v86 && intnum == 0x2F && CPU_AH == 0x11 && redirector_handler()) return;
@@ -644,13 +701,13 @@ void intcall86(uint8_t intnum) {
     tf = 0;
 }
 
-static inline void flag_szp8(uint8_t value) {
+static __not_in_flash() inline void flag_szp8(uint8_t value) {
     zf = value == 0;
     sf = value >> 7;
     pf = parity[value];
 }
 
-static inline void flag_szp16(uint16_t value) {
+static __not_in_flash() inline void flag_szp16(uint16_t value) {
     zf = value == 0;
     sf = value >> 15;
     pf = parity[value & 255];
@@ -663,7 +720,7 @@ static inline void flag_szp16(uint16_t value) {
 // predictor); resolve_flags() puts all of them in x86_flags. flags_op is the kind << 5 | the shift.
 enum { FLAGS_ADD = 1, FLAGS_SUB, FLAGS_LOGIC };
 
-static INLINE void lazy_flags(uint8_t kind, uint8_t bits, uint32_t dst, uint32_t src, uint32_t result) {
+static __not_in_flash() INLINE void lazy_flags(uint8_t kind, uint8_t bits, uint32_t dst, uint32_t src, uint32_t result) {
     const uint8_t shift = 32 - bits;
     flags_dst = dst << shift;
     flags_src = (kind == FLAGS_SUB ? ~src : src) << shift;
@@ -671,25 +728,25 @@ static INLINE void lazy_flags(uint8_t kind, uint8_t bits, uint32_t dst, uint32_t
     flags_op = kind << 5 | shift;
 }
 
-static INLINE void add_flags(uint8_t bits, uint32_t dst, uint32_t src) {
+static __not_in_flash() INLINE void add_flags(uint8_t bits, uint32_t dst, uint32_t src) {
     lazy_flags(FLAGS_ADD, bits, dst, src, dst + src);
     flags_cf = flags_result < flags_dst;
 }
 
-static INLINE void sub_flags(uint8_t bits, uint32_t dst, uint32_t src) {
+static __not_in_flash() INLINE void sub_flags(uint8_t bits, uint32_t dst, uint32_t src) {
     flags_cf = dst << (32 - bits) < src << (32 - bits);
     lazy_flags(FLAGS_SUB, bits, dst, src, dst - src);
 }
 
-static INLINE void logic_flags(uint8_t bits, uint32_t result) { // CF = OF = AF = 0
+static __not_in_flash() INLINE void logic_flags(uint8_t bits, uint32_t result) { // CF = OF = AF = 0
     lazy_flags(FLAGS_LOGIC, bits, result, result, result);
     flags_cf = 0;
 }
 
-static INLINE bool get_cf(void) { return likely(flags_op) ? flags_cf : x86_flags.bits.CF; }
-static INLINE bool get_zf(void) { return likely(flags_op) ? flags_result == 0 : x86_flags.bits.ZF; }
-static INLINE bool get_sf(void) { return likely(flags_op) ? flags_result >> 31 : x86_flags.bits.SF; }
-static INLINE bool get_of(void) {
+static __not_in_flash() INLINE bool get_cf(void) { return likely(flags_op) ? flags_cf : x86_flags.bits.CF; }
+static __not_in_flash() INLINE bool get_zf(void) { return likely(flags_op) ? flags_result == 0 : x86_flags.bits.ZF; }
+static __not_in_flash() INLINE bool get_sf(void) { return likely(flags_op) ? flags_result >> 31 : x86_flags.bits.SF; }
+static __not_in_flash() INLINE bool get_of(void) {
     return likely(flags_op) ? ((flags_result ^ flags_dst) & (flags_result ^ flags_src)) >> 31 : x86_flags.bits.OF;
 }
 
@@ -705,7 +762,7 @@ __not_in_flash() void resolve_flags(void) {
 }
 
 // INC and DEC: like ADD and SUB 1, but CF stays
-static INLINE uint32_t inc_dec(uint32_t value, bool decrement, uint8_t bits) {
+static __not_in_flash() INLINE uint32_t inc_dec(uint32_t value, bool decrement, uint8_t bits) {
     if (!flags_op) flags_cf = x86_flags.bits.CF;
     const uint32_t result = decrement ? value - 1 : value + 1;
     lazy_flags(decrement ? FLAGS_SUB : FLAGS_ADD, bits, value, 1, result);
@@ -714,7 +771,7 @@ static INLINE uint32_t inc_dec(uint32_t value, bool decrement, uint8_t bits) {
 
 // Condition codes of Jcc and SETcc, by the low four bits of the opcode. Always inline: as a call it
 // went to flash.
-static inline __attribute__((always_inline)) bool condition(uint8_t code) {
+static __not_in_flash() inline __attribute__((always_inline)) bool condition(uint8_t code) {
     bool result;
     switch ((code & 0x0F) >> 1) {
         case 0: result = get_of(); break;                       // O
@@ -729,7 +786,7 @@ static inline __attribute__((always_inline)) bool condition(uint8_t code) {
     return result != (code & 1); // odd codes are the negations
 }
 
-static inline void flag_adc8(uint8_t v1, uint8_t v2, uint8_t v3) {
+static __not_in_flash() inline void flag_adc8(uint8_t v1, uint8_t v2, uint8_t v3) {
     /* v1 = destination operand, v2 = source operand, v3 = carry flag */
     uint32_t dst = (uint32_t) v1 + (uint32_t) v2 + (uint32_t) v3;
     flag_szp8((uint8_t) dst);
@@ -738,7 +795,7 @@ static inline void flag_adc8(uint8_t v1, uint8_t v2, uint8_t v3) {
     af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
 }
 
-static inline void flag_adc16(uint16_t v1, uint16_t v2, uint16_t v3) {
+static __not_in_flash() inline void flag_adc16(uint16_t v1, uint16_t v2, uint16_t v3) {
     register uint32_t dst = (uint32_t) v1 + (uint32_t) v2 + (uint32_t) v3;
     flag_szp16((uint16_t) dst);
     of = (((dst ^ (uint32_t)v1) & (dst ^ (uint32_t)v2)) & 0x8000) != 0;
@@ -746,7 +803,7 @@ static inline void flag_adc16(uint16_t v1, uint16_t v2, uint16_t v3) {
     af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
 }
 
-static inline uint8_t sbb8(uint8_t v1, uint8_t v2, uint8_t v3) {
+static __not_in_flash() inline uint8_t sbb8(uint8_t v1, uint8_t v2, uint8_t v3) {
     /* v1 = destination operand, v2 = source operand, v3 = carry flag */
     register uint32_t dst = (uint32_t)v1 - (uint32_t)v2 - (uint32_t)v3;
     flag_szp8((uint8_t) dst);
@@ -756,7 +813,7 @@ static inline uint8_t sbb8(uint8_t v1, uint8_t v2, uint8_t v3) {
     return (uint8_t)dst;
 }
 
-static inline uint16_t sbb16(uint16_t v1, uint16_t v2, uint8_t v3) {
+static __not_in_flash() inline uint16_t sbb16(uint16_t v1, uint16_t v2, uint8_t v3) {
     /* v1 = destination operand, v2 = source operand, v3 = carry flag */
     register uint32_t dst = (uint32_t)v1 - (uint32_t)v2 - (uint32_t)v3;
     flag_szp16((uint16_t) dst);
@@ -985,26 +1042,26 @@ static void *fault_point[5];
 static uint8_t fault_vector;
 static int32_t fault_error;
 
-static __attribute__((noreturn)) void raise_fault(uint8_t vector, int32_t error_code) {
+static __not_in_flash() __attribute__((noreturn)) void raise_fault(uint8_t vector, int32_t error_code) {
     fault_vector = vector;
     fault_error = error_code;
     __builtin_longjmp(fault_point, 1);
 }
 
 // PUSHF, POPF (and INT n, IRET) in V86 mode need IOPL 3, else #GP(0)
-static INLINE void check_v86_iopl(void) {
+static __not_in_flash() INLINE void check_v86_iopl(void) {
     if (unlikely(v86) && iopl < 3) raise_fault(13, 0);
 }
 
 // A fault returns to the instruction that caused it
 
-static void cpu_fault(const uint8_t vector) {
+static __not_in_flash() void cpu_fault(const uint8_t vector) {
     if (cr0 & CR0_PE) raise_fault(vector, NO_ERROR_CODE);
     ip = firstip;
     intcall86(vector);
 }
 
-static inline void op_div8(uint16_t valdiv, uint8_t divisor) {
+static __not_in_flash() inline void op_div8(uint16_t valdiv, uint8_t divisor) {
     if (divisor == 0 || valdiv / divisor > 0xFF) {
         printf("[op_div8] %d / %d\n", valdiv, divisor);
         cpu_fault(0);
@@ -1015,7 +1072,7 @@ static inline void op_div8(uint16_t valdiv, uint8_t divisor) {
     CPU_AL = (uint8_t) (valdiv / divisor);
 }
 
-static inline void op_idiv8(uint16_t valdiv, int8_t divisor) {
+static __not_in_flash() inline void op_idiv8(uint16_t valdiv, int8_t divisor) {
     if (divisor == 0) {
         printf("[op_idiv8] %d / 0\n", valdiv);
         cpu_fault(0);
@@ -1033,7 +1090,7 @@ static inline void op_idiv8(uint16_t valdiv, int8_t divisor) {
     CPU_AH = (uint8_t)remainder;
 }
 
-static inline void op_div16(uint32_t valdiv, uint16_t divisor) {
+static __not_in_flash() inline void op_div16(uint32_t valdiv, uint16_t divisor) {
     if (divisor == 0 || valdiv / divisor > 0xFFFF) {
 //        CPU_DX = 0;
 //        CPU_AX = 0xFFFF;
@@ -1046,7 +1103,7 @@ static inline void op_div16(uint32_t valdiv, uint16_t divisor) {
     CPU_AX = (uint16_t) (valdiv / divisor);
 }
 
-static inline void op_idiv16(uint32_t valdiv, uint16_t divisor) {
+static __not_in_flash() inline void op_idiv16(uint32_t valdiv, uint16_t divisor) {
     int32_t dividend = (int32_t)valdiv;
     int16_t divisor_signed = (int16_t)divisor;
     if (divisor_signed == 0) {
@@ -1147,7 +1204,7 @@ static __not_in_flash() void op_grp5() {
 
         case 3: /* CALL Mp */
             getea(rm);
-            far_call(readw86(ea + 2), readw86(ea), false);
+            far_call(mem_read16(ea + 2), mem_read16(ea), false);
             break;
 
         case 4: /* JMP Ev */
@@ -1156,7 +1213,7 @@ static __not_in_flash() void op_grp5() {
 
         case 5: /* JMP Mp */
             getea(rm);
-            far_jump(readw86(ea + 2), readw86(ea));
+            far_jump(mem_read16(ea + 2), mem_read16(ea));
             break;
 
         case 6: /* PUSH Ev */
@@ -1915,7 +1972,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 }
                 getea(rm);
                 const int16_t index = (int16_t) getreg16(reg);
-                if (index < (int16_t) readw86(ea) || index > (int16_t) readw86(ea + 2)) {
+                if (index < (int16_t) mem_read16(ea) || index > (int16_t) mem_read16(ea + 2)) {
                     cpu_fault(5); // returns to the BOUND instruction
                 }
                 break;
@@ -2739,8 +2796,8 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                     break;
                 }
                 getea(rm);
-                putreg16(reg, read86(ea) + read86(ea + 1) * 256);
-                load_segment(reges, read86(ea + 2) + read86(ea + 3) * 256);
+                putreg16(reg, mem_read16(ea));
+                load_segment(reges, mem_read16(ea + 2));
                 break;
 
             case 0xC5: /* C5 LDS Gv Mp */
@@ -2750,8 +2807,8 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                     break;
                 }
                 getea(rm);
-                putreg16(reg, read86(ea) + read86(ea + 1) * 256);
-                load_segment(regds, read86(ea + 2) + read86(ea + 3) * 256);
+                putreg16(reg, mem_read16(ea));
+                load_segment(regds, mem_read16(ea + 2));
                 break;
 
             case 0xC6: /* C6 MOV Eb Ib */
@@ -2897,7 +2954,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 #endif
 
             case 0xD7: /* D7 XLAT */
-                CPU_AL = read86(useseg + (uint16_t) (CPU_BX + CPU_AL)); // wraps in the segment
+                CPU_AL = mem_read8(useseg + (uint16_t) (CPU_BX + CPU_AL)); // wraps in the segment
                 break;
 
             case 0xD8:

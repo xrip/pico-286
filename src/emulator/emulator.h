@@ -2,6 +2,11 @@
 #include "printf/printf.h"
 #if PICO_ON_DEVICE
 #include <pico.h>
+#else
+#define __fast_mul(x,y) (x*y)
+#define __not_in_flash(x)
+#define __not_in_flash_func(x) x
+#define __time_critical_func(x)
 #endif
 #include <stdint.h>
 #include "cpu.h"
@@ -92,7 +97,7 @@ void load_segment_protected(uint8_t reg, uint16_t selector);
 
 // Every segment register load goes through here, so the base stays in step with the selector.
 // In real mode only the base changes; the rest of the cached descriptor stays (as on a 386).
-static inline void load_segment(const uint8_t reg, const uint16_t selector) {
+static inline __not_in_flash() void load_segment(const uint8_t reg, const uint16_t selector) {
     if (__builtin_expect(protected_mode, 0)) {
         load_segment_protected(reg, selector);
         return;
@@ -248,13 +253,6 @@ extern void out_ems(uint16_t port, uint8_t data);
 
 extern int16_t covox_sample;
 
-#if !PICO_ON_DEVICE
-#define __fast_mul(x,y) (x*y)
-#define __not_in_flash(x)
-#define __not_in_flash_func(x) x
-#define __time_critical_func(x)
-
-#endif
 
 #ifndef INLINE
 #if defined(_MSC_VER)

@@ -667,8 +667,10 @@ int main(void) {
     read86 = read86_ob;
     readw86 = readw86_ob;
     readdw86 = readdw86_ob;
-    fast_memory = RAM; // the CPU reads and writes conventional RAM directly
+    fast_memory = RAM; // the CPU reads and writes conventional RAM and the memory from 1 MB directly
     fast_memory_size = RAM_SIZE;
+    extended_memory = EXTENDED;
+    extended_memory_size = sizeof EXTENDED;
 
 
     // Initialize peripherals
