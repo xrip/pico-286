@@ -30,6 +30,11 @@ static inline __attribute__((always_inline)) void PC_FN(text_line)(
     const unsigned start = 0x8000u + (state->vram_offset << 1) + text_row * columns * 2u;
     const uint8_t *font = height == 480 ? font_8x16 : font_8x8;
     const bool cursor_row = pc_cursor_on_line(state, text_row, glyph_line, height);
+    // Two pixels in each store, from the four pairs of the cell's two colors.
+    // A row has long runs of one attribute, so the pairs are made again only when it changes.
+    typedef struct { PC_PIXEL pixel[2]; } __attribute__((may_alias)) pair_t;
+    pair_t pairs[4]; // [glyph bits 0 and 1]
+    unsigned colors = ~0u; // the foreground and background of pairs[]
     for (unsigned column = 0; column < columns; ++column) {
         const uint8_t character = (uint8_t)pc_word(vram, start + column * 2u);
         const uint8_t attr = (uint8_t)pc_word(vram, start + column * 2u + 1u);
@@ -39,26 +44,38 @@ static inline __attribute__((always_inline)) void PC_FN(text_line)(
         if (cursor_row && column == state->cursor_x) glyph = 0xffu;
         const uint8_t foreground = attr & 15u;
         const uint8_t background = (attr & state->blink_mask) >> 4;
-        // Text has only two colors per cell. Fetch them once rather than
-        // performing eight identical palette lookups in the glyph loop.
-        const PC_PIXEL foreground_pixel = PC_MAP(foreground);
-        const PC_PIXEL background_pixel = PC_MAP(background);
         if (width == 320 && columns == 80) {
             // Four samples per glyph. OR the pair so thin strokes remain
             // legible on a 320-pixel TFT instead of dropping alternate strokes.
+            const PC_PIXEL foreground_pixel = PC_MAP(foreground);
+            const PC_PIXEL background_pixel = PC_MAP(background);
             for (unsigned pair = 0; pair < 4; ++pair) {
                 *output++ = glyph & 3u ? foreground_pixel : background_pixel;
                 glyph >>= 2;
             }
-        } else {
-            const unsigned repeat = width == 640 && columns == 40 ? 2u : 1u;
+            continue;
+        }
+        if ((unsigned)(foreground | background << 4) != colors) {
+            colors = foreground | background << 4;
+            const PC_PIXEL f = PC_MAP(foreground), b = PC_MAP(background);
+            pairs[0] = (pair_t){{b, b}};
+            pairs[1] = (pair_t){{f, b}};
+            pairs[2] = (pair_t){{b, f}};
+            pairs[3] = (pair_t){{f, f}};
+        }
+        pair_t *out = (pair_t *)output;
+        if (width == 640 && columns == 40) { // each glyph bit is two pixels
             for (unsigned bit = 0; bit < 8; ++bit) {
-                const PC_PIXEL pixel = glyph & 1u ? foreground_pixel : background_pixel;
-                *output++ = pixel;
-                if (repeat == 2) *output++ = pixel;
+                *out++ = pairs[glyph & 1u ? 3u : 0u];
                 glyph >>= 1;
             }
+        } else {
+            *out++ = pairs[glyph & 3u];
+            *out++ = pairs[(glyph >> 2) & 3u];
+            *out++ = pairs[(glyph >> 4) & 3u];
+            *out++ = pairs[glyph >> 6];
         }
+        output = (PC_PIXEL *)out;
     }
 }
 
