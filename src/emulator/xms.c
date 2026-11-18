@@ -45,6 +45,7 @@ typedef struct {
 } xms_block_t;
 
 static xms_block_t blocks[XMS_HANDLES];
+static bool hma_in_use;
 
 typedef struct umb {
     uint16_t segment;
@@ -66,6 +67,7 @@ void xms_reset() {
     }
     umb_blocks[UMB_BLOCKS_COUNT - 1].size -= (UMB_END - BIOS_STUBS) / 16;
     memset(blocks, 0, sizeof(blocks));
+    hma_in_use = false;
 }
 
 const umb_t *get_largest_free_umb_block(uint16_t *psz) {
@@ -198,18 +200,16 @@ void xms_handler() { // in flash: XMS calls are rare
             CPU_DX = 0x0001; // HMA Exist
             break;
         }
-        case REQUEST_HMA: {
-            // Request HMA
-            // Stub: Implement HMA request functionality
-            CPU_AX = 1; // Success
+        case REQUEST_HMA: // one owner: Windows asks too, and must see that DOS=HIGH has it
+            CPU_AX = !hma_in_use;
+            if (hma_in_use) CPU_BL = 0x91;
+            hma_in_use = true;
             break;
-        }
-        case RELEASE_HMA: {
-            // Release HMA
-            // Stub: Implement HMA release functionality
-            CPU_AX = 1; // Success
+        case RELEASE_HMA:
+            CPU_AX = hma_in_use;
+            if (!hma_in_use) CPU_BL = 0x93;
+            hma_in_use = false;
             break;
-        }
         case GLOBAL_ENABLE_A20:
         case LOCAL_ENABLE_A20: {
             // Local Enable A20

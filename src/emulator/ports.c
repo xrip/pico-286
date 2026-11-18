@@ -17,7 +17,7 @@ OPL *emu8950_opl;
 #include "audio/mpu401.c.inl"
 #include "audio/sound_blaster.c.inl"
 uint8_t crt_controller_idx, crt_controller[32];
-uint8_t port60, port61, port64;
+uint8_t port60, port61;
 
 // Keyboard queue: a scancode goes to port 60h only after the one before it is read.
 // One producer (the host input code) and one consumer (exec86).
@@ -41,7 +41,6 @@ void keyboard_pump(void) {
         port60 = keyboard_queue[tail];
         __atomic_store_n(&keyboard_tail, (uint8_t)((tail + 1) % sizeof(keyboard_queue)), __ATOMIC_RELEASE);
         port60_read = false;
-        port64 |= 2;
     }
     doirq(1); // like the 8042: IRQ1 stays up until port 60h is read, even after ICW1 clears IRR
 }
@@ -165,7 +164,6 @@ __not_in_flash() void portout(uint16_t portnum, uint16_t value) {
 #if PICO_ON_DEVICE
             keyboard_send(value);
 #endif
-            port64 = value;
             break;
 // i8237 DMA
         case 0x81:
@@ -383,8 +381,8 @@ __not_in_flash() uint16_t portin(uint16_t portnum) {
             return port60;
         case 0x61:
             return port61;
-        case 0x64:
-            return port64;
+        case 0x64: // status: system flag, keyboard not inhibited, and bit 0 while port 60h is unread
+            return 0x14 | !port60_read;
 // i8237 DMA Page Registers
         case 0x81:
         case 0x82:
@@ -465,12 +463,15 @@ __not_in_flash() uint16_t portin(uint16_t portnum) {
 
             adlibstatus = adlibstatus + (adlibregmem[4] & 1) * 0x40 + (adlibregmem[4] & 2) * 0x10;
             return adlibstatus;
+        case 0x3C0:
         case 0x3C1:
         case 0x3C2:
+        case 0x3C4:
         case 0x3C5:
         case 0x3C7:
         case 0x3C8:
         case 0x3C9:
+        case 0x3CE:
         case 0x3CF:
 // VGA
             return vga_portin(portnum);
@@ -483,6 +484,7 @@ __not_in_flash() uint16_t portin(uint16_t portnum) {
             return crt_controller[crt_controller_idx];
         case 0x3DA:
 // CGA
+            vga_attribute_flip_flop = 0;
             return cga_portin(portnum);
         case 0x3F8:
         case 0x3F9:

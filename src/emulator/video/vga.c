@@ -12,6 +12,8 @@ static uint8_t sequencer_register = 0;
 static uint8_t graphics_control_register = 0;
 
 static uint8_t color_index = 0, read_color_index = 0, vga_register;
+static uint8_t attribute_registers[0x15];
+uint8_t vga_attribute_flip_flop; // 0: the next 3C0h write is an index, 1: data. A 3DAh read makes it 0.
 uint8_t vga_planar_mode = 0;
 
 // Latches (32-bit).
@@ -380,9 +382,8 @@ void vga_portout(uint16_t portnum, uint16_t value) {
     switch (portnum) {
         /* Attribute Address Register */
         case 0x3C0: {
-            static uint8_t data_mode = 0; // 0 -- address, 1 -- data
-
-            if (data_mode) {
+            if (vga_attribute_flip_flop) {
+                if (vga_register < sizeof attribute_registers) attribute_registers[vga_register] = value;
                 // Palette registers
                 if (vga_register <= 0x0f) {
                     const uint8_t r = (((value >> 2) & 1) << 1) + ((value >> 5) & 1);
@@ -402,7 +403,7 @@ void vga_portout(uint16_t portnum, uint16_t value) {
                 vga_register = value & 0x1F;
             }
 
-            data_mode ^= 1;
+            vga_attribute_flip_flop ^= 1;
             break;
         }
         // http://www.osdever.net/FreeVGA/vga/seqreg.htm
@@ -463,7 +464,11 @@ uint16_t vga_portin(uint16_t portnum) {
     //printf("vga_portin %x\n", portnum);
 
     switch (portnum) {
+        case 0x3C0: return vga_register | 0x20; // with the palette address source bit: the picture is on
+        case 0x3C1: return vga_register < sizeof attribute_registers ? attribute_registers[vga_register] : 0;
+        case 0x3C4: return sequencer_register;
         case 0x3C5: return vga.sequencer[sequencer_register];
+        case 0x3CE: return graphics_control_register;
         case 0x3CF: return vga.graphics_controller[graphics_control_register];
         case 0x3C8:
             return read_color_index;
