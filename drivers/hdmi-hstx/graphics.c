@@ -17,6 +17,7 @@ static const uint8_t *volatile pending_framebuffer;
 static volatile uint32_t frame_count;
 static bool started;
 extern volatile uint8_t port3DA;
+extern void crtc_latch_start_address(void);
 
 // All 256 graphics indices are colors; HSTX commands carry synchronization
 // separately. A halfword store makes an individual palette update atomic.
@@ -103,6 +104,7 @@ static void __time_critical_func(hstx_graphics_vsync)(void) {
         pending_framebuffer = NULL;
     }
     graphics_text_frame_tick();
+    crtc_latch_start_address();
     ++frame_count;
 }
 

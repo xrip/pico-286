@@ -48,6 +48,12 @@ void keyboard_pump(void) {
 uint8_t cursor_start = 12, cursor_end = 13;
 uint32_t vram_offset = 0x0;
 
+// As on a real 6845 and VGA, the CRTC start address takes effect once per frame,
+// so a page flip in the middle of a frame does not split the picture.
+__not_in_flash() void crtc_latch_start_address(void) {
+    vram_offset = crt_controller[0x0C] << 8 | crt_controller[0x0D];
+}
+
 dma_channel_s dma_channels[DMA_CHANNELS] = {
     {.masked = 1},
     {.masked = 1},
@@ -304,16 +310,6 @@ __not_in_flash() void portout(uint16_t portnum, uint16_t value) {
                     break;
                 case 0x0B:
                     cursor_end = value;
-                    break;
-
-// Screen offset
-                case 0x0C: // Start address (MSB)
-                    vram_offset = (vram_offset & 0xffu) | ((value & 0xffu) << 8);
-                    // printf("vram offset %04X\n", vram_offset);
-                    break;
-                case 0x0D: // Start address (LSB)
-                    vram_offset = (vram_offset & 0xff00u) | (value & 0xffu);
-                    // printf("vram offset %04X\n", vram_offset);
                     break;
             }
 

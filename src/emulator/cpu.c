@@ -454,7 +454,6 @@ static __not_in_flash() bool bios_hook(uint8_t intnum) {
                             0x00, 0x00, 0x00, 0x9C, 0x8E, 0x8F, 0x28, 0x40, 0x96, 0xB9, 0xA3, 0xFF,
                         };
                         memcpy(crt_controller, mode13_crtc, sizeof mode13_crtc);
-                        vram_offset = 0;
                     }
                     break;
                 case 0x05: /* Select Active Page */ {

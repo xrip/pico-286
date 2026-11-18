@@ -60,6 +60,7 @@ static INLINE void renderer() {
 
 
     //memcpy(localVRAM, VIDEORAM + 0x18000 + (vram_offset << 1), VIDEORAM_SIZE);
+    crtc_latch_start_address();
     uint8_t *vidramptr = (uint8_t *) (VIDEORAM + 0x8000 + ((vram_offset & 0xffff) << 1));
     uint8_t cols = 80;
     const int video_lines = videomode == 0x13 && vga_planar_mode && vga_x_rows() > 200 ? 480 : 400; // the rest: debug text
@@ -361,8 +362,10 @@ static INLINE void renderer() {
                     if (vga_planar_mode) {
                         unsigned words;
                         const uint32_t start = vga_x_line(y >> 1, &words);
-                        memset(pixels, 0, 640 * 4); // the border of a narrow picture, and the lines below the picture
-                        pixels += (80 - words) * 4;
+                        // Black borders, each pixel written once: the window may show SCREEN while it is drawn
+                        const unsigned border = (80 - words) * 4;
+                        memset(pixels, 0, border * 4);
+                        pixels += border;
                         for (unsigned x = 0; x < words; x++) {
                             uint32_t four_pixels = VIDEORAM[(start + x) & 0xFFFF];
                             *pixels++ = *pixels++ = vga_palette[four_pixels & 0xFF];
@@ -370,6 +373,7 @@ static INLINE void renderer() {
                             *pixels++ = *pixels++ = vga_palette[four_pixels >> 16 & 0xFF];
                             *pixels++ = *pixels++ = vga_palette[four_pixels >> 24];
                         }
+                        memset(pixels, 0, border * 4);
                     } else {
                         uint32_t *vga_row = &VIDEORAM[vram_offset + (y >> 1) * 320];
                         for (int x = 0; x < 320; x++) {

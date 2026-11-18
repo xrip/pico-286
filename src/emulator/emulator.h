@@ -182,6 +182,7 @@ void keyboard_push(uint8_t scancode);
 void keyboard_pump(void);
 extern volatile uint8_t port3DA;
 extern uint32_t vram_offset;
+void crtc_latch_start_address(void); // at the start of each frame
 extern uint32_t tga_offset;
 extern uint8_t crt_controller[32];
 

@@ -63,6 +63,7 @@ static inline void renderer() {
         v = videomode;
     }
 
+    crtc_latch_start_address();
     uint8_t *vidramptr = VIDEORAM + 0x8000 + ((vram_offset & 0xffff) << 1);
     uint8_t cols = 80;
     for (int y = 0; y < 480; y++) {
