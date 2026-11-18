@@ -719,6 +719,7 @@ int main(void) {
     bool right = nespad_state & DPAD_RIGHT;
     bool up = nespad_state & DPAD_UP;
     bool down = nespad_state & DPAD_DOWN;
+    uint8_t mouse_buttons = 0;
 
     // Main emulation loop
     while (true) {
@@ -732,7 +733,7 @@ int main(void) {
                 (right && (nespad_state & DPAD_RIGHT)) ||
                 (down && (nespad_state & DPAD_DOWN)) ||
                 (up && (nespad_state & DPAD_UP))) {
-                mouse_throttle += 0.2f;
+                if (mouse_throttle < 30.0f) mouse_throttle += 0.2f; // the packet takes -128..127
             } else {
                 mouse_throttle = 3.0f;
             }
@@ -743,10 +744,14 @@ int main(void) {
             up = nespad_state & DPAD_UP;
             down = nespad_state & DPAD_DOWN;
 
-            // Send mouse event
-            sermouseevent(nespad_state & DPAD_B | ((nespad_state & DPAD_A) != 0) << 1,
-                         left ? -mouse_throttle : right ? mouse_throttle : 0,
-                         down ? mouse_throttle : up ? -mouse_throttle : 0);
+            // A mouse packet only when a button changes or a direction is held: each one is a COM1 IRQ
+            const uint8_t buttons = ((nespad_state & DPAD_B) != 0) | ((nespad_state & DPAD_A) != 0) << 1;
+            if (buttons != mouse_buttons || left || right || up || down) {
+                mouse_buttons = buttons;
+                sermouseevent(buttons,
+                              left ? -mouse_throttle : right ? mouse_throttle : 0,
+                              down ? mouse_throttle : up ? -mouse_throttle : 0);
+            }
         tight_loop_contents();
     }
     __unreachable();
