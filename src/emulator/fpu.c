@@ -58,8 +58,10 @@
   case x:          \
     return y
 
-extern uint8_t mode, reg, rm;
-extern uint32_t ea;
+#define mode cpu_state.mode
+#define reg cpu_state.reg
+#define rm cpu_state.rm
+#define ea cpu_state.ea
 
 #ifdef MIN
 #undef MIN

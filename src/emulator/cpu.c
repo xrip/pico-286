@@ -19,32 +19,27 @@
 
 
 int videomode = 3;
-// The decoder state, used at every instruction. One struct, so the RP2350 code reaches all of it
-// from one base register instead of loading each address; the macros keep the short names.
-static struct {
-    uint32_t useseg; // base of the segment used for memory operands
-    uint32_t firstip; // EIP of the current instruction, with its prefixes
-    uint32_t first_esp; // ESP before the current instruction: a fault puts it back
-    uint8_t reptype, segoverride;
-    uint8_t opsize32, addrsize32; // operand and address size of the current instruction: 1 = 32-bit
-    uint8_t code32, stack32; // D bit of CS (default size) and B bit of SS (the stack uses ESP)
-} decode;
-#define useseg decode.useseg
-#define firstip decode.firstip
-#define first_esp decode.first_esp
-#define reptype decode.reptype
-#define segoverride decode.segoverride
-#define opsize32 decode.opsize32
-#define addrsize32 decode.addrsize32
-#define code32 decode.code32
-#define stack32 decode.stack32
+cpu_state_t cpu_state; // cpu.h
+#define useseg cpu_state.useseg
+#define ea cpu_state.ea
+#define firstip cpu_state.firstip
+#define first_esp cpu_state.first_esp
+#define disp16 cpu_state.disp16
+#define mode cpu_state.mode
+#define reg cpu_state.reg
+#define rm cpu_state.rm
+#define reptype cpu_state.reptype
+#define segoverride cpu_state.segoverride
+#define opsize32 cpu_state.opsize32
+#define addrsize32 cpu_state.addrsize32
+#define code32 cpu_state.code32
+#define stack32 cpu_state.stack32
 static uint8_t cpl; // current privilege level: 0 in real mode, 3 in V86 mode
 uint8_t protected_mode;
 // The hot memory accesses of the CPU. Below fast_memory_size the linear address is an index into
 // fast_memory (conventional RAM, while paging is off): no call through read86/write86.
-// Size 0 turns this off (the CPU test tools have their own memory).
-uint8_t *fast_memory;
-uint32_t fast_memory_size;
+// Size 0 turns this off (the CPU test tools have their own memory). A word is one load or store:
+// the Cortex-M33 and the host take it at an odd address.
 
 static inline uint8_t mem_read8(uint32_t address) {
     return address < fast_memory_size ? fast_memory[address] : read86(address);
@@ -52,7 +47,9 @@ static inline uint8_t mem_read8(uint32_t address) {
 
 static inline uint16_t mem_read16(uint32_t address) {
     if (address < fast_memory_size && address + 1 < fast_memory_size) {
-        return fast_memory[address] | fast_memory[address + 1] << 8;
+        uint16_t value;
+        memcpy(&value, fast_memory + address, 2);
+        return value;
     }
     return readw86(address);
 }
@@ -64,8 +61,7 @@ static inline void mem_write8(uint32_t address, uint8_t value) {
 
 static inline void mem_write16(uint32_t address, uint16_t value) {
     if (address < fast_memory_size && address + 1 < fast_memory_size) {
-        fast_memory[address] = (uint8_t) value;
-        fast_memory[address + 1] = value >> 8;
+        memcpy(fast_memory + address, &value, 2);
     } else {
         writew86(address, value);
     }
@@ -78,8 +74,7 @@ static uint32_t cr0 = CR0_ET;
 uint16_t segregs[6];
 uint32_t segment_base[6];
 uint16_t oldsp;
-uint32_t ip32;
-uint8_t tempcf, oldcf, mode, reg, rm;
+uint8_t tempcf, oldcf;
 x86_flags_t x86_flags;
 
 static const uint8_t __not_in_flash("cpu.regt") byteregtable[8] = {
@@ -88,8 +83,6 @@ static const uint8_t __not_in_flash("cpu.regt") byteregtable[8] = {
 
 uint8_t nestlev;
 uint16_t saveip, savecs, oper1, oper2, res16, temp16, dummy, stacksize, frametemp;
-uint16_t disp16;
-uint32_t ea;
 
 uint32_t dwordregs[8];
 

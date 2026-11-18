@@ -211,27 +211,27 @@ static void mark_accessed(uint16_t selector, descriptor_t *d) {
 
 // SS needs a writable data segment at the CPL; the others a data or readable code segment that the
 // CPL and RPL may use (DPL >= both, or conforming code).
-void load_segment_protected(uint8_t reg, uint16_t selector) {
+void load_segment_protected(uint8_t segment, uint16_t selector) {
     if (!(selector & ~3u)) { // a null selector: allowed, but not for SS
-        if (reg == regss) raise_fault(13, 0);
-        segregs[reg] = selector;
-        segment_base[reg] = 0;
+        if (segment == regss) raise_fault(13, 0);
+        segregs[segment] = selector;
+        segment_base[segment] = 0;
         return;
     }
     descriptor_t d;
     if (!read_descriptor(selector, &d) || !is_segment(d)) raise_fault(13, selector & ~3u);
     const bool readable_or_writable = d.high >> 9 & 1; // data: writable; code: readable
-    const bool allowed = reg == regss
+    const bool allowed = segment == regss
                              ? !is_code(d) && readable_or_writable && (selector & 3) == cpl && descriptor_dpl(d) == cpl
                              : (!is_code(d) || readable_or_writable) &&
                                (is_conforming(d) || (descriptor_dpl(d) >= cpl && descriptor_dpl(d) >= (selector & 3)));
     if (!allowed) raise_fault(13, selector & ~3u);
-    if (!is_present(d)) raise_fault(reg == regss ? 12 : 11, selector & ~3u);
+    if (!is_present(d)) raise_fault(segment == regss ? 12 : 11, selector & ~3u);
     mark_accessed(selector, &d);
-    segregs[reg] = selector;
-    segment_base[reg] = descriptor_base(d);
-    if (reg == regss) stack32 = is_big(d);
-    if (reg == regcs) code32 = is_big(d);
+    segregs[segment] = selector;
+    segment_base[segment] = descriptor_base(d);
+    if (segment == regss) stack32 = is_big(d);
+    if (segment == regcs) code32 = is_big(d);
 }
 
 // ---- Control transfers (chapter 6.3) ----------------------------------------------------------
@@ -466,11 +466,11 @@ static void far_call(uint16_t selector, uint32_t offset, bool size32) {
 static void null_inner_segments(void) {
     static const uint8_t data_registers[4] = {reges, regds, regfs, reggs};
     for (int i = 0; i < 4; i++) {
-        const uint8_t reg = data_registers[i];
+        const uint8_t segment = data_registers[i];
         descriptor_t d;
-        if (read_descriptor(segregs[reg], &d) && !is_conforming(d) && descriptor_dpl(d) < cpl) {
-            segregs[reg] = 0;
-            segment_base[reg] = 0;
+        if (read_descriptor(segregs[segment], &d) && !is_conforming(d) && descriptor_dpl(d) < cpl) {
+            segregs[segment] = 0;
+            segment_base[segment] = 0;
         }
     }
 }

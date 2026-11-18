@@ -1,3 +1,4 @@
+#pragma once
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
@@ -105,7 +106,27 @@ void xms_reset();
 #define CPU_DI    wordregs[regdi << 1]
 #define CPU_BP    wordregs[regbp << 1]
 #define CPU_SP    wordregs[regsp << 1]
-extern uint32_t ip32;
+// The CPU state used at every instruction (cpu.c). One struct, so the RP2350 code reaches all of it
+// from one base register instead of loading each address. Macros keep the short names; cpu.c and
+// fpu.c add the ones for the decoder fields.
+typedef struct {
+    uint32_t ip32;
+    uint8_t *fast_memory; // conventional RAM, read and written directly below fast_memory_size
+    uint32_t fast_memory_size; // 0 while paging is on (and in the CPU test tools): read86/write86
+    uint32_t useseg; // base of the segment used for memory operands
+    uint32_t ea; // linear address of the memory operand
+    uint32_t firstip; // EIP of the current instruction, with its prefixes
+    uint32_t first_esp; // ESP before the current instruction: a fault puts it back
+    uint16_t disp16;
+    uint8_t mode, reg, rm; // the ModR/M byte
+    uint8_t reptype, segoverride;
+    uint8_t opsize32, addrsize32; // operand and address size of the current instruction: 1 = 32-bit
+    uint8_t code32, stack32; // D bit of CS (default size) and B bit of SS (the stack uses ESP)
+} cpu_state_t;
+extern cpu_state_t cpu_state;
+#define ip32 cpu_state.ip32
+#define fast_memory cpu_state.fast_memory
+#define fast_memory_size cpu_state.fast_memory_size
 #define CPU_IP    ip32
 #define ip        ip32
 
