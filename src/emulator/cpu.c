@@ -40,6 +40,9 @@ cpu_state_t cpu_state; // cpu.h
 #define code32 cpu_state.code32
 #define stack32 cpu_state.stack32
 static uint8_t cpl; // current privilege level: 0 in real mode, 3 in V86 mode
+// MOV SS, POP SS and STI let one more instruction run before an IRQ (so MOV SS; MOV SP is safe)
+#define NO_INTERRUPT_SHADOW 0xFFFFFFFFu
+static uint32_t interrupt_shadow_ip = NO_INTERRUPT_SHADOW;
 uint8_t protected_mode;
 // The memory accesses of the CPU, by linear address. Conventional RAM is reached inline; the memory
 // from 1 MB directly too (cpu.h), from a small function; the rest goes through read86/write86.
@@ -1270,9 +1273,13 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 
     for (uint32_t loopcount = 0; loopcount < execloops; loopcount++) {
         if (unlikely(ifl && i8259_get_pending_irqs())) {
-            firstip = CPU_IP;
-            first_esp = dwordregs[regsp];
-            external_interrupt(i8259_nextirq());
+            if (CPU_IP == interrupt_shadow_ip) {
+                interrupt_shadow_ip = NO_INTERRUPT_SHADOW; // once: the IRQ comes after this instruction
+            } else {
+                firstip = CPU_IP;
+                first_esp = dwordregs[regsp];
+                external_interrupt(i8259_nextirq());
+            }
         }
         reptype = 0;
         segoverride = 0;
@@ -1538,6 +1545,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 
             case 0x17: /* 17 POP CPU_SS */
                 load_segment(regss, pop());
+                interrupt_shadow_ip = CPU_IP;
                 break;
 
             case 0x18: /* 18 SBB Eb Gb */
@@ -2231,6 +2239,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                     break;
                 }
                 load_segment(reg, readrm16(rm));
+                if (reg == regss) interrupt_shadow_ip = CPU_IP;
                 break;
 
             case 0x8F: /* 8F POP Ev */
@@ -3195,6 +3204,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
             case 0xFB: /* FB STI */
                 if (unlikely(cpl > iopl)) raise_fault(13, 0);
                 ifl = 1;
+                interrupt_shadow_ip = CPU_IP;
                 break;
 
             case 0xFC: /* FC CLD */
