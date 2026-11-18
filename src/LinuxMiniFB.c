@@ -25,6 +25,7 @@ static uint32_t s_palette[256];
 static int s_screen;
 static Visual *s_visual;
 static int s_depth;
+static int mouse_buttons; // bit 1: left, bit 0: right
 
 extern void HandleInput(unsigned int keycode, int isKeyDown);
 extern void HandleMouse(int x, int y, int buttons);
@@ -222,18 +223,15 @@ int mfb_update(void *buffer, int fps_limit) {
             
             case ButtonPress:
             case ButtonRelease: {
-                int buttons = 0;
-                if (event.xbutton.button == Button1) buttons |= 0x02;
-                if (event.xbutton.button == Button3) buttons |= 0x01;
-                
-                if (event.type == ButtonRelease) buttons = 0;
-                
-                HandleMouse(event.xbutton.x, event.xbutton.y, buttons);
+                const int button = event.xbutton.button == Button1 ? 0x02 : event.xbutton.button == Button3 ? 0x01 : 0;
+                if (event.type == ButtonPress) mouse_buttons |= button;
+                else mouse_buttons &= ~button;
+                HandleMouse(event.xbutton.x, event.xbutton.y, mouse_buttons);
                 break;
             }
-            
-            case MotionNotify:
-                HandleMouse(event.xmotion.x, event.xmotion.y, 0);
+
+            case MotionNotify: // a held button stays held while the mouse moves
+                HandleMouse(event.xmotion.x, event.xmotion.y, mouse_buttons);
                 break;
                 
             case ClientMessage:

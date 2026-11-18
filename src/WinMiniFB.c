@@ -68,29 +68,13 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
              if (GetFocus() != hWnd) {
                  SetFocus(hWnd);
              }
-            GetCursorPos(&currentPos);
-            HandleMouse(currentPos.x, currentPos.y, 0);
-            break;
+        // fall through: every mouse message has the button state in wParam
         case WM_LBUTTONDOWN:
-            GetCursorPos(&currentPos);
-            HandleMouse(currentPos.x, currentPos.y, 0b10);
-
-            break;
-
         case WM_LBUTTONUP:
-            GetCursorPos(&currentPos);
-            HandleMouse(currentPos.x, currentPos.y, 0b00);
-
-            break;
         case WM_RBUTTONDOWN:
-            GetCursorPos(&currentPos);
-            HandleMouse(currentPos.x, currentPos.y, 0b1);
-
-            break;
         case WM_RBUTTONUP:
             GetCursorPos(&currentPos);
-            HandleMouse(currentPos.x, currentPos.y, 0b0);
-
+            HandleMouse(currentPos.x, currentPos.y, (wParam & MK_LBUTTON ? 0b10 : 0) | (wParam & MK_RBUTTON ? 0b01 : 0));
             break;
 
         case WM_KEYDOWN:
