@@ -37,6 +37,7 @@ struct semaphore vga_start_semaphore;
 int cursor_blink_state = 0;
 
 #include "hstx_audio.h"
+#include "hstx_video.h"
 _Static_assert(SOUND_FREQUENCY == HSTX_AUDIO_SAMPLE_RATE, "HDMI audio runs at the emulator's sample rate");
 
 static volatile bool boot_console = true;
@@ -559,6 +560,10 @@ static void load_config_286() {
                     vreg = new_vreg;
                     vreg_set_voltage(vreg);
                 }
+            } else if (strcmp(t, "VIDEO") == 0) { // VGA or HDMI; without it the pins tell
+                t = next_token(t);
+                hstx_video_set_output(strcmp(t, "VGA") == 0 ? HSTX_OUTPUT_VGA :
+                                      strcmp(t, "HDMI") == 0 ? HSTX_OUTPUT_HDMI : HSTX_OUTPUT_AUTO);
             } else if (!new_flash_timings && strcmp(t, "FLASH") == 0) {
                 t = next_token(t);
                 int new_flash_mhz = atoi(t);

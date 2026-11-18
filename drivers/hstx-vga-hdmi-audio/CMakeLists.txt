@@ -1,13 +1,13 @@
-add_library(hdmi-hstx INTERFACE)
+add_library(hstx-vga-hdmi-audio INTERFACE)
 
-target_sources(hdmi-hstx INTERFACE
+target_sources(hstx-vga-hdmi-audio INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/hstx_video.c
         ${CMAKE_CURRENT_LIST_DIR}/graphics.c
         ${CMAKE_CURRENT_LIST_DIR}/hstx_audio.c
         ${CMAKE_CURRENT_LIST_DIR}/hstx_data_island.c
 )
-target_compile_definitions(hdmi-hstx INTERFACE PICO_DIVIDER_IN_RAM=1)
-target_link_libraries(hdmi-hstx INTERFACE
+target_compile_definitions(hstx-vga-hdmi-audio INTERFACE PICO_DIVIDER_IN_RAM=1)
+target_link_libraries(hstx-vga-hdmi-audio INTERFACE
         pico_stdlib
         hardware_clocks
         hardware_dma
@@ -17,7 +17,7 @@ target_link_libraries(hdmi-hstx INTERFACE
         hardware_resets
         hardware_sync
 )
-target_include_directories(hdmi-hstx INTERFACE
+target_include_directories(hstx-vga-hdmi-audio INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/../graphics
 )

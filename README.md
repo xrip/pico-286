@@ -146,7 +146,7 @@ To use it:
 
 ## 🔧 Hardware Configuration
 
-Pico-286 supports one board configuration: an **RP2350 (Raspberry Pi Pico 2 class) M2P2 / Murmulator 2 board** with HSTX HDMI video, HDMI audio and 8 MB of onboard QMI PSRAM. 🍓
+Pico-286 supports one board configuration: an **RP2350 (Raspberry Pi Pico 2 class) M2P2 / Murmulator 2 board** with HSTX HDMI video and HDMI audio, or HSTX VGA video, and 8 MB of onboard QMI PSRAM. 🍓
 
 ### 🎛️ Supported Components
 *   ⌨️ PS/2 keyboard and mouse
@@ -221,7 +221,7 @@ This architecture allows for accurate timing and responsive I/O on a non-real-ti
 cmake --preset m2p2
 cmake --build --preset m2p2
 ```
-There are no display, audio or memory options: the firmware always uses HSTX HDMI, HDMI audio and onboard PSRAM. `-DMIDI_GM_DLS=ON` selects the GM.DLS wavetable MIDI engine (see `BUILDING.md`).
+There are no display, audio or memory build options: one firmware drives HDMI with HDMI audio, or VGA (no sound yet). It tests the HSTX pins at boot; `VIDEO=VGA` or `VIDEO=HDMI` in `config.286` sets it. A VGA board needs its monitor connected at boot to be found. `-DMIDI_GM_DLS=ON` selects the GM.DLS wavetable MIDI engine (see `BUILDING.md`).
 
 #### Linux Host Build:
 ```bash

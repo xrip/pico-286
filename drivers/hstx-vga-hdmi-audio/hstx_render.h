@@ -13,6 +13,19 @@ static inline __attribute__((always_inline)) uint16_t hstx_rgb888_to_bgr555(uint
                       ((rgb << 7) & 0x7c00u));
 }
 
+// VGA: a channel level 0..12 is four 2-bit time steps, the extra steps spread out
+// (from wbcbz7's VGA/DVI/HDMI HSTX driver, MIT). Each byte has blue, green, red in bits 0..5.
+static inline __attribute__((always_inline)) uint32_t hstx_vga_steps(uint32_t value) {
+    const uint32_t level = (value * 13u + 6u) >> 8;
+    return level / 4u * 0x01010101u +
+           (level % 4u == 1u ? 0x1u : level % 4u == 2u ? 0x10001u : level % 4u == 3u ? 0x10101u : 0u);
+}
+
+static inline __attribute__((always_inline)) uint32_t hstx_rgb888_to_vga(uint32_t rgb) {
+    return hstx_vga_steps(rgb & 0xffu) | hstx_vga_steps(rgb >> 8 & 0xffu) << 2 |
+           hstx_vga_steps(rgb >> 16 & 0xffu) << 4;
+}
+
 // A successful graphics_text_line() supplies either 40 or 80 cells. Output is
 // always 640 pixels, aligned to four bytes, with no intermediate text bitmap.
 static inline __attribute__((always_inline)) void hstx_render_text(

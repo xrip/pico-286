@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Pico-286 is a PC emulator targeting Intel 8086/8088/80186/286 CPUs, designed to run on the RP2350 (M2P2 board: HSTX HDMI, HDMI audio, 8 MB onboard QMI PSRAM). The CPU is being upgraded to a 386SX: see `386-migration.md`. The project emulates classic PC hardware including various graphics cards (CGA, TGA, EGA, VGA), sound cards (PC Speaker, Adlib, Sound Blaster, MPU-401), and peripherals.
+Pico-286 is a PC emulator targeting Intel 8086/8088/80186/286 CPUs, designed to run on the RP2350 (M2P2 board: HSTX HDMI with HDMI audio, or HSTX VGA, 8 MB onboard QMI PSRAM). The CPU is being upgraded to a 386SX: see `386-migration.md`. The project emulates classic PC hardware including various graphics cards (CGA, TGA, EGA, VGA), sound cards (PC Speaker, Adlib, Sound Blaster, MPU-401), and peripherals.
 
 ## Build System
 
-The project uses CMake with two targets. There is only one firmware configuration: RP2350 M2P2 with HSTX HDMI, HDMI audio and 8 MB onboard QMI PSRAM. RP2040, VGA, TFT, NTSC, PIO HDMI, PWM/I2S/hardware sound, SPI PSRAM and the swap file were removed.
+The project uses CMake with two targets. There is only one firmware configuration: RP2350 M2P2 with HSTX HDMI and HDMI audio (or HSTX VGA, found at boot or set by `VIDEO=VGA|HDMI` in `config.286`) and 8 MB onboard QMI PSRAM. VGA has no sound until a PWM/I2S output is added. RP2040, PIO VGA, TFT, NTSC, PIO HDMI, PWM/I2S/hardware sound, SPI PSRAM and the swap file were removed.
 
 ```bash
 # RP2350 firmware (M2P2)
@@ -44,9 +44,9 @@ Options: `MIDI_GM_DLS=ON` (GM.DLS wavetable MIDI, RP2350 and Win32), `MIDI_WINMM
 
 ### Video System
 
-**Graphics Drivers** (`drivers/graphics/`, `drivers/hdmi-hstx/`):
+**Graphics Drivers** (`drivers/graphics/`, `drivers/hstx-vga-hdmi-audio/`):
 - Shared PC mode renderers (`graphics_modes.c`) and text (`graphics_text.c`)
-- HSTX HDMI output with HDMI audio data islands (`drivers/hdmi-hstx/`)
+- HSTX output on GPIO12-19: HDMI with audio data islands, or VGA (RGB222 resistor DAC, colors by 4-step PWM) (`drivers/hstx-vga-hdmi-audio/`)
 - Fonts (4x6, 6x8, 8x8, 8x16)
 
 **Video Mode Support**:
@@ -59,7 +59,7 @@ Options: `MIDI_GM_DLS=ON` (GM.DLS wavetable MIDI, RP2350 and Win32), `MIDI_WINMM
 
 ### Audio System
 
-**Sound output**: on the RP2350 the mixed samples go over HDMI (`drivers/hdmi-hstx/hstx_audio.c`) at 44,100 Hz.
+**Sound output**: on the RP2350 the mixed samples go over HDMI (`drivers/hstx-vga-hdmi-audio/hstx_audio.c`) at 44,100 Hz.
 
 **Sound Card Emulation** (`src/emulator/audio/`):
 - PC Speaker/System Beeper
@@ -100,7 +100,7 @@ See `README.md` for a more detailed explanation.
 - `ps2/` - PS/2 keyboard and mouse support
 - `sdcard/`, `fatfs/` - SD card filesystem (FAT32 via FatFS)
 - `nespad/` - NES gamepad for mouse emulation
-- `graphics/`, `hdmi-hstx/` - HSTX HDMI video and audio
+- `graphics/`, `hstx-vga-hdmi-audio/` - HSTX HDMI or VGA video, HDMI audio
 - `flash-config/` - M2P2 flash Quad Enable and timing setup
 
 Each driver has its own CMakeLists.txt. Pinouts are in `CMakeLists.txt` and `README.md`.

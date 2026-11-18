@@ -43,6 +43,15 @@ typedef void (*hstx_video_vsync_callback_t)(void);
 void hstx_video_set_line_callback(hstx_video_line_callback_t callback);
 void hstx_video_set_vsync_callback(hstx_video_vsync_callback_t callback);
 
+/* The same pins drive HDMI or a VGA resistor DAC (RGB222 + HSYNC + VSYNC).
+ * Set before hstx_video_init(), which tests the pins for HSTX_OUTPUT_AUTO. */
+enum hstx_output { HSTX_OUTPUT_AUTO, HSTX_OUTPUT_HDMI, HSTX_OUTPUT_VGA };
+void hstx_video_set_output(enum hstx_output output);
+bool hstx_video_is_vga(void);
+/* VGA only, from the vsync callback: 640 payload words a line, or 320 that
+ * the HSTX shows twice each. Lines of the old width must not follow. */
+void hstx_video_set_vga_wide(bool wide);
+
 /* Claims two unused DMA channels and an exclusive DMA_IRQ_1 handler.
  * Rejects any existing shared or exclusive IRQ1 handler. stop/deinit restore
  * the prior IRQ enable state and priority. Does not change PLLs, clocks,

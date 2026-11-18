@@ -164,7 +164,7 @@ else ()
     add_subdirectory(drivers/nespad)
     add_subdirectory(drivers/flash-config)
     add_subdirectory(drivers/graphics)
-    add_subdirectory(drivers/hdmi-hstx)
+    add_subdirectory(drivers/hstx-vga-hdmi-audio)
     pico_enable_stdio_usb(${PROJECT_NAME} 0)
     pico_enable_stdio_uart(${PROJECT_NAME} 0)
 
@@ -172,7 +172,7 @@ else ()
     # LIBRARIES
     # =========================
     target_link_libraries(${PROJECT_NAME} PRIVATE
-            ps2 sdcard graphics hdmi-hstx nespad flash-config
+            ps2 sdcard graphics hstx-vga-hdmi-audio nespad flash-config
             pico_runtime pico_stdlib pico_multicore
             hardware_dma hardware_pio hardware_i2c hardware_exception
             hardware_interp hardware_timer hardware_clocks hardware_pwm hardware_flash

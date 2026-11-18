@@ -34,6 +34,10 @@ static const uint16_t __not_in_flash("hstx_text_palette") text_palette[16] = {
 };
 #undef HSTX_TEXT_COLOR
 
+// VGA: the same render calls with PWM words in place of BGR555 pairs.
+static bool vga, vga_frame_wide;
+static uint32_t pwm_palette[GRAPHICS_COLOR_COUNT];
+
 // HSTX may retain a callback's pixels while another line is being prepared.
 // Four slots satisfy that lifetime without a second full framebuffer.
 static hstx_video_packet_t packets[4];
@@ -49,6 +53,7 @@ static hstx_video_packet_t *__time_critical_func(hstx_graphics_line)(
     port3DA = graphics_pc_raster_status(mode, output_line, false);
     if (graphics_source_is_pc_mode()) {
         const unsigned width = graphics_source_native_width();
+        if (vga && (width != GRAPHICS_FRAME_WIDTH) != vga_frame_wide) return NULL; // black till vsync
         if (width == GRAPHICS_FRAME_WIDTH && (output_line & 1u) &&
                 repeated_packet != NULL && repeated_mode == mode) {
             // The line carries its own data island, so it needs a packet of its own.
@@ -65,7 +70,10 @@ static hstx_video_packet_t *__time_critical_func(hstx_graphics_line)(
         hstx_video_packet_t *packet = &packets[packet_slot];
         if (width == GRAPHICS_FRAME_WIDTH) {
             graphics_source_render_line32(output_line, width, 480u,
-                                           packet->payload.pairs, doubled_palette);
+                                           packet->payload.pairs, vga ? pwm_palette : doubled_palette);
+        } else if (vga) {
+            graphics_source_render_line32(output_line, width, 480u,
+                                           packet->payload.vga, pwm_palette);
         } else {
             graphics_source_render_line16(output_line, width, 480u,
                                            packet->payload.pixels, graphics_palette);
@@ -105,6 +113,10 @@ static void __time_critical_func(hstx_graphics_vsync)(void) {
     }
     graphics_text_frame_tick();
     crtc_latch_start_address();
+    if (vga) { // 640 words a line for text and the other 640-wide modes
+        vga_frame_wide = graphics_source_native_width() != GRAPHICS_FRAME_WIDTH;
+        hstx_video_set_vga_wide(vga_frame_wide);
+    }
     ++frame_count;
 }
 
@@ -113,9 +125,6 @@ void hdmi_hstx_graphics_init(void) {
         return;
     }
     graphics_source_init();
-    for (unsigned i = 0; i < 4; ++i) {
-        hstx_packet_init(&packets[i], true, false);
-    }
     copy_channel = (uint)dma_claim_unused_channel(true);
     dma_channel_config copy = dma_channel_get_default_config(copy_channel);
     channel_config_set_write_increment(&copy, true);
@@ -125,6 +134,14 @@ void hdmi_hstx_graphics_init(void) {
     hstx_video_set_vsync_callback(hstx_graphics_vsync);
     if (!hstx_video_init()) {
         panic("HSTX initialization failed");
+    }
+    vga = hstx_video_is_vga();
+    for (unsigned i = 0; i < 4; ++i) {
+        if (vga) {
+            hstx_vga_packet_init(&packets[i]);
+        } else {
+            hstx_packet_init(&packets[i], true, false);
+        }
     }
     if (!hstx_video_start()) {
         panic("HSTX start failed");
@@ -151,6 +168,10 @@ void graphics_set_offset(int x, int y) {
 
 void graphics_set_palette(uint8_t index, uint32_t color) {
     color = graphics_pc_palette_color(index, color);
+    if (vga) {
+        pwm_palette[index] = hstx_rgb888_to_vga(color);
+        return;
+    }
     const uint32_t pixel = hstx_rgb888_to_bgr555(color);
     graphics_palette[index] = (uint16_t)pixel;
     doubled_palette[index] = pixel | (pixel << 16);

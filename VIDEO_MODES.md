@@ -54,7 +54,7 @@ unavailable. Saved CPU settings cannot change this clock plan.
 blink, cursor, bounds, offsets, and the 16- and 32-bit output forms. Build from the root:
 
 ```sh
-gcc -std=gnu17 -O2 -Itests/graphics-stubs -Idrivers/graphics -Idrivers/hdmi-hstx tests/graphics_modes_test.c drivers/graphics/graphics_modes.c drivers/graphics/graphics_text.c -o graphics_modes_test
+gcc -std=gnu17 -O2 -Itests/graphics-stubs -Idrivers/graphics -Idrivers/hstx-vga-hdmi-audio tests/graphics_modes_test.c drivers/graphics/graphics_modes.c drivers/graphics/graphics_text.c -o graphics_modes_test
 ```
 
 `tests/hstx_packet_test.c` checks the HDMI line packets, `tests/graphics_raster_test.c` the emulated raster status.

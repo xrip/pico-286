@@ -1,4 +1,4 @@
-// gcc -std=c17 -O2 -Wall -Wextra -Werror -Idrivers/hdmi-hstx tests/hstx_packet_test.c -o hstx_packet_test
+// gcc -std=c17 -O2 -Wall -Wextra -Werror -Idrivers/hstx-vga-hdmi-audio tests/hstx_packet_test.c -o hstx_packet_test
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -115,8 +115,55 @@ static void test_packet_lifetimes(void) {
     }
 }
 
+// VGA: RAW_REPEAT gives `count` pixels of one word; RAW gives `count` pixels and
+// reads a new word every `raw_shifts` pixels. Returns the pixel at which the DMA's
+// last word goes into the eight-word FIFO.
+static unsigned decode_vga(const uint32_t *words, unsigned length, unsigned raw_shifts, uint32_t line[800]) {
+    unsigned read = 0, pixels = 0, last_accept = 0;
+#define TAKE() (read == length - 9 ? last_accept = pixels : 0, words[read++])
+    while (read < length) {
+        const uint32_t command = TAKE();
+        const unsigned op = command & 0xf000u, count = command & 0xfffu;
+        assert(op == HSTX_CMD_RAW_REPEAT || op == HSTX_CMD_RAW);
+        uint32_t data = op == HSTX_CMD_RAW_REPEAT ? TAKE() : 0;
+        for (unsigned i = 0; i < count; ++i) {
+            if (op == HSTX_CMD_RAW && i % raw_shifts == 0) data = TAKE();
+            assert(pixels < 800);
+            line[pixels++] = data;
+        }
+    }
+    assert(pixels == 800 && read == length);
+    return last_accept;
+#undef TAKE
+}
+
+static void test_vga_packets(void) {
+    static hstx_video_packet_t packet;
+    uint32_t line[800];
+    unsigned accepts[4];
+    for (unsigned shifts = 1; shifts <= 2; ++shifts) {
+        const uint32_t *words = hstx_vga_packet_init(&packet);
+        for (unsigned x = 0; x < 640; ++x) packet.payload.vga[x] = x + 1;
+        const unsigned length = HSTX_VGA_HEADER_WORDS + 640 / shifts;
+        accepts[shifts - 1] = decode_vga(words, length, shifts, line);
+        for (unsigned x = 0; x < 800; ++x)
+            assert(line[x] == (x < 16 || (x >= 112 && x < 160) ? 0 : x < 112 ? HSTX_VGA_HSYNC : (x - 160) / shifts + 1));
+    }
+    for (unsigned vsync = 0; vsync < 2; ++vsync) {
+        uint32_t blank[HSTX_VGA_BLANK_WORDS];
+        hstx_vga_blank_init(blank, vsync);
+        const uint32_t level = vsync ? HSTX_VGA_VSYNC : 0;
+        accepts[2 + vsync] = decode_vga(blank, HSTX_VGA_BLANK_WORDS, 1, line);
+        for (unsigned x = 0; x < 800; ++x)
+            assert(line[x] == (x >= 16 && x < 112 ? (level | HSTX_VGA_HSYNC) : level));
+    }
+    // The DMA completions are near the line end on every kind of line, as with HDMI (782 and 791).
+    assert(accepts[0] == 791 && accepts[1] == 782 && accepts[2] == 780 && accepts[3] == 780);
+}
+
 int main(void) {
     test_packets();
     test_packet_lifetimes();
+    test_vga_packets();
     puts("HSTX packets: pixels, blanking, FIFO accept positions and buffer lifetime checks passed");
 }
