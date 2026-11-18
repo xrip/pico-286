@@ -399,7 +399,7 @@ void vga_portout(uint16_t portnum, uint16_t value) {
                     cga_blinking = (value >> 5) & 1 ? 0x7F : 0xFF;
                 }
             } else {
-                vga_register = value & 0b1111;
+                vga_register = value & 0x1F;
             }
 
             data_mode ^= 1;

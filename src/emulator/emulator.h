@@ -189,6 +189,21 @@ static inline uint32_t ega_line_start(const unsigned line) {
     return vram_offset + line * 2 * crt_controller[0x13];
 }
 
+// Unchained 256-color VGA (mode X) takes its picture size from the CRTC. Each pixel row is two scan lines.
+static inline unsigned vga_x_rows(void) {
+    const unsigned display_end = crt_controller[0x12] | (crt_controller[7] & 0x02) << 7 | (crt_controller[7] & 0x40) << 3;
+    return (display_end + 1) / 2;
+}
+
+// VIDEORAM index of pixel row `row`; `words` gets the picture width (pixels / 4), 0 below the picture.
+// From the line compare row on (a split screen), the rows come from address 0.
+static inline uint32_t vga_x_line(const unsigned row, unsigned *words) {
+    *words = row >= vga_x_rows() ? 0 : crt_controller[1] < 80 ? crt_controller[1] + 1 : 80;
+    const unsigned line_compare = crt_controller[0x18] | (crt_controller[7] & 0x10) << 4 | (crt_controller[9] & 0x40) << 3;
+    const unsigned split_row = (line_compare + 1) / 2;
+    return row < split_row ? ega_line_start(row) : (row - split_row) * 2 * crt_controller[0x13];
+}
+
 // Tandy graphics: VIDEORAM index of byte `x` of a display line. The CRTC start address wraps inside each 8K bank.
 static inline uint32_t tga_line_byte(const uint32_t bank, const uint32_t line, const unsigned x) {
     return (bank + ((vram_offset * 2 + line + x) & 0x1FFF)) & 0xFFFF;

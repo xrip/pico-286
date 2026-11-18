@@ -71,6 +71,7 @@ static inline __attribute__((always_inline)) void PC_FN(render_line)(
     unsigned limit = 400;
     switch (mode) {
         case HERC_640x480x2: case VGA_640x480x2: case VGA_640x480x16:
+        case VGA_320x200x256x4: // the CRTC sets the height
             limit = 480; break;
         case HERC_640x480x2_90: limit = 348; break;
         case EGA_640x350x16x4: limit = 350; break;
@@ -174,13 +175,18 @@ static inline __attribute__((always_inline)) void PC_FN(render_line)(
         }
         case VGA_320x200x256x4: {
             const unsigned repeat = width == 640 ? 2u : 1u;
-            for (unsigned word = 0; word < 80; ++word) {
-                const uint32_t pixels = pc_word(vram, low_y * 80u + word);
+            unsigned words;
+            const unsigned base = graphics_pc_vga_x_line(low_y, &words);
+            const unsigned border = (80u - words) * 2u * repeat; // pixels on each side of a narrow picture
+            if (border) PC_FN(emit)(&output, 0, border, origin, palette);
+            for (unsigned word = 0; word < words; ++word) {
+                const uint32_t pixels = pc_word(vram, base + word);
                 PC_FN(emit)(&output, (uint8_t)pixels, repeat, origin, palette);
                 PC_FN(emit)(&output, (uint8_t)(pixels >> 8), repeat, origin, palette);
                 PC_FN(emit)(&output, (uint8_t)(pixels >> 16), repeat, origin, palette);
                 PC_FN(emit)(&output, (uint8_t)(pixels >> 24), repeat, origin, palette);
             }
+            if (border) PC_FN(emit)(&output, 0, border, origin, palette);
             return;
         }
         case VGA_320x200x256: {

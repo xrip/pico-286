@@ -62,6 +62,7 @@ static INLINE void renderer() {
     //memcpy(localVRAM, VIDEORAM + 0x18000 + (vram_offset << 1), VIDEORAM_SIZE);
     uint8_t *vidramptr = (uint8_t *) (VIDEORAM + 0x8000 + ((vram_offset & 0xffff) << 1));
     uint8_t cols = 80;
+    const int video_lines = videomode == 0x13 && vga_planar_mode && vga_x_rows() > 200 ? 480 : 400; // the rest: debug text
     for (int y = 0; y < 480; y++) {
         if (y >= 399)
             port3DA = 8;
@@ -72,7 +73,7 @@ static INLINE void renderer() {
             port3DA |= 1;
 
         uint32_t *pixels = SCREEN + y * 640;
-        if (y < 400)
+        if (y < video_lines)
             switch (videomode) {
                 case 0x00:
                 case 0x01: {
@@ -358,9 +359,12 @@ static INLINE void renderer() {
                 }
                 case 0x13: {
                     if (vga_planar_mode) {
-                        uint32_t *vga_row = &VIDEORAM[vram_offset + (y >> 1) * (320 / 4)];
-                        for (int x = 0; x < 320 / 4; x++) {
-                            uint32_t four_pixels = *vga_row++;
+                        unsigned words;
+                        const uint32_t start = vga_x_line(y >> 1, &words);
+                        memset(pixels, 0, 640 * 4); // the border of a narrow picture, and the lines below the picture
+                        pixels += (80 - words) * 4;
+                        for (unsigned x = 0; x < words; x++) {
+                            uint32_t four_pixels = VIDEORAM[(start + x) & 0xFFFF];
                             *pixels++ = *pixels++ = vga_palette[four_pixels & 0xFF];
                             *pixels++ = *pixels++ = vga_palette[four_pixels >> 8 & 0xFF];
                             *pixels++ = *pixels++ = vga_palette[four_pixels >> 16 & 0xFF];

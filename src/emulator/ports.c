@@ -467,9 +467,11 @@ __not_in_flash() uint16_t portin(uint16_t portnum) {
             return adlibstatus;
         case 0x3C1:
         case 0x3C2:
+        case 0x3C5:
         case 0x3C7:
         case 0x3C8:
         case 0x3C9:
+        case 0x3CF:
 // VGA
             return vga_portin(portnum);
 

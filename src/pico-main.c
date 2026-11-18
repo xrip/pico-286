@@ -187,6 +187,10 @@ uint32_t __time_critical_func(graphics_pc_ega_line)(const unsigned line) {
     return ega_line_start(line);
 }
 
+uint32_t __time_critical_func(graphics_pc_vga_x_line)(const unsigned row, unsigned *words) {
+    return vga_x_line(row, words);
+}
+
 uint32_t graphics_pc_palette_color(uint8_t index, uint32_t color) {
     if (videomode <= TEXTMODE_80x25_COLOR && index < 16) {
         return cga_palette[index];

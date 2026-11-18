@@ -445,6 +445,14 @@ static __not_in_flash() bool bios_hook(uint8_t intnum) {
                     vga_planar_mode = 0;
                     tga_offset = 0x8000;
                     crt_controller[0x13] = videomode == 0x0D ? 0x14 : 0x28; // line width in words; the BIOS does not set it
+                    if (videomode == 0x13) { // the BIOS programs only the CGA registers; mode X games change these
+                        static const uint8_t mode13_crtc[25] = {
+                            0x5F, 0x4F, 0x50, 0x82, 0x54, 0x80, 0xBF, 0x1F, 0x00, 0x41, 0x00, 0x00, 0x00,
+                            0x00, 0x00, 0x00, 0x9C, 0x8E, 0x8F, 0x28, 0x40, 0x96, 0xB9, 0xA3, 0xFF,
+                        };
+                        memcpy(crt_controller, mode13_crtc, sizeof mode13_crtc);
+                        vram_offset = 0;
+                    }
                     break;
                 case 0x05: /* Select Active Page */ {
                     if (CPU_AL >= 0x80) {

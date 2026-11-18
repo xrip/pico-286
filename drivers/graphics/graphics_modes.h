@@ -89,6 +89,8 @@ void graphics_pc_snapshot(graphics_pc_state_t *state);
 // EGA graphics: VRAM word address of display line `line`, before the 64K wrap.
 // Much cheaper than a snapshot, for the EGA renderers' per-line call.
 uint32_t graphics_pc_ega_line(unsigned line);
+// Mode X: VRAM word address of pixel row `row`; `words` gets the picture width (pixels / 4), 0 below the picture.
+uint32_t graphics_pc_vga_x_line(unsigned row, unsigned *words);
 
 // Tandy graphics: offset of a display line inside its 8K bank. The CRTC start address wraps inside the bank.
 static inline __attribute__((always_inline)) unsigned pc_bank_offset(const graphics_pc_state_t *state, unsigned line) {

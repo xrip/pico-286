@@ -79,10 +79,14 @@ static inline __attribute__((always_inline)) bool PC_FAST_FN(render)(
             base = graphics_pc_ega_line(y);
             words = 80;
             break;
-        case VGA_320x200x256: case VGA_320x200x256x4:
+        case VGA_320x200x256:
             if (low_y >= 200) return false;
-            words = mode == VGA_320x200x256 ? 320 : 80;
+            words = 320;
             base = low_y * words;
+            source_wide = false;
+            break;
+        case VGA_320x200x256x4:
+            base = graphics_pc_vga_x_line(low_y, &words);
             source_wide = false;
             break;
         default: return false;
@@ -200,14 +204,18 @@ static inline __attribute__((always_inline)) bool PC_FAST_FN(render)(
                 }
             }
             return true;
-        case VGA_320x200x256x4:
+        case VGA_320x200x256x4: {
+            const unsigned border = 80 - words; // pixel pairs on each side of a narrow picture
+            for (unsigned i = 0; i < border; ++i) PC_FAST_FN(pair)(&output, 0, 0, palette);
             #pragma GCC unroll 4
-            for (unsigned i = 0; i < 80; ++i) {
+            for (unsigned i = 0; i < words; ++i) {
                 const uint32_t pixels = *source++;
                 PC_FAST_FN(pair)(&output, pixels & 255, (pixels >> 8) & 255, palette);
                 PC_FAST_FN(pair)(&output, (pixels >> 16) & 255, pixels >> 24, palette);
             }
+            for (unsigned i = 0; i < border; ++i) PC_FAST_FN(pair)(&output, 0, 0, palette);
             return true;
+        }
         case VGA_320x200x256:
             for (unsigned i = 0; i < 160; ++i) {
                 const unsigned a = *source++ & 255;

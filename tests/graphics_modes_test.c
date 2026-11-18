@@ -13,6 +13,12 @@ void graphics_pc_snapshot(graphics_pc_state_t *out) { *out = state; }
 uint32_t graphics_pc_ega_line(unsigned line) {
     return state.vram_offset + line * (graphics_source_mode() == EGA_320x200x16x4 ? 40u : 80u);
 }
+// Mode X: 320x200 after the BIOS mode set; a test can make the CRTC give another size or a split screen
+static unsigned x_words, x_rows, x_split_row;
+uint32_t graphics_pc_vga_x_line(unsigned row, unsigned *words) {
+    *words = row < x_rows ? x_words : 0;
+    return row < x_split_row ? state.vram_offset + row * x_words : (row - x_split_row) * x_words;
+}
 
 static void reset(enum graphics_mode_t mode) {
     memset(vram, 0, sizeof(vram));
@@ -20,6 +26,7 @@ static void reset(enum graphics_mode_t mode) {
     state.tga_offset = 0x8000;
     state.foreground = 15;
     state.blink_mask = 255;
+    x_words = 80, x_rows = 200, x_split_row = 1024;
     graphics_source_set_buffer((uint8_t *)vram, 320, 200);
     graphics_source_set_offset(0, 0);
     graphics_source_set_mode(mode);
@@ -175,6 +182,32 @@ static void test_planar_and_indexed(void) {
     line(0, 320, 240); assert(pixels[0] == 254 && pixels[1] == 255);
     line(399, 640, 480); assert(pixels[639] == 252);
     line(400, 640, 480); expect_zero(640);
+}
+
+// Flashback: 256x224 in the middle; Lost Vikings: 320x240 with a split screen
+static void test_mode_x(void) {
+    reset(VGA_320x200x256x4);
+    x_words = 64, x_rows = 224;
+    vram[0] = 0x04030201;
+    vram[223 * 64 + 63] = 0x09000000;
+    line(0, 320, 240);
+    for (unsigned x = 0; x < 32; ++x) assert(pixels[x] == 0 && pixels[319 - x] == 0);
+    assert(pixels[32] == 1 && pixels[35] == 4);
+    uint16_t palette[256], mapped[320];
+    for (unsigned i = 0; i < 256; ++i) palette[i] = (uint16_t)(i * 3 + 1);
+    graphics_source_render_line16(0, 320, 240, mapped, palette); // the fast path
+    for (unsigned x = 0; x < 320; ++x) assert(mapped[x] == palette[pixels[x]]);
+    line(0, 640, 480);
+    assert(pixels[63] == 0 && pixels[64] == 1 && pixels[65] == 1);
+    line(447, 640, 480); assert(pixels[575] == 9 && pixels[576] == 0);
+    line(448, 640, 480); expect_zero(640);
+    x_words = 80, x_rows = 240, x_split_row = 176;
+    state.vram_offset = 0x1000;
+    vram[0x1000] = 7;
+    line(0, 320, 240); assert(pixels[0] == 7);
+    line(175, 320, 240); assert(pixels[0] == 0);
+    line(176, 320, 240); assert(pixels[0] == 1);
+    line(479, 640, 480); assert(pixels[0] == 0);
 }
 
 static void test_text(void) {
@@ -342,10 +375,11 @@ int main(void) {
     test_tandy_and_composite();
     test_planar_and_indexed();
     test_start_address();
+    test_mode_x();
     test_text();
     test_rebind_offsets_and_modes();
     test_fused_mapping();
     test_line32_wrapping();
-    puts("PC graphics modes: all 21 modes, packing, banks, rows, text, cursor, blink, bounds passed");
+    puts("PC graphics modes: all 21 modes, packing, banks, rows, mode X, text, cursor, blink, bounds passed");
     return 0;
 }
