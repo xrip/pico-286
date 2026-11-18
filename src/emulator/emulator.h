@@ -77,6 +77,13 @@ typedef union {
 } x86_flags_t;
 
 extern x86_flags_t x86_flags;
+void resolve_flags(void); // cpu.c
+
+// x86_flags with CF, PF, AF, ZF, SF and OF of the last ALU operation in it
+static inline x86_flags_t *flags_now(void) {
+    if (cpu_state.flags_op) resolve_flags();
+    return &x86_flags;
+}
 extern uint16_t segregs[6];
 extern uint32_t segment_base[6];
 

@@ -367,7 +367,7 @@ static void task_switch(uint16_t selector, uint8_t reason, int32_t error_code) {
         flush_tlb();
     }
     if (reason == TASK_CALL) new_flags |= 0x4000; // NT
-    x86_flags.value = (new_flags & 0x37FD5) | 2;
+    flags_now()->value = (new_flags & 0x37FD5) | 2;
     memcpy(dwordregs, registers, sizeof registers);
     load_ldtr(ldt);
     protected_mode = !v86;
@@ -553,7 +553,7 @@ static void protected_interrupt(uint8_t vector, int32_t error_code, bool softwar
 static void enter_v86(uint32_t offset, uint16_t selector, uint32_t flags) {
     const uint32_t esp = pop32();
     const uint16_t ss = pop32(), es = pop32(), ds = pop32(), fs = pop32(), gs = pop32();
-    x86_flags.value = flags & 0x37FD5;
+    flags_now()->value = flags & 0x37FD5;
     protected_mode = 0; // segment loads work as in real mode now
     cpl = 3;
     code32 = stack32 = 0;

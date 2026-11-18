@@ -57,15 +57,16 @@ void xms_reset();
 #define putreg8(regid, writeval)  byteregs[byteregtable[regid]] = writeval
 #define getsegreg(regid)            segregs[regid]
 
-#define cf  x86_flags.bits.CF
-#define pf  x86_flags.bits.PF
-#define af  x86_flags.bits.AF
-#define zf  x86_flags.bits.ZF
-#define sf  x86_flags.bits.SF
+// The arithmetic flags may still be in the last ALU operation: flags_now() (emulator.h) puts them in
+#define cf  flags_now()->bits.CF
+#define pf  flags_now()->bits.PF
+#define af  flags_now()->bits.AF
+#define zf  flags_now()->bits.ZF
+#define sf  flags_now()->bits.SF
+#define of  flags_now()->bits.OF
 #define tf  x86_flags.bits.TF
 #define ifl x86_flags.bits.IF
 #define df  x86_flags.bits.DF
-#define of  x86_flags.bits.OF
 #define iopl x86_flags.bits.IOPL
 #define nt  x86_flags.bits.NT
 #define v86 x86_flags.bits.VM
@@ -112,16 +113,19 @@ void xms_reset();
 typedef struct {
     uint32_t ip32;
     uint8_t *fast_memory; // conventional RAM, read and written directly below fast_memory_size
-    uint32_t fast_memory_size; // 0 while paging is on (and in the CPU test tools): read86/write86
+    uint32_t fast_memory_size; // 0 (while paging is on, and in sst_test): always read86/write86
     uint32_t useseg; // base of the segment used for memory operands
     uint32_t ea; // linear address of the memory operand
     uint32_t firstip; // EIP of the current instruction, with its prefixes
     uint32_t first_esp; // ESP before the current instruction: a fault puts it back
+    uint32_t flags_result, flags_dst, flags_src; // the last ALU operation, for its flags (cpu.c)
     uint16_t disp16;
     uint8_t mode, reg, rm; // the ModR/M byte
     uint8_t reptype, segoverride;
     uint8_t opsize32, addrsize32; // operand and address size of the current instruction: 1 = 32-bit
     uint8_t code32, stack32; // D bit of CS (default size) and B bit of SS (the stack uses ESP)
+    uint8_t flags_op; // kind and size of that operation; 0: x86_flags has all the flags
+    uint8_t flags_cf; // its CF
 } cpu_state_t;
 extern cpu_state_t cpu_state;
 #define ip32 cpu_state.ip32

@@ -61,36 +61,26 @@ static void flag_szp32(uint32_t value) {
 static uint32_t alu32(uint8_t operation, uint32_t a, uint32_t b) {
     uint64_t result;
     switch (operation) {
-        case 1: result = a | b; break;
-        case 4: result = a & b; break;
-        case 6: result = a ^ b; break;
-        case 0:
-        case 2:
-            result = (uint64_t) a + b + (operation == 2 ? cf : 0);
+        case 0: add_flags(32, a, b); return a + b;
+        case 5: case 7: sub_flags(32, a, b); return a - b;
+        case 1: logic_flags(32, a | b); return a | b;
+        case 4: logic_flags(32, a & b); return a & b;
+        case 6: logic_flags(32, a ^ b); return a ^ b;
+        case 2: // ADC
+            result = (uint64_t) a + b + cf;
             cf = (result >> 32) & 1;
             of = (((result ^ a) & (result ^ b)) >> 31) & 1;
             af = ((a ^ b ^ result) >> 4) & 1;
             flag_szp32((uint32_t) result);
             return (uint32_t) result;
-        default: // 3 SBB, 5 SUB, 7 CMP
-            result = (uint64_t) a - b - (operation == 3 ? cf : 0);
+        default: // 3 SBB
+            result = (uint64_t) a - b - cf;
             cf = (result >> 32) & 1;
             of = (((a ^ b) & (a ^ result)) >> 31) & 1;
             af = ((a ^ b ^ result) >> 4) & 1;
             flag_szp32((uint32_t) result);
             return (uint32_t) result;
     }
-    cf = of = 0; // OR, AND, XOR
-    flag_szp32((uint32_t) result);
-    return (uint32_t) result;
-}
-
-// INC and DEC: like ADD/SUB 1, but CF stays.
-static uint32_t inc_dec32(uint32_t value, bool decrement) {
-    const uint8_t saved_cf = cf;
-    const uint32_t result = alu32(decrement ? 5 : 0, value, 1);
-    cf = saved_cf;
-    return result;
 }
 
 // Shift and rotate group (C1, D1, D3 /reg) on 32 bits. The count is masked to 5 bits.
@@ -236,8 +226,8 @@ static void set_accumulator(uint32_t value, uint8_t size) {
 
 // CMP flags for 8, 16 or 32 bits.
 static void compare_sized(uint32_t a, uint32_t b, uint8_t size) {
-    if (size == 1) flag_sub8((uint8_t) a, (uint8_t) b);
-    else if (size == 2) flag_sub16((uint16_t) a, (uint16_t) b);
+    if (size == 1) sub_flags(8, (uint8_t) a, (uint8_t) b);
+    else if (size == 2) sub_flags(16, (uint16_t) a, (uint16_t) b);
     else alu32(7, a, b);
 }
 
@@ -316,24 +306,8 @@ static void string_step(uint8_t opcode, uint8_t size) {
     if (!reptype) return;
     add_address_register(regcx, -1);
     // REPE stops when ZF is clear, REPNE when it is set
-    if (compare && (reptype == 1 ? !zf : zf)) return;
+    if (compare && (reptype == 1 ? !get_zf() : get_zf())) return;
     ip = firstip;
-}
-
-// Condition codes of Jcc and SETcc, by the low four bits of the opcode.
-static bool condition(uint8_t code) {
-    bool result;
-    switch ((code & 0x0F) >> 1) {
-        case 0: result = of; break;                  // O
-        case 1: result = cf; break;                  // B
-        case 2: result = zf; break;                  // Z
-        case 3: result = cf || zf; break;            // BE
-        case 4: result = sf; break;                  // S
-        case 5: result = pf; break;                  // P
-        case 6: result = sf != of; break;            // L
-        default: result = zf || sf != of; break;     // LE
-    }
-    return result != (code & 1); // odd codes are the negations
 }
 
 // Word or dword register and r/m operand, by the operand size.
@@ -519,7 +493,7 @@ static bool exec386(uint8_t opcode) {
         case 0xE0: case 0xE1: case 0xE2: { // LOOPNE, LOOPE, LOOP
             const int8_t displacement = (int8_t) fetch8();
             add_address_register(regcx, -1);
-            if (address_register(regcx) && (opcode == 0xE2 || zf == (opcode == 0xE1))) jump_relative(displacement);
+            if (address_register(regcx) && (opcode == 0xE2 || get_zf() == (opcode == 0xE1))) jump_relative(displacement);
             return true;
         }
         case 0xE3: { // JCXZ / JECXZ
@@ -563,10 +537,10 @@ static bool exec386(uint8_t opcode) {
         case 0x1F: load_segment(regds, (uint16_t) pop32()); return true;
 
         case 0x40: case 0x41: case 0x42: case 0x43: case 0x44: case 0x45: case 0x46: case 0x47:
-            dwordregs[opcode & 7] = inc_dec32(dwordregs[opcode & 7], false);
+            dwordregs[opcode & 7] = inc_dec(dwordregs[opcode & 7], false, 32);
             return true;
         case 0x48: case 0x49: case 0x4A: case 0x4B: case 0x4C: case 0x4D: case 0x4E: case 0x4F:
-            dwordregs[opcode & 7] = inc_dec32(dwordregs[opcode & 7], true);
+            dwordregs[opcode & 7] = inc_dec(dwordregs[opcode & 7], true, 32);
             return true;
         case 0x50: case 0x51: case 0x52: case 0x53: case 0x54: case 0x55: case 0x56: case 0x57:
             push32(dwordregs[opcode & 7]); // PUSH ESP pushes the value before the push
@@ -760,8 +734,8 @@ static bool exec386(uint8_t opcode) {
         case 0xFF: {
             modregrm();
             switch (reg) {
-                case 0: writerm32(rm, inc_dec32(readrm32(rm), false)); return true;
-                case 1: writerm32(rm, inc_dec32(readrm32(rm), true)); return true;
+                case 0: writerm32(rm, inc_dec(readrm32(rm), false, 32)); return true;
+                case 1: writerm32(rm, inc_dec(readrm32(rm), true, 32)); return true;
                 case 2: { // CALL near r/m32
                     const uint32_t target = readrm32(rm);
                     push32(ip);

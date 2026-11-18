@@ -24,6 +24,11 @@ cpu_state_t cpu_state; // cpu.h
 #define ea cpu_state.ea
 #define firstip cpu_state.firstip
 #define first_esp cpu_state.first_esp
+#define flags_result cpu_state.flags_result
+#define flags_dst cpu_state.flags_dst
+#define flags_src cpu_state.flags_src
+#define flags_op cpu_state.flags_op
+#define flags_cf cpu_state.flags_cf
 #define disp16 cpu_state.disp16
 #define mode cpu_state.mode
 #define reg cpu_state.reg
@@ -36,11 +41,9 @@ cpu_state_t cpu_state; // cpu.h
 #define stack32 cpu_state.stack32
 static uint8_t cpl; // current privilege level: 0 in real mode, 3 in V86 mode
 uint8_t protected_mode;
-// The hot memory accesses of the CPU. Below fast_memory_size the linear address is an index into
-// fast_memory (conventional RAM, while paging is off): no call through read86/write86.
-// Size 0 turns this off (the CPU test tools have their own memory). A word is one load or store:
-// the Cortex-M33 and the host take it at an odd address.
-
+// The hot memory accesses of the CPU. Below fast_memory_size (cpu.h) the linear address is an index
+// into fast_memory: no call through read86/write86. A word is one load or store: the Cortex-M33 and
+// the host take it at an odd address.
 static inline uint8_t mem_read8(uint32_t address) {
     return address < fast_memory_size ? fast_memory[address] : read86(address);
 }
@@ -74,7 +77,6 @@ static uint32_t cr0 = CR0_ET;
 uint16_t segregs[6];
 uint32_t segment_base[6];
 uint16_t oldsp;
-uint8_t tempcf, oldcf;
 x86_flags_t x86_flags;
 
 static const uint8_t __not_in_flash("cpu.regt") byteregtable[8] = {
@@ -299,7 +301,7 @@ static INLINE void writerm8(uint8_t rmval, uint8_t value) {
 }
 
 uint16_t makeflagsword(void) {
-    return 2 | (x86_flags.value & 0x7FD5); // the 386 keeps IOPL and NT (bits 12-14) in real mode
+    return 2 | (flags_now()->value & 0x7FD5); // the 386 keeps IOPL and NT (bits 12-14) in real mode
 }
 
 // POPF, IRET, SAHF: bits outside mask keep their values. Only CPL 0 changes IOPL, and only
@@ -307,7 +309,7 @@ uint16_t makeflagsword(void) {
 static void set_flags(uint32_t value, uint32_t mask) {
     if (cpl) mask &= ~0x3000u;
     if (cpl > iopl) mask &= ~0x0200u;
-    x86_flags.value = (x86_flags.value & ~mask) | (value & mask);
+    flags_now()->value = (flags_now()->value & ~mask) | (value & mask);
 }
 
 static INLINE void decodeflagsword(uint16_t x) {
@@ -654,14 +656,77 @@ static inline void flag_szp16(uint16_t value) {
     pf = parity[value & 255];
 }
 
-static inline void flag_log8(uint8_t value) {
-    flag_szp8(value);
-    x86_flags.value &= ~FLAG_CF_OF_MASK;
+// Lazy flags: ADD, SUB, CMP, AND, OR, XOR, TEST, INC and DEC keep CF (flags_cf), the operands and
+// the result, shifted so the sign is bit 31 (8 bits: << 24, 16 bits: << 16). SUB keeps the source
+// inverted: then OF has one formula, as for an ADD. Jcc, SETcc, LOOPcc and REPcc read the
+// flags with get_cf() and the others, with no branch on the kind (the RP2350 has no branch
+// predictor); resolve_flags() puts all of them in x86_flags. flags_op is the kind << 5 | the shift.
+enum { FLAGS_ADD = 1, FLAGS_SUB, FLAGS_LOGIC };
+
+static INLINE void lazy_flags(uint8_t kind, uint8_t bits, uint32_t dst, uint32_t src, uint32_t result) {
+    const uint8_t shift = 32 - bits;
+    flags_dst = dst << shift;
+    flags_src = (kind == FLAGS_SUB ? ~src : src) << shift;
+    flags_result = result << shift;
+    flags_op = kind << 5 | shift;
 }
 
-static inline void flag_log16(uint16_t value) {
-    flag_szp16(value);
-    x86_flags.value &= ~FLAG_CF_OF_MASK;
+static INLINE void add_flags(uint8_t bits, uint32_t dst, uint32_t src) {
+    lazy_flags(FLAGS_ADD, bits, dst, src, dst + src);
+    flags_cf = flags_result < flags_dst;
+}
+
+static INLINE void sub_flags(uint8_t bits, uint32_t dst, uint32_t src) {
+    flags_cf = dst << (32 - bits) < src << (32 - bits);
+    lazy_flags(FLAGS_SUB, bits, dst, src, dst - src);
+}
+
+static INLINE void logic_flags(uint8_t bits, uint32_t result) { // CF = OF = AF = 0
+    lazy_flags(FLAGS_LOGIC, bits, result, result, result);
+    flags_cf = 0;
+}
+
+static INLINE bool get_cf(void) { return likely(flags_op) ? flags_cf : x86_flags.bits.CF; }
+static INLINE bool get_zf(void) { return likely(flags_op) ? flags_result == 0 : x86_flags.bits.ZF; }
+static INLINE bool get_sf(void) { return likely(flags_op) ? flags_result >> 31 : x86_flags.bits.SF; }
+static INLINE bool get_of(void) {
+    return likely(flags_op) ? ((flags_result ^ flags_dst) & (flags_result ^ flags_src)) >> 31 : x86_flags.bits.OF;
+}
+
+__not_in_flash() void resolve_flags(void) {
+    const uint8_t shift = flags_op & 31, kind = flags_op >> 5;
+    uint32_t value = get_cf() | parity[(flags_result >> shift) & 0xFF] << 2 | get_zf() << 6 | get_sf() << 7 |
+                     get_of() << 11;
+    uint32_t carries = flags_dst ^ flags_src ^ flags_result; // bit 4: AF
+    if (kind == FLAGS_SUB) carries = ~carries;
+    if (kind != FLAGS_LOGIC) value |= (carries >> shift) & 0x10;
+    x86_flags.value = (x86_flags.value & ~0x8D5u) | value;
+    flags_op = 0;
+}
+
+// INC and DEC: like ADD and SUB 1, but CF stays
+static INLINE uint32_t inc_dec(uint32_t value, bool decrement, uint8_t bits) {
+    if (!flags_op) flags_cf = x86_flags.bits.CF;
+    const uint32_t result = decrement ? value - 1 : value + 1;
+    lazy_flags(decrement ? FLAGS_SUB : FLAGS_ADD, bits, value, 1, result);
+    return result;
+}
+
+// Condition codes of Jcc and SETcc, by the low four bits of the opcode. Always inline: as a call it
+// went to flash.
+static inline __attribute__((always_inline)) bool condition(uint8_t code) {
+    bool result;
+    switch ((code & 0x0F) >> 1) {
+        case 0: result = get_of(); break;                       // O
+        case 1: result = get_cf(); break;                       // B
+        case 2: result = get_zf(); break;                       // Z
+        case 3: result = get_cf() || get_zf(); break;           // BE
+        case 4: result = get_sf(); break;                       // S
+        case 5: result = pf; break;                             // P
+        case 6: result = get_sf() != get_of(); break;           // L
+        default: result = get_zf() || get_sf() != get_of(); break; // LE
+    }
+    return result != (code & 1); // odd codes are the negations
 }
 
 static inline void flag_adc8(uint8_t v1, uint8_t v2, uint8_t v3) {
@@ -678,15 +743,6 @@ static inline void flag_adc16(uint16_t v1, uint16_t v2, uint16_t v3) {
     flag_szp16((uint16_t) dst);
     of = (((dst ^ (uint32_t)v1) & (dst ^ (uint32_t)v2)) & 0x8000) != 0;
     cf = (dst & 0xFFFF0000) != 0;
-    af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
-}
-
-static inline void flag_add8(uint8_t v1, uint8_t v2) {
-    /* v1 = destination operand, v2 = source operand */
-    register uint32_t dst = (uint32_t) v1 + (uint32_t) v2;
-    flag_szp8((uint8_t) dst);
-    cf = (dst & 0xFF00) != 0;
-    of = ((dst ^ (uint32_t)v1) & (dst ^ (uint32_t)v2) & 0x80) != 0;
     af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
 }
 
@@ -710,57 +766,18 @@ static inline uint16_t sbb16(uint16_t v1, uint16_t v2, uint8_t v3) {
     return (uint16_t)dst;
 }
 
-static inline void flag_sub8(uint8_t v1, uint8_t v2) {
-    /* v1 = destination operand, v2 = source operand */
-    uint32_t dst = (uint32_t) v1 - (uint32_t) v2;
-    flag_szp8((uint8_t) dst);
-    cf = (dst & 0xFF00) != 0;
-    of = ((dst ^ (uint32_t)v1) & (v1 ^ v2) & 0x80) != 0;
-    af = ((v1 ^ v2 ^ dst) & 0x10) != 0;
-}
-
-static inline void flag_sub16(uint16_t v1, uint16_t v2) {
-    /* v1 = destination operand, v2 = source operand */
-    register uint32_t dst = (uint32_t) v1 - (uint32_t) v2;
-    flag_szp16((uint16_t) dst);
-    cf = (dst & 0xFFFF0000) != 0;
-    of = ((dst ^ (uint32_t)v1) & ((uint32_t)v1 ^ (uint32_t)v2) & 0x8000) != 0;
-    af = (((uint32_t)v1 ^ (uint32_t)v2 ^ dst) & 0x10) != 0;
-}
-
 #define op_adc8() { res8 = oper1b + oper2b + cf; flag_adc8(oper1b, oper2b, cf); }
 #define op_adc16() { res16 = oper1 + oper2 + cf; flag_adc16(oper1, oper2, cf); }
-#define op_add8() { \
-    register uint32_t dst = (uint32_t)oper1b + (uint32_t)oper2b; \
-    res8 = dst; \
-    flag_szp8(res8); \
-    cf = (dst & 0xFF00) != 0; \
-    of = ((dst ^ (uint32_t)oper1b) & (dst ^ (uint32_t)oper2b) & 0x80) != 0; \
-    af = ((oper1b ^ oper2b ^ dst) & 0x10) != 0; \
-}
-#define op_add16() { \
-    register uint32_t dst = (uint32_t)oper1 + (uint32_t)oper2; \
-    res16 = dst; \
-    flag_szp16(dst); \
-    cf = (dst & 0xFFFF0000) != 0; \
-    of = (((dst ^ (uint32_t)oper1) & (dst ^ (uint32_t)oper2) & 0x8000) != 0); \
-    af = (((oper1 ^ oper2 ^ dst) & 0x10) != 0); \
-}
-#define op_and8() { res8 = oper1b & oper2b; flag_log8(res8); }
-#define op_and16() { res16 = oper1 & oper2; flag_log16(res16); }
-#define op_or8() { res8 = oper1b | oper2b; flag_log8(res8); }
-#define op_or16() { res16 = oper1 | oper2; flag_log16(res16); }
-#define op_xor8() { res8 = oper1b ^ oper2b; flag_log8(res8); }
-#define op_xor16() { res16 = oper1 ^ oper2; flag_log16(res16); }
-#define op_sub8() { res8 = oper1b - oper2b; flag_sub8(oper1b, oper2b); }
-#define op_sub16() { \
-    register uint32_t dst = (uint32_t) oper1 - (uint32_t) oper2; \
-    flag_szp16((uint16_t) dst); \
-    cf = (dst & 0xFFFF0000) != 0; \
-    of = ((dst ^ (uint32_t)oper1) & (oper1 ^ oper2) & 0x8000) != 0; \
-    af = ((oper1 ^ oper2 ^ dst) & 0x10) != 0; \
-    res16 = (uint16_t) dst; \
-}
+#define op_add8() { res8 = oper1b + oper2b; add_flags(8, oper1b, oper2b); }
+#define op_add16() { res16 = oper1 + oper2; add_flags(16, oper1, oper2); }
+#define op_and8() { res8 = oper1b & oper2b; logic_flags(8, res8); }
+#define op_and16() { res16 = oper1 & oper2; logic_flags(16, res16); }
+#define op_or8() { res8 = oper1b | oper2b; logic_flags(8, res8); }
+#define op_or16() { res16 = oper1 | oper2; logic_flags(16, res16); }
+#define op_xor8() { res8 = oper1b ^ oper2b; logic_flags(8, res8); }
+#define op_xor16() { res16 = oper1 ^ oper2; logic_flags(16, res16); }
+#define op_sub8() { res8 = oper1b - oper2b; sub_flags(8, oper1b, oper2b); }
+#define op_sub16() { res16 = oper1 - oper2; sub_flags(16, oper1, oper2); }
 #define op_sbb8() { res8 = sbb8(oper1b, oper2b, cf); }
 #define op_sbb16() { res16 = sbb16(oper1, oper2, cf); }
 
@@ -1053,7 +1070,7 @@ static __not_in_flash() void op_grp3_16() {
     switch (reg) {
         case 0:
         case 1: /* TEST */
-            flag_log16(oper1 & getmem16(CS_BASE, CPU_IP));
+            logic_flags(16, oper1 & getmem16(CS_BASE, CPU_IP));
             StepIP(2);
             break;
 
@@ -1063,7 +1080,7 @@ static __not_in_flash() void op_grp3_16() {
 
         case 3: /* NEG */
             res16 = (~oper1) + 1;
-            flag_sub16(0, oper1);
+            sub_flags(16, 0, oper1);
             if (res16) {
                 cf = 1;
             } else {
@@ -1078,9 +1095,9 @@ static __not_in_flash() void op_grp3_16() {
             CPU_DX = temp1 >> 16;
             flag_szp16((uint16_t) temp1);
             if (CPU_DX) {
-                x86_flags.value |= FLAG_CF_OF_MASK;
+                flags_now()->value |= FLAG_CF_OF_MASK;
             } else {
-                x86_flags.value &= ~FLAG_CF_OF_MASK;
+                flags_now()->value &= ~FLAG_CF_OF_MASK;
             }
 #ifdef CPU_CLEAR_ZF_ON_MUL
             zf = 0;
@@ -1094,9 +1111,9 @@ static __not_in_flash() void op_grp3_16() {
             CPU_AX = truncated; /* into register ax */
             CPU_DX = (uint16_t)(temp1 >> 16); /* into register dx */
             if (temp1 != (int32_t)truncated) {
-                x86_flags.value |= FLAG_CF_OF_MASK;
+                flags_now()->value |= FLAG_CF_OF_MASK;
             } else {
-                x86_flags.value &= ~FLAG_CF_OF_MASK;
+                flags_now()->value &= ~FLAG_CF_OF_MASK;
             }
 #ifdef CPU_CLEAR_ZF_ON_MUL
             zf = 0;
@@ -1116,19 +1133,11 @@ static __not_in_flash() void op_grp3_16() {
 static __not_in_flash() void op_grp5() {
     switch (reg) {
         case 0: /* INC Ev */
-            oper2 = 1;
-            tempcf = cf;
-            op_add16();
-            cf = tempcf;
-            writerm16(rm, res16);
+            writerm16(rm, inc_dec(oper1, false, 16));
             break;
 
         case 1: /* DEC Ev */
-            oper2 = 1;
-            tempcf = cf;
-            op_sub16();
-            cf = tempcf;
-            writerm16(rm, res16);
+            writerm16(rm, inc_dec(oper1, true, 16));
             break;
 
         case 2: /* CALL Ev */
@@ -1726,9 +1735,9 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
             case 0x37: /* 37 AAA ASCII */
                 if (((CPU_AL & 0xF) > 9) || (af == 1)) {
                     CPU_AX = CPU_AX + 0x106;
-                    x86_flags.value |= FLAG_CF_AF_MASK;
+                    flags_now()->value |= FLAG_CF_AF_MASK;
                 } else {
-                    x86_flags.value &= ~FLAG_CF_AF_MASK;
+                    flags_now()->value &= ~FLAG_CF_AF_MASK;
                 }
 
                 CPU_AL = CPU_AL & 0xF;
@@ -1739,7 +1748,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 
                 oper1b = readrm8(rm);
                 oper2b = getreg8(reg);
-                flag_sub8(oper1b, oper2b
+                sub_flags(8, oper1b, oper2b
                 );
                 break;
 
@@ -1748,7 +1757,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 
                 oper1 = readrm16(rm);
                 oper2 = getreg16(reg);
-                flag_sub16(oper1, oper2
+                sub_flags(16, oper1, oper2
                 );
                 break;
 
@@ -1757,7 +1766,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 
                 oper1b = getreg8(reg);
                 oper2b = readrm8(rm);
-                flag_sub8(oper1b, oper2b
+                sub_flags(8, oper1b, oper2b
                 );
                 break;
 
@@ -1766,7 +1775,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 
                 oper1 = getreg16(reg);
                 oper2 = readrm16(rm);
-                flag_sub16(oper1, oper2
+                sub_flags(16, oper1, oper2
                 );
                 break;
 
@@ -1774,7 +1783,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 oper1b = CPU_AL;
                 oper2b = getmem8(CS_BASE, CPU_IP);
                 StepIP(1);
-                flag_sub8(oper1b, oper2b
+                sub_flags(8, oper1b, oper2b
                 );
                 break;
 
@@ -1782,7 +1791,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 oper1 = CPU_AX;
                 oper2 = getmem16(CS_BASE, CPU_IP);
                 StepIP(2);
-                flag_sub16(oper1, oper2
+                sub_flags(16, oper1, oper2
                 );
                 break;
 
@@ -1790,164 +1799,20 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 if (((CPU_AL & 0xF) > 9) || (af == 1)) {
                     CPU_AX = CPU_AX - 6;
                     CPU_AH = CPU_AH - 1;
-                    x86_flags.value |= FLAG_CF_AF_MASK;
+                    flags_now()->value |= FLAG_CF_AF_MASK;
                 } else {
-                    x86_flags.value &= ~FLAG_CF_AF_MASK;
+                    flags_now()->value &= ~FLAG_CF_AF_MASK;
                 }
 
                 CPU_AL = CPU_AL & 0xF;
                 break;
 
-            case 0x40: {
-                /* 40 INC eAX */
-                register uint32_t oper1 = CPU_AX;
-                register uint32_t dst = oper1 + 1;
-                flag_szp16(dst);
-                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
-                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_AX = (uint16_t) dst;
-                break;
-            }
-            case 0x41: {
-                /* 41 INC eCX */
-                register uint32_t oper1 = CPU_CX;
-                register uint32_t dst = oper1 + 1;
-                flag_szp16(dst);
-                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
-                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_CX = (uint16_t) dst;
-                break;
-            }
-            case 0x42: {
-                /* 42 INC eDX */
-                register uint32_t oper1 = CPU_DX;
-                register uint32_t dst = oper1 + 1;
-                flag_szp16(dst);
-                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
-                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_DX = (uint16_t) dst;
-                break;
-            }
-            case 0x43: {
-                /* 43 INC eBX */
-                register uint32_t oper1 = CPU_BX;
-                register uint32_t dst = oper1 + 1;
-                flag_szp16(dst);
-                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
-                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_BX = (uint16_t) dst;
-                break;
-            }
-            case 0x44: {
-                /* 44 INC eSP */
-                register uint32_t oper1 = CPU_SP;
-                register uint32_t dst = oper1 + 1;
-                flag_szp16(dst);
-                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
-                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_SP = (uint16_t) dst;
-                break;
-            }
-            case 0x45: {
-                /* 45 INC eBP */
-                register uint32_t oper1 = CPU_BP;
-                register uint32_t dst = oper1 + 1;
-                flag_szp16(dst);
-                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
-                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_BP = (uint16_t) dst;
-                break;
-            }
-            case 0x46: {
-                /* 46 INC eSI */
-                register uint32_t oper1 = CPU_SI;
-                register uint32_t dst = oper1 + 1;
-                flag_szp16(dst);
-                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
-                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_SI = (uint16_t) dst;
-                break;
-            }
-            case 0x47: {
-                /* 47 INC eDI */
-                register uint32_t oper1 = CPU_DI;
-                register uint32_t dst = oper1 + 1;
-                flag_szp16(dst);
-                of = (((dst ^ oper1) & (dst ^ 1) & 0x8000) != 0);
-                af = (((oper1 ^ 1 ^ dst) & 0x10) != 0);
-                CPU_DI = (uint16_t) dst;
-                break;
-            }
-            case 0x48: /* 48 DEC eAX */
-                oldcf = cf;
-                oper1 = CPU_AX;
-                oper2 = 1;
-                op_sub16();
-                cf = oldcf;
-                CPU_AX = res16;
+            case 0x40: case 0x41: case 0x42: case 0x43: case 0x44: case 0x45: case 0x46: case 0x47: /* INC r16 */
+                putreg16(opcode & 7, inc_dec(getreg16(opcode & 7), false, 16));
                 break;
 
-            case 0x49: /* 49 DEC eCX */
-                oldcf = cf;
-                oper1 = CPU_CX;
-                oper2 = 1;
-                op_sub16();
-                cf = oldcf;
-                CPU_CX = res16;
-                break;
-
-            case 0x4A: /* 4A DEC eDX */
-                oldcf = cf;
-                oper1 = CPU_DX;
-                oper2 = 1;
-                op_sub16();
-                cf = oldcf;
-                CPU_DX = res16;
-                break;
-
-            case 0x4B: /* 4B DEC eBX */
-                oldcf = cf;
-                oper1 = CPU_BX;
-                oper2 = 1;
-                op_sub16();
-                cf = oldcf;
-                CPU_BX = res16;
-                break;
-
-            case 0x4C: /* 4C DEC eSP */
-                oldcf = cf;
-                oper1 = CPU_SP;
-                oper2 = 1;
-                op_sub16();
-                cf = oldcf;
-                CPU_SP = res16;
-                break;
-
-            case 0x4D: /* 4D DEC eBP */
-                oldcf = cf;
-                oper1 = CPU_BP;
-                oper2 = 1;
-                op_sub16();
-                cf = oldcf;
-                CPU_BP = res16;
-                break;
-
-            case 0x4E: /* 4E DEC eSI */
-                oldcf = cf;
-                oper1 = CPU_SI;
-                oper2 = 1;
-                op_sub16();
-                cf = oldcf;
-                CPU_SI = res16;
-                break;
-
-            case 0x4F: /* 4F DEC eDI */
-                oldcf = cf;
-                oper1 = CPU_DI;
-                oper2 = 1;
-                op_sub16();
-                cf = oldcf;
-                CPU_DI = res16;
+            case 0x48: case 0x49: case 0x4A: case 0x4B: case 0x4C: case 0x4D: case 0x4E: case 0x4F: /* DEC r16 */
+                putreg16(opcode & 7, inc_dec(getreg16(opcode & 7), true, 16));
                 break;
 
             case 0x50: /* 50 PUSH eAX */
@@ -2074,9 +1939,9 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 temp1 *= temp2;
                 putreg16(reg, (int16_t)temp1);
                 if (temp1 != (int32_t)(int16_t)temp1) {
-                    x86_flags.value |= FLAG_CF_OF_MASK;
+                    flags_now()->value |= FLAG_CF_OF_MASK;
                 } else {
-                    x86_flags.value &= ~FLAG_CF_OF_MASK;
+                    flags_now()->value &= ~FLAG_CF_OF_MASK;
                 }
                 break;
             }
@@ -2094,9 +1959,9 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 temp1 *= temp2;
 				putreg16(reg, (int16_t)temp1);
                 if (temp1 != (int32_t)(int16_t)temp1) {
-                    x86_flags.value |= FLAG_CF_OF_MASK;
+                    flags_now()->value |= FLAG_CF_OF_MASK;
                 } else {
-                    x86_flags.value &= ~FLAG_CF_OF_MASK;
+                    flags_now()->value &= ~FLAG_CF_OF_MASK;
                 }
                 break;
             }
@@ -2108,135 +1973,17 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 break;
 #endif
 
-            case 0x70: /* 70 JO Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (of) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x71: /* 71 JNO Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (!of) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x72: /* 72 JB Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (cf) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x73: /* 73 JNB Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (!cf) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x74: /* 74 JZ Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (zf) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x75: /* 75 JNZ Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (!zf) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x76: /* 76 JBE Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (cf || zf) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x77: /* 77 JA Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (!cf && !zf) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x78: /* 78 JS Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (sf) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x79: /* 79 JNS Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (!sf) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x7A: /* 7A JPE Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (pf) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x7B: /* 7B JPO Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (!pf) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x7C: /* 7C JL Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (sf != of) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x7D: /* 7D JGE Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (sf == of) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x7E: /* 7E JLE Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if ((sf != of) || zf) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
-
-            case 0x7F: /* 7F JG Jb */
-                temp16 = signext(getmem8(CS_BASE, CPU_IP));
-                StepIP(1);
-                if (!
-                    zf && (sf
-                           == of)) {
-                    jump_relative((int16_t) temp16);
-                }
-                break;
+            // Jcc Jb: one case for each, so condition() gets a constant and needs no table jump
+#define JCC_SHORT(op) case op: { \
+                const int8_t displacement = (int8_t) getmem8(CS_BASE, CPU_IP); \
+                StepIP(1); \
+                if (condition(op)) jump_relative(displacement); \
+                break; \
+            }
+            JCC_SHORT(0x70) JCC_SHORT(0x71) JCC_SHORT(0x72) JCC_SHORT(0x73)
+            JCC_SHORT(0x74) JCC_SHORT(0x75) JCC_SHORT(0x76) JCC_SHORT(0x77)
+            JCC_SHORT(0x78) JCC_SHORT(0x79) JCC_SHORT(0x7A) JCC_SHORT(0x7B)
+            JCC_SHORT(0x7C) JCC_SHORT(0x7D) JCC_SHORT(0x7E) JCC_SHORT(0x7F)
 
             case 0x80:
             case 0x82: /* 80/82 GRP1 Eb Ib */
@@ -2268,7 +2015,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                         op_xor8();
                         break;
                     case 7:
-                        flag_sub8(oper1b, oper2b
+                        sub_flags(8, oper1b, oper2b
                         );
                         break;
                     default:
@@ -2317,7 +2064,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                         op_xor16();
                         break;
                     case 7:
-                        flag_sub16(oper1, oper2
+                        sub_flags(16, oper1, oper2
                         );
                         break;
                     default:
@@ -2335,7 +2082,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 
                 oper1b = getreg8(reg);
                 oper2b = readrm8(rm);
-                flag_log8(oper1b
+                logic_flags(8, oper1b
                           & oper2b);
                 break;
 
@@ -2344,7 +2091,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 
                 oper1 = getreg16(reg);
                 oper2 = readrm16(rm);
-                flag_log16(oper1
+                logic_flags(16, oper1
                            & oper2);
                 break;
 
@@ -2619,15 +2366,15 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                     CPU_DI = CPU_DI + 1;
                 }
 
-                flag_sub8(oper1b, oper2b
+                sub_flags(8, oper1b, oper2b
                 );
                 if (reptype) {
                     CPU_CX = CPU_CX - 1;
                 }
 
-                if ((reptype == 1) && !zf) {
+                if ((reptype == 1) && !get_zf()) {
                     break;
-                } else if ((reptype == 2) && (zf == 1)) {
+                } else if ((reptype == 2) && (get_zf())) {
                     break;
                 }
 
@@ -2656,17 +2403,17 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                     CPU_DI = CPU_DI + 2;
                 }
 
-                flag_sub16(oper1, oper2
+                sub_flags(16, oper1, oper2
                 );
                 if (reptype) {
                     CPU_CX = CPU_CX - 1;
                 }
 
-                if ((reptype == 1) && !zf) {
+                if ((reptype == 1) && !get_zf()) {
                     break;
                 }
 
-                if ((reptype == 2) && (zf == 1)) {
+                if ((reptype == 2) && (get_zf())) {
                     break;
                 }
 
@@ -2682,7 +2429,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 oper1b = CPU_AL;
                 oper2b = getmem8(CS_BASE, CPU_IP);
                 StepIP(1);
-                flag_log8(oper1b
+                logic_flags(8, oper1b
                           & oper2b);
                 break;
 
@@ -2690,7 +2437,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 oper1 = CPU_AX;
                 oper2 = getmem16(CS_BASE, CPU_IP);
                 StepIP(2);
-                flag_log16(oper1
+                logic_flags(16, oper1
                            & oper2);
                 break;
 
@@ -2810,7 +2557,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 
                 oper1b = CPU_AL;
                 oper2b = getmem8(ES_BASE, CPU_DI);
-                flag_sub8(oper1b, oper2b
+                sub_flags(8, oper1b, oper2b
                 );
                 if (df) {
                     CPU_DI = CPU_DI - 1;
@@ -2822,9 +2569,9 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                     CPU_CX = CPU_CX - 1;
                 }
 
-                if ((reptype == 1) && !zf) {
+                if ((reptype == 1) && !get_zf()) {
                     break;
-                } else if ((reptype == 2) && (zf == 1)) {
+                } else if ((reptype == 2) && (get_zf())) {
                     break;
                 }
 
@@ -2845,7 +2592,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 
                 oper1 = CPU_AX;
                 oper2 = getmem16(ES_BASE, CPU_DI);
-                flag_sub16(oper1, oper2
+                sub_flags(16, oper1, oper2
                 );
                 if (df) {
                     CPU_DI = CPU_DI - 2;
@@ -2857,9 +2604,9 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                     CPU_CX = CPU_CX - 1;
                 }
 
-                if ((reptype == 1) && !zf) {
+                if ((reptype == 1) && !get_zf()) {
                     break;
-                } else if ((reptype == 2) && (zf == 1)) {
+                } else if ((reptype == 2) && (get_zf())) {
                     //did i fix a typo bug? this used to be & instead of &&
                     break;
                 }
@@ -3168,7 +2915,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 CPU_CX = CPU_CX - 1;
-                if ((CPU_CX) && !zf) {
+                if ((CPU_CX) && !get_zf()) {
                     jump_relative((int16_t) temp16);
                 }
                 break;
@@ -3177,7 +2924,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 temp16 = signext(getmem8(CS_BASE, CPU_IP));
                 StepIP(1);
                 CPU_CX = CPU_CX - 1;
-                if (CPU_CX && (zf == 1)) {
+                if (CPU_CX && (get_zf())) {
                     jump_relative((int16_t) temp16);
                 }
                 break;
@@ -3288,7 +3035,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                 switch (reg) {
                     case 0:
                     case 1: /* TEST */
-                        flag_log8(oper1b & getmem8(CS_BASE, CPU_IP));
+                        logic_flags(8, oper1b & getmem8(CS_BASE, CPU_IP));
                         StepIP(1);
                         break;
 
@@ -3298,7 +3045,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 
                     case 3: /* NEG */
                         res8 = (~oper1b) + 1;
-                        flag_sub8(0, oper1b);
+                        sub_flags(8, 0, oper1b);
                         if (res8 == 0) {
                             cf = 0;
                         } else {
@@ -3312,9 +3059,9 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
                         CPU_AX = temp1 & 0xFFFF;
                         flag_szp8((uint8_t) temp1);
                         if (CPU_AH) {
-                            x86_flags.value |= FLAG_CF_OF_MASK;
+                            flags_now()->value |= FLAG_CF_OF_MASK;
                         } else {
-                            x86_flags.value &= ~FLAG_CF_OF_MASK;
+                            flags_now()->value &= ~FLAG_CF_OF_MASK;
                         }
 #ifdef CPU_CLEAR_ZF_ON_MUL
                         zf = 0;
@@ -3330,9 +3077,9 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 						int16_t result = (int16_t)temp1;
 						int8_t truncated = (int8_t)result;
 						if (result != (int16_t)truncated) {
-							x86_flags.value |= FLAG_CF_OF_MASK; // CF=OF=1
+							flags_now()->value |= FLAG_CF_OF_MASK; // CF=OF=1
 						} else {
-							x86_flags.value &= ~FLAG_CF_OF_MASK; // CF=OF=0
+							flags_now()->value &= ~FLAG_CF_OF_MASK; // CF=OF=0
 						}
 						CPU_AL = truncated;
 						CPU_AH = (uint8_t)(result >> 8);
@@ -3395,20 +3142,7 @@ static __not_in_flash() __attribute__((noinline)) void run_instructions(uint32_t
 
             case 0xFE: /* FE GRP4 Eb */
                 modregrm();
-                oper1b = readrm8(rm);
-                oper2b = 1;
-                if (!reg) {
-                    tempcf = cf;
-                    op_add8();
-                    cf = tempcf;
-                    writerm8(rm, res8);
-                } else {
-                    tempcf = cf;
-                    res8 = oper1b - oper2b;
-                    flag_sub8(oper1b, oper2b);
-                    cf = tempcf;
-                    writerm8(rm, res8);
-                }
+                writerm8(rm, inc_dec(readrm8(rm), reg != 0, 8));
                 break;
 
             case 0xFF: /* FF GRP5 Ev */
@@ -3440,7 +3174,9 @@ void __not_in_flash() exec86(uint32_t execloops) {
     keyboard_pump();
     if (__builtin_setjmp(fault_point)) { // a protected-mode fault: deliver it and end this run
         deliver_fault();
+        flags_now();
         return;
     }
     run_instructions(execloops);
+    flags_now(); // outside the CPU, x86_flags has all the flags
 }
