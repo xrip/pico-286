@@ -46,7 +46,7 @@ Output: `bin/rp2350-arm-s/Release/286-P166-C500MHz.uf2`. There are no display, a
 Notes on the M2P2 firmware:
 - **Clocks:** SYS runs at 500 MHz (1.60 V). HSTX takes its 126 MHz clock from a separate PLL_USB, so USB and ADC are stopped. USB debugging and USB-triggered BOOTSEL are not available; use the board's BOOTSEL button for the next flash.
 - **Sound:** 44.1 kHz 16-bit stereo over HDMI data islands. The HDMI clock sets the rate.
-- **PSRAM:** at least 8 MB onboard QMI PSRAM is required; the firmware stops at boot without it. Conventional RAM, UMB, HMA, EMS and XMS all live in PSRAM.
+- **PSRAM:** at least 8 MB onboard QMI PSRAM is required; the firmware stops at boot without it. Conventional RAM, UMB, HMA and XMS all live in PSRAM.
 - **SRAM:** code, lookup tables and palettes use normal SRAM. Scratch X and Y are reserved for separate 4 KB core stacks, with hardware stack-limit checks. The linker rejects other scratch allocations.
 - **OPL2:** the OPL2 assembly runs from normal SRAM (2 KB). Both flash and SRAM versions have faulted during HDMI interrupts at 504 MHz; the SRAM change is not a complete fix. See the [OPL2 board record](docs/board-records/hstx-opl-sram.md).
 - **Flash:** every boot checks the flash Quad Enable bit before overclocking. If the bit is clear, the startup code sets and verifies it while running from RAM; if it is already set, no status-register write is made. The RP2350 ROM selects the initial flash read mode, then startup selects quad reads before PSRAM or core 1 starts. See [flash setup](drivers/flash-config/README.md). The flash timing keeps the ROM boot profile's physical intervals and maximum rate when SYS changes. On the tested board, 50 MHz stock flash becomes about 45.45 MHz at 500 MHz SYS.

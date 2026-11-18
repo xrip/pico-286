@@ -2,7 +2,6 @@
 
 #include "includes/bios.h"
 #include "emulator.h"
-#include "ems.c.inl"
 uint32_t __attribute__((aligned (4)))  VIDEORAM[VIDEORAM_SIZE] = {0};
 uint8_t __attribute__((aligned (4), section(".psram"))) RAM[RAM_SIZE] = {0};
 uint8_t __attribute__((aligned (4), section(".psram"))) UMB[UMB_END - UMB_START] = {0};
@@ -25,8 +24,6 @@ __not_in_flash() void write86_ob(const uint32_t address, const uint8_t value) {
         // printf("video write %x traddr %x =  %x\n", address, (address - VIDEORAM_START) & VIDEORAM_MASK, value);
         vga_mem_write(address, value);
         // VIDEORAM[(address - VIDEORAM_START) & VIDEORAM_MASK] = value;
-    } else if (address >= EMS_START && address < EMS_END) {
-        ems_write(address - EMS_START, value);
     } else if (address >= UMB_START && address < UMB_END) {
         UMB[address - UMB_START] = value;
     } else if (!a20_enabled && (address & A20)) {
@@ -46,8 +43,6 @@ __not_in_flash() void writew86_ob(const uint32_t address, const uint16_t value) 
             *(uint16_t *) &RAM[address] = value;
         } else if (address >= VIDEORAM_START && address < VIDEORAM_END) {
             vga_mem_write16(address, value);
-        } else if (address >= EMS_START && address < EMS_END) {
-            ems_writew(address - EMS_START, value);
         } else if (address >= UMB_START && address < UMB_END) {
             *(uint16_t *) &UMB[address - UMB_START] = value;
         } else if (!a20_enabled && (address & A20)) {
@@ -72,8 +67,6 @@ __not_in_flash() void writedw86_ob(const uint32_t address, const uint32_t value)
             write86(address + 1, (uint8_t) ((value >> 8) & 0xFF));
             write86(address + 2, (uint8_t) ((value >> 16) & 0xFF));
             write86(address + 3, (uint8_t) ((value >> 24) & 0xFF));
-        } else if (address >= EMS_START && address < EMS_END) {
-            ems_writedw(address - EMS_START, value);
         } else if (address >= UMB_START && address < UMB_END) {
             *(uint32_t *) &UMB[address - UMB_START] = value;
         } else if (!a20_enabled && (address & A20)) {
@@ -95,9 +88,6 @@ __not_in_flash() uint8_t read86_ob(const uint32_t address) {
      // if (address >= VBIOS_START && address < VBIOS_END) {
          // return VGABIOS[address - VBIOS_START];
      // }
-    if (address >= EMS_START && address < EMS_END) {
-        return ems_read(address - EMS_START);
-    }
     if (address >= UMB_START && address < UMB_END) {
         return UMB[address - UMB_START];
     }
@@ -130,9 +120,6 @@ __not_in_flash() uint16_t readw86_ob(const uint32_t address) {
     // if (address >= VBIOS_START && address < VBIOS_END) {
         // return *(uint16_t *) &VGABIOS[address - VBIOS_START];
     // }
-    if (address >= EMS_START && address < EMS_END) {
-        return ems_readw(address - EMS_START);
-    }
     if (address >= UMB_START && address < UMB_END) {
         return *(uint16_t *) &UMB[address - UMB_START];
     }
@@ -163,9 +150,6 @@ __not_in_flash() uint32_t readdw86_ob(const uint32_t address) {
                | ((uint32_t) read86(address + 1) << 8)
                | ((uint32_t) read86(address + 2) << 16)
                | ((uint32_t) read86(address + 3) << 24);
-    }
-    if (address >= EMS_START && address < EMS_END) {
-        return ems_readdw(address - EMS_START);
     }
     if (address >= UMB_START && address < UMB_END) {
         return *(uint32_t *) &UMB[address - UMB_START];

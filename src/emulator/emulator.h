@@ -26,10 +26,8 @@ extern "C" {
 #define VBIOS_START (0xC0000)
 #define VBIOS_END (0xC8000)
 
-#define EMS_START (0xC0000)
-#define EMS_END   (0xD0000)
 
-#define UMB_START (0xD0000)
+#define UMB_START (0xC0000)
 #define UMB_END (0xFC000)
 
 // Extended memory (EXTENDED[]) starts at 1 MB: the 64 KB HMA, then the XMS blocks
@@ -38,8 +36,7 @@ extern "C" {
 
 #define BIOS_START (0xFE000)
 
-#define EMS_MEMORY_SIZE (2048 << 10) // 2 MB
-#define XMS_MEMORY_SIZE (4096 << 10) // 4 MB
+#define XMS_MEMORY_SIZE (7168 << 10) // 7 MB: all the PC memory then takes 8,112 KB of the 8 MB PSRAM
 #define EXTENDED_END (XMS_START + XMS_MEMORY_SIZE)
 
 #define BIOS_MEMORY_SIZE                0x413
@@ -249,7 +246,6 @@ uint8_t inadlib(uint16_t portnum);
 
 int16_t adlibgensample();
 
-extern void out_ems(uint16_t port, uint8_t data);
 
 extern int16_t covox_sample;
 

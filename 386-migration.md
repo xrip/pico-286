@@ -191,7 +191,6 @@ Each step is one or more commits on branch `cpu386`, with a `/yagni` review. Eac
 ## Risks
 
 - **Speed:** how fast the emulated 386 is on the RP2350 is unknown. Windows 386 enhanced mode and Doom may run but be too slow to use.
-- **XMS size:** with 8 MB of PSRAM, XMS stays at 4 MB, unless our EMS (2 MB) is dropped later.
-- **EMS conflict:** our EMS window at C0000 and EMM386 may conflict. This is to be checked at step 6; the first try is EMM386 with NOEMS.
+- **XMS size:** done: the EMS board (2 MB) is dropped, and XMS is 7 MB; the UMBs start at C0000 (240 KB). EMS comes from EMM386 now, which is slower in the emulator (paging turns the direct memory paths off).
 - **Ports in Windows:** with the I/O bitmap left out, Windows cannot catch port access from DOS boxes. One DOS box should be fine.
 - **Copyright:** the committed Intel and Microsoft documents carry their copyright. You chose to commit them.

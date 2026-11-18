@@ -214,13 +214,6 @@ __not_in_flash() void portout(uint16_t portnum, uint16_t value) {
 // Sound Blaster
             blaster_write(portnum, value);
         return;
-        case 0x260:
-        case 0x261:
-        case 0x262:
-        case 0x263:
-// EMS
-            return out_ems(portnum, value);
-
         case 0x278:
 // Covox Speech Thing
             covox_sample = (int16_t) (value - 128 << 6);

@@ -172,7 +172,7 @@ The pins are set in `CMakeLists.txt`.
 
 ### ⚙️ Memory and Sound
 *   **Conventional RAM:** 640 KB, in PSRAM.
-*   **EMS:** 2 MB, **XMS:** 4 MB, plus the HMA and UMBs, all in PSRAM.
+*   **XMS:** 7 MB, plus the HMA and 240 KB of UMBs, all in PSRAM (no EMS board: use EMM386 for EMS).
 *   **Sound:** 44,100 Hz stereo, sent over HDMI. The HDMI clock sets the rate.
 
 ## 🏛️ Platform Architecture

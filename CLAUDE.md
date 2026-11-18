@@ -40,7 +40,7 @@ Options: `MIDI_GM_DLS=ON` (GM.DLS wavetable MIDI, RP2350 and Win32), `MIDI_WINMM
 **Memory Layout**:
 - `RAM[RAM_SIZE]` - 640 KB conventional memory.
 - `VIDEORAM[64KB]` - Video memory buffer at 0xA0000-0xC0000.
-- On the RP2350, RAM, UMB, HMA, EMS (2 MB) and XMS (4 MB) are all in the memory-mapped onboard PSRAM (`.psram` section).
+- On the RP2350, RAM, UMB (C0000-FBFFF), HMA and XMS (7 MB) are all in the memory-mapped onboard PSRAM (`.psram` section). There is no EMS board: a 386 gets EMS from EMM386.
 
 ### Video System
 
